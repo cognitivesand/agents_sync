@@ -28,4 +28,4 @@ Must Have
 
 For pair-level conflict purposes, a skill is a single unit: an edit to any file inside the tree counts as a side change.
 
-Related requirements: REQ-Q-01, REQ-Q-02, REQ-Q-07.
+Related requirements: FR-01, NFR-02, NFR-03.

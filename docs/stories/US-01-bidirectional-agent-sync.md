@@ -27,4 +27,4 @@ The bidirectional pipeline goes through a per-pair canonical JSON intermediate. 
 
 Round-trip stability — `parse(render(c)) == c` for any canonical `c` — is what keeps loop suppression sufficient. Without it, the tool's own writes could re-trigger syncs.
 
-Related requirements: REQ-Q-01, REQ-Q-02, REQ-Q-03, REQ-Q-05.
+Related requirements: FR-01, NFR-02, NFR-03, NFR-04, NFR-06.

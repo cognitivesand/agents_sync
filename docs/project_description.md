@@ -18,7 +18,7 @@ In scope:
 - Conflict resolution by last-modified time when both sides diverge in the same poll.
 - Data preservation: every operation that would overwrite or remove user content first archives the prior bytes.
 - Auto-adoption of foreign artifacts (files created directly on either side without using the tool).
-- One-shot and watch (daemon) modes.
+- Continuous daemon operation (no one-shot CLI mode).
 - Installation as a systemd user service.
 
 Out of scope (initially):
@@ -72,7 +72,7 @@ Per-pair state stored under `~/.local/state/agents-sync/`:
 - `canonical/<pair_id>.json` — one canonical document per pair.
 - `archive/<pair_id>/<side>/<filename>.<ISO-timestamp>` — preserved prior bytes.
 
-The tool does not use an on-disk lock; concurrency safety is achieved by atomic writes (`write-tmp + rename(2)`) and self-healing polls — see US-09 and REQ-R-01 / REQ-R-04.
+The tool does not use an on-disk lock; concurrency safety is achieved by atomic writes and self-healing polls — see US-09 and NFR-03 / NFR-04.
 
 ## Glossary
 

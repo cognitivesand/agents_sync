@@ -23,4 +23,4 @@ Should Have
 
 The 2-second default polling window makes simultaneous human edits to both sides extremely unlikely; this story exists primarily as a safety net rather than a frequently-hit code path. Conflict *detection* compares current digests against `last_synced_digest` (not against `mtime`); `mtime` is used only as the tiebreaker once a divergence has been detected.
 
-Related requirements: REQ-C-01, REQ-Q-06.
+Related requirements: NFR-01.

@@ -25,4 +25,4 @@ Should Have
 
 Adoption is the only point at which the tool writes a `pair_id` into a previously untouched user file. The data-preservation rule mandates archiving before injection — no exception. The "watch is always running" assumption means there is no special "first-run adoption mode"; every poll is identical and adopts whatever foreign artifacts have appeared.
 
-Related requirements: REQ-C-01, REQ-C-02, REQ-Q-06.
+Related requirements: FR-02, NFR-01.
