@@ -1,11 +1,14 @@
 """Archive utilities backing the data-preservation invariant (NFR-01).
 
 Anything that would overwrite or remove user-authored content first
-copies the prior bytes to:
+preserves the prior bytes at:
   <state_dir>/archive/<pair_id>/<side>/<filename>.<ISO-timestamp>
 
-Routine retranslations whose prior content equals a render of the
-current canonical are exempt — see NFR-07 (bounded archive growth).
+Two flavours:
+  - `archive_copy`: snapshots the source; original remains in place.
+    Used during adoption ("preserve a copy before we inject pair_id").
+  - `archive_move`: moves the source into the archive; original is gone.
+    Used during conflict-loser overwrite and symmetric delete.
 """
 from __future__ import annotations
 
@@ -24,17 +27,32 @@ def archive_dir_for(state_dir: Path, pair_id: str, side: str) -> Path:
     return state_dir / "archive" / pair_id / side
 
 
-def archive_file(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
-    """Copy `source` (file or directory) into the per-pair archive.
-
-    Returns the archive path. Raises if the archive write fails; callers
-    MUST then abort the destructive operation that triggered the archive.
-    """
+def _archive_target(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
     target_dir = archive_dir_for(state_dir, pair_id, side)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{source.name}.{iso_timestamp()}"
+    return target_dir / f"{source.name}.{iso_timestamp()}"
+
+
+def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
+    """Copy `source` into the per-pair archive; original remains in place."""
+    target = _archive_target(state_dir, pair_id, side, source)
     if source.is_dir():
         shutil.copytree(source, target)
     else:
         shutil.copy2(source, target)
     return target
+
+
+def archive_move(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
+    """Move `source` into the per-pair archive; original is gone afterwards.
+
+    Used when the data-preservation rule mandates moving instead of deleting:
+    conflict losers being overwritten, and symmetric delete propagation.
+    """
+    target = _archive_target(state_dir, pair_id, side, source)
+    shutil.move(str(source), str(target))
+    return target
+
+
+# Back-compat alias used by callers written for Phase 2.
+archive_file = archive_copy
