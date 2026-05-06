@@ -88,19 +88,31 @@ class Syncer:
         pairs: dict[str, PairInfo] = {}
 
         if self.claude_agents_dir.exists():
-            for path in sorted(p for p in self.claude_agents_dir.glob("*.md") if p.is_file()):
+            for path in sorted(
+                p for p in self.claude_agents_dir.glob("*.md")
+                if p.is_file() and not p.name.startswith(".")
+            ):
                 self._add_claude_agent(path, pairs)
 
         if self.claude_skills_dir.exists():
-            for skill_md in sorted(self.claude_skills_dir.glob("*/SKILL.md")):
+            for skill_md in sorted(
+                p for p in self.claude_skills_dir.glob("*/SKILL.md")
+                if not p.parent.name.startswith(".")
+            ):
                 self._add_claude_skill(skill_md.parent, pairs)
 
         if self.codex_agents_dir.exists():
-            for path in sorted(p for p in self.codex_agents_dir.glob("*.toml") if p.is_file()):
+            for path in sorted(
+                p for p in self.codex_agents_dir.glob("*.toml")
+                if p.is_file() and not p.name.startswith(".")
+            ):
                 self._add_codex_agent(path, pairs)
 
         if self.codex_skills_dir.exists():
-            for skill_md in sorted(self.codex_skills_dir.glob("*/SKILL.md")):
+            for skill_md in sorted(
+                p for p in self.codex_skills_dir.glob("*/SKILL.md")
+                if not p.parent.name.startswith(".")
+            ):
                 self._add_codex_skill(skill_md.parent, pairs)
 
         return pairs
