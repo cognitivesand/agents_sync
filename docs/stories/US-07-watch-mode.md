@@ -24,4 +24,4 @@ Must Have
 
 The 2-second default poll interval is configurable. The propagation latency includes one poll to detect the change and one poll cycle's worth of writes; under nominal load both fit within the same poll, but the worst-case bound is two intervals.
 
-Related requirements: REQ-F-11, REQ-O-03, REQ-O-04, REQ-O-05, REQ-P-01, REQ-P-03, REQ-R-04, REQ-R-06.
+Related requirements: REQ-I-01, REQ-I-04, REQ-Q-01, REQ-Q-03.

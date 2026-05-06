@@ -18,7 +18,6 @@ In scope:
 - Conflict resolution by last-modified time when both sides diverge in the same poll.
 - Data preservation: every operation that would overwrite or remove user content first archives the prior bytes.
 - Auto-adoption of foreign artifacts (files created directly on either side without using the tool).
-- Automatic migration from a v0.1 install on first run.
 - One-shot and watch (daemon) modes.
 - Installation as a systemd user service.
 
@@ -44,7 +43,6 @@ Out of scope (initially):
 2. Renaming, editing, or reorganizing agents on either side does not break the sync pair.
 3. No user-authored content is ever destroyed; every overwrite or removal first archives the prior bytes under a deterministic, recoverable layout.
 4. The tool runs unattended as a systemd user service and recovers from transient errors without operator intervention.
-5. Migration from `claude-codex-sync` v0.1 to `agents_sync` v0.2 is automatic and idempotent.
 
 ## Non-goals
 

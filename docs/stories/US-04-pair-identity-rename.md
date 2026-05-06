@@ -24,4 +24,4 @@ Must Have
 
 `pair_id` is the stable identity of a pair; the slug derived from `name` is for human-readable filenames and can change. Renaming a file without changing `name` is essentially free (just a state-path update). Renaming through `name` change cascades to the other side: counterpart filename change + archive of the prior filename.
 
-Related requirements: REQ-F-04, REQ-F-05, REQ-F-08, REQ-F-09, REQ-D-03.
+Related requirements: REQ-C-01, REQ-C-02, REQ-Q-08.

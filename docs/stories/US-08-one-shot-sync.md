@@ -23,4 +23,4 @@ Should Have
 
 `--once` shares all the sync logic with `--watch`; the only difference is the loop. Useful for scripts (CI hooks, manual verification) and for users who don't want the watcher running.
 
-Related requirements: REQ-F-12, REQ-O-02.
+Related requirements: REQ-I-01, REQ-I-03.

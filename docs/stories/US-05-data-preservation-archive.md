@@ -25,4 +25,4 @@ The archive layout is partitioned by `pair_id` and `side` for deterministic per-
 
 The tool internally uses `.tmp` and `.old` staging directories during atomic swaps; these are exempt from the archive rule because they hold only intermediate, throwaway state, not user-authored bytes that aren't otherwise reproducible.
 
-Related requirements: REQ-F-09, REQ-F-15, REQ-D-01, REQ-D-02, REQ-O-01.
+Related requirements: REQ-C-01, REQ-Q-06.
