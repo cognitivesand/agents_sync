@@ -1,3 +1,4 @@
+"""Per-pair sync algorithm — Phase 2 (one-way: Claude -> canonical -> Codex)."""
 from __future__ import annotations
 
 import logging
@@ -5,12 +6,23 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from agents_sync.claude_io import read_markdown
-from agents_sync.codex_io import render_codex_agent, render_codex_skill
+from agents_sync import archive
+from agents_sync.canonical import (
+    load_canonical,
+    save_canonical,
+)
+from agents_sync.claude_io import (
+    extract_pair_id_from_md,
+    parse_claude_md,
+    render_claude_md,
+)
+from agents_sync.codex_io import (
+    render_codex_agent_toml,
+    render_codex_skill_md,
+)
 from agents_sync.config import expand_path
 from agents_sync.state import (
-    ExportResult,
-    SourceItem,
+    PairState,
     atomic_write_text,
     load_state,
     save_state,
@@ -21,10 +33,10 @@ from agents_sync.state import (
 
 
 def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
-    """Stage a fresh copy of `source` as `target` and overwrite SKILL.md.
+    """Stage `source` as `target` and overwrite SKILL.md atomically.
 
-    Uses a `.tmp` and `.old` rename pair so the missing-target window is
-    bounded by two `rename(2)` calls instead of a full `copytree`.
+    Two `rename(2)` calls bound the missing-target window instead of a
+    full `copytree`.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
@@ -52,108 +64,134 @@ class Syncer:
         self.claude_skills_dir = expand_path(config["claude_skills_dir"])
         self.codex_agents_dir = expand_path(config["codex_agents_dir"])
         self.codex_skills_dir = expand_path(config["codex_skills_dir"])
-        self.state_path = expand_path(config["state_path"])
-        self.prune = bool(config["prune"])
+        self.state_dir = expand_path(config["state_path"]).parent
 
-    def discover_agents(self) -> list[SourceItem]:
+    # ---------- discovery ----------
+
+    def _find_claude_agents(self) -> list[Path]:
         if not self.claude_agents_dir.exists():
             return []
-        result: list[SourceItem] = []
-        for path in sorted(self.claude_agents_dir.glob("*.md")):
-            if not path.is_file():
-                continue
-            try:
-                doc = read_markdown(path)
-                name = slugify(str(doc.frontmatter.get("name") or path.stem))
-                result.append(SourceItem("agent", path, name, sha256_file(path)))
-            except Exception:
-                logging.exception("Failed to read agent: %s", path)
-        return result
+        return sorted(p for p in self.claude_agents_dir.glob("*.md") if p.is_file())
 
-    def discover_skills(self) -> list[SourceItem]:
+    def _find_claude_skills(self) -> list[Path]:
         if not self.claude_skills_dir.exists():
             return []
-        result: list[SourceItem] = []
-        for skill_md in sorted(self.claude_skills_dir.glob("*/SKILL.md")):
-            skill_dir = skill_md.parent
-            try:
-                doc = read_markdown(skill_md)
-                name = slugify(str(doc.frontmatter.get("name") or skill_dir.name))
-                result.append(SourceItem("skill", skill_dir, name, sha256_tree(skill_dir)))
-            except Exception:
-                logging.exception("Failed to read skill: %s", skill_md)
-        return result
+        return sorted(p.parent for p in self.claude_skills_dir.glob("*/SKILL.md"))
 
-    def discover_all(self) -> dict[str, SourceItem]:
-        items = self.discover_agents() + self.discover_skills()
-        by_target: dict[tuple[str, str], SourceItem] = {}
-        result: dict[str, SourceItem] = {}
-        for item in items:
-            key = (item.kind, item.logical_name)
-            existing = by_target.get(key)
-            if existing is not None:
-                logging.error(
-                    "Slug collision: %s and %s both map to %s/%s; skipping the latter",
-                    existing.source_path,
-                    item.source_path,
-                    item.kind,
-                    item.logical_name,
-                )
-                continue
-            by_target[key] = item
-            result[str(item.source_path)] = item
-        return result
+    # ---------- agent flow ----------
 
-    def export_agent(self, source: SourceItem) -> ExportResult:
-        target = self.codex_agents_dir / f"{source.logical_name}.toml"
-        atomic_write_text(target, render_codex_agent(source))
-        logging.info("Exported agent: %s -> %s", source.source_path, target)
-        return ExportResult(source, [target])
+    def _process_agent(self, claude_path: Path, state: dict[str, PairState]) -> bool:
+        text = claude_path.read_text(encoding="utf-8")
+        current_digest = sha256_file(claude_path)
 
-    def export_skill(self, source: SourceItem) -> ExportResult:
-        target_dir = self.codex_skills_dir / source.logical_name
-        stage_skill_dir(source.source_path, target_dir, render_codex_skill(source))
-        logging.info("Exported skill: %s -> %s", source.source_path, target_dir)
-        return ExportResult(source, [target_dir])
+        pair_id = extract_pair_id_from_md(text)
+        prior_canonical = load_canonical(self.state_dir, pair_id) if pair_id else None
 
-    def export(self, source: SourceItem) -> ExportResult:
-        if source.kind == "agent":
-            return self.export_agent(source)
-        if source.kind == "skill":
-            return self.export_skill(source)
-        raise ValueError(f"Unsupported source kind: {source.kind}")
+        ps = state.get(pair_id) if pair_id else None
+        if (
+            ps is not None
+            and ps.claude_last_written == current_digest
+            and ps.codex_path
+            and Path(ps.codex_path).exists()
+        ):
+            return False
+
+        canonical = parse_claude_md(text, prior_canonical, kind="agent")
+
+        # Adoption: pair_id not in frontmatter -> archive original then inject.
+        if pair_id is None:
+            archive.archive_file(self.state_dir, canonical["pair_id"], "claude", claude_path)
+            new_text = render_claude_md(canonical, prior_text=text)
+            atomic_write_text(claude_path, new_text)
+            current_digest = sha256_file(claude_path)
+            pair_id = canonical["pair_id"]
+            logging.info("Adopted agent: %s (pair_id=%s)", claude_path, pair_id)
+
+        save_canonical(self.state_dir, pair_id, canonical)
+
+        slug = slugify(canonical["name"]) or pair_id[:8]
+        codex_path = self.codex_agents_dir / f"{slug}.toml"
+        atomic_write_text(codex_path, render_codex_agent_toml(canonical))
+        codex_digest = sha256_file(codex_path)
+
+        ps = state.setdefault(pair_id, PairState(kind="agent"))
+        ps.kind = "agent"
+        ps.claude_path = str(claude_path)
+        ps.codex_path = str(codex_path)
+        ps.claude_last_seen = current_digest
+        ps.claude_last_written = current_digest
+        ps.codex_last_seen = codex_digest
+        ps.codex_last_written = codex_digest
+
+        logging.info("Synced agent: %s -> %s (pair_id=%s)", claude_path, codex_path, pair_id)
+        return True
+
+    # ---------- skill flow ----------
+
+    def _process_skill(self, claude_dir: Path, state: dict[str, PairState]) -> bool:
+        skill_md = claude_dir / "SKILL.md"
+        text = skill_md.read_text(encoding="utf-8")
+        current_digest = sha256_tree(claude_dir)
+
+        pair_id = extract_pair_id_from_md(text)
+        prior_canonical = load_canonical(self.state_dir, pair_id) if pair_id else None
+
+        ps = state.get(pair_id) if pair_id else None
+        if (
+            ps is not None
+            and ps.claude_last_written == current_digest
+            and ps.codex_path
+            and Path(ps.codex_path).exists()
+        ):
+            return False
+
+        canonical = parse_claude_md(text, prior_canonical, kind="skill")
+
+        if pair_id is None:
+            archive.archive_file(self.state_dir, canonical["pair_id"], "claude", claude_dir)
+            atomic_write_text(skill_md, render_claude_md(canonical, prior_text=text))
+            current_digest = sha256_tree(claude_dir)
+            pair_id = canonical["pair_id"]
+            logging.info("Adopted skill: %s (pair_id=%s)", claude_dir, pair_id)
+
+        save_canonical(self.state_dir, pair_id, canonical)
+
+        slug = slugify(canonical["name"]) or pair_id[:8]
+        codex_dir = self.codex_skills_dir / slug
+        stage_skill_dir(claude_dir, codex_dir, render_codex_skill_md(canonical))
+        codex_digest = sha256_tree(codex_dir)
+
+        ps = state.setdefault(pair_id, PairState(kind="skill"))
+        ps.kind = "skill"
+        ps.claude_path = str(claude_dir)
+        ps.codex_path = str(codex_dir)
+        ps.claude_last_seen = current_digest
+        ps.claude_last_written = current_digest
+        ps.codex_last_seen = codex_digest
+        ps.codex_last_written = codex_digest
+
+        logging.info("Synced skill: %s -> %s (pair_id=%s)", claude_dir, codex_dir, pair_id)
+        return True
+
+    # ---------- top-level ----------
 
     def sync_once(self) -> int:
-        state = load_state(self.state_path)
-        state_sources = state.setdefault("sources", {})
-        current = self.discover_all()
+        state = load_state(self.state_dir)
         changed = 0
-        for source_key, source in current.items():
-            previous = state_sources.get(source_key, {})
-            previous_targets = [expand_path(p) for p in previous.get("targets", [])]
-            targets_missing = any(not p.exists() for p in previous_targets)
-            if previous.get("digest") == source.digest and not targets_missing:
-                continue
-            result = self.export(source)
-            state_sources[source_key] = {
-                "kind": source.kind,
-                "logical_name": source.logical_name,
-                "digest": source.digest,
-                "targets": [str(path) for path in result.targets],
-            }
-            changed += 1
-        if self.prune:
-            for source_key in sorted(set(state_sources) - set(current)):
-                entry = state_sources[source_key]
-                for target in entry.get("targets", []):
-                    target_path = expand_path(target)
-                    if target_path.is_dir():
-                        shutil.rmtree(target_path)
-                        logging.info("Pruned stale dir: %s", target_path)
-                    elif target_path.exists():
-                        target_path.unlink()
-                        logging.info("Pruned stale file: %s", target_path)
-                del state_sources[source_key]
-                changed += 1
-        save_state(self.state_path, state)
+
+        for claude_path in self._find_claude_agents():
+            try:
+                if self._process_agent(claude_path, state):
+                    changed += 1
+            except Exception:
+                logging.exception("Failed to sync agent: %s", claude_path)
+
+        for claude_dir in self._find_claude_skills():
+            try:
+                if self._process_skill(claude_dir, state):
+                    changed += 1
+            except Exception:
+                logging.exception("Failed to sync skill: %s", claude_dir)
+
+        save_state(self.state_dir, state)
         return changed

@@ -1,3 +1,4 @@
+"""State store — pair_id-keyed index + filesystem helpers."""
 from __future__ import annotations
 
 import hashlib
@@ -9,18 +10,38 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass(frozen=True)
-class SourceItem:
-    kind: str
-    source_path: Path
-    logical_name: str
-    digest: str
+@dataclass
+class PairState:
+    kind: str  # "agent" | "skill"
+    claude_path: str | None = None
+    codex_path: str | None = None
+    claude_last_seen: str | None = None
+    codex_last_seen: str | None = None
+    claude_last_written: str | None = None
+    codex_last_written: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "claude_path": self.claude_path,
+            "codex_path": self.codex_path,
+            "claude_last_seen": self.claude_last_seen,
+            "codex_last_seen": self.codex_last_seen,
+            "claude_last_written": self.claude_last_written,
+            "codex_last_written": self.codex_last_written,
+        }
 
-@dataclass(frozen=True)
-class ExportResult:
-    source: SourceItem
-    targets: list[Path]
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PairState":
+        return cls(
+            kind=data["kind"],
+            claude_path=data.get("claude_path"),
+            codex_path=data.get("codex_path"),
+            claude_last_seen=data.get("claude_last_seen"),
+            codex_last_seen=data.get("codex_last_seen"),
+            claude_last_written=data.get("claude_last_written"),
+            codex_last_written=data.get("codex_last_written"),
+        )
 
 
 def slugify(value: str) -> str:
@@ -56,22 +77,36 @@ def atomic_write_text(path: Path, content: str) -> None:
     tmp.replace(path)
 
 
-def load_state(state_path: Path) -> dict[str, Any]:
-    if not state_path.exists():
-        return {"sources": {}}
+def state_path(state_dir: Path) -> Path:
+    return state_dir / "state.json"
+
+
+def load_state(state_dir: Path) -> dict[str, PairState]:
+    path = state_path(state_dir)
+    if not path.exists():
+        return {}
     try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        logging.warning("Invalid state file, rebuilding: %s", state_path)
-        return {"sources": {}}
+        logging.warning("Invalid state file, rebuilding: %s", path)
+        return {}
     if not isinstance(data, dict):
-        return {"sources": {}}
-    data.setdefault("sources", {})
-    return data
+        return {}
+    result: dict[str, PairState] = {}
+    for pair_id, entry in data.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            result[pair_id] = PairState.from_dict(entry)
+        except KeyError:
+            logging.warning("Skipping malformed state entry for pair_id=%s", pair_id)
+    return result
 
 
-def save_state(state_path: Path, state: dict[str, Any]) -> None:
+def save_state(state_dir: Path, state: dict[str, PairState]) -> None:
+    path = state_path(state_dir)
+    serializable = {pair_id: ps.to_dict() for pair_id, ps in state.items()}
     atomic_write_text(
-        state_path,
-        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        path,
+        json.dumps(serializable, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
     )

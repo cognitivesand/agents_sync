@@ -1,15 +1,20 @@
 [project]
 name = "agents_sync"
 version = "0.2.0"
-description = "Bidirectional sync of Claude Code agents and skills with Codex (Phase 1: structural rename of claude-codex-sync v0.1, no behaviour change yet)."
+description = "Bidirectional sync of Claude Code agents and skills with Codex (Phase 2: canonical intermediate, still one-way)."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-  "PyYAML>=6.0.2",
+  "ruamel.yaml>=0.18",
 ]
 
 [project.scripts]
 agents-sync = "agents_sync.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=7.0",
+]
 
 [build-system]
 requires = ["hatchling>=1.26"]

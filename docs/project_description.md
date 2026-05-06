@@ -53,7 +53,7 @@ Out of scope (initially):
 ## Constraints
 
 - Linux user environment (the systemd unit is a `--user` unit).
-- Python 3.11+.
+- Python 3.12+.
 - `uv` for environment management.
 - Single user, single workstation.
 
