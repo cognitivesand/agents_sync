@@ -21,7 +21,7 @@ What it does:
   - creates/updates .venv with uv sync
   - installs/updates ~/.local/bin/agents-sync launcher
   - creates ~/.config/agents-sync/config.toml if missing
-  - optionally installs/updates a systemd user service
+  - optionally installs/updates a systemd user service that runs the daemon
 EOF
 }
 
@@ -71,7 +71,6 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
   cat > "${CONFIG_FILE}" <<'EOF'
 [agents-sync]
 poll_interval_seconds = 2.0
-prune = false
 state_path = "~/.local/state/agents-sync/state.json"
 
 claude_agents_dir = "~/.claude/agents"
@@ -87,11 +86,11 @@ if [[ "${INSTALL_SERVICE}" == "true" ]]; then
 
   cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
-Description=Sync Claude Code agents and skills with Codex
+Description=Bidirectional sync of Claude Code agents and skills with Codex
 
 [Service]
 Type=simple
-ExecStart=${BIN_DIR}/${APP_NAME} --watch --config ${CONFIG_FILE}
+ExecStart=${BIN_DIR}/${APP_NAME} --config ${CONFIG_FILE}
 Restart=on-failure
 RestartSec=5
 
@@ -104,8 +103,7 @@ EOF
 fi
 
 echo "Installed ${APP_NAME}"
-echo "Run once: ${BIN_DIR}/${APP_NAME} --once --config ${CONFIG_FILE}"
-echo "Watch:    ${BIN_DIR}/${APP_NAME} --watch --config ${CONFIG_FILE}"
+echo "Run:      ${BIN_DIR}/${APP_NAME} --config ${CONFIG_FILE}"
 
 if [[ "${INSTALL_SERVICE}" == "true" ]]; then
   echo "Service:  systemctl --user status ${APP_NAME}.service"

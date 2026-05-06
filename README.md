@@ -1,17 +1,13 @@
 # agents_sync
 
-Bidirectional sync of Claude Code user agents and skills with Codex.
+Bidirectional sync of Claude Code user agents and skills with Codex. The daemon polls both sides at a configurable interval and propagates edits in both directions through a per-pair canonical JSON intermediate. Identity survives rename via injected `pair_id`s; data is preserved via timestamped archives; simultaneous edits resolve by last-`mtime`.
 
-**Phase 1** is a structural rename of `claude-codex-sync` v0.1: the package, console script, and install paths become `agents_sync` / `agents-sync`, and the source is split into focused modules. Runtime behaviour is unchanged from v0.1 (one-way Claude → Codex). Phase 2 introduces a per-pair canonical JSON intermediate; bidirectional sync lands in Phase 3. See `docs/v0.2_implementation_plan.md` for the full plan.
-
-## What it currently does (Phase 1)
+## What it syncs
 
 | Claude source | Codex target |
 |---|---|
 | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` |
 | `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` |
-
-The sync uses SHA-256 hashes. If a source file or skill folder changes, it is re-exported.
 
 ## Install
 
@@ -22,7 +18,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Install and enable the user systemd service:
+Install and enable the user systemd service (the daemon runs continuously under your user account):
 
 ```bash
 ./install.sh --service
@@ -30,27 +26,29 @@ Install and enable the user systemd service:
 
 ## Run
 
-One-shot sync (Phase 1 only — removed in Phase 4):
+The daemon is the only execution mode; there is no one-shot CLI invocation.
 
 ```bash
-agents-sync --once --config ~/.config/agents-sync/config.toml
+agents-sync --config ~/.config/agents-sync/config.toml
 ```
 
-Watch mode:
+Stop it with `Ctrl-C` (or `systemctl --user stop agents-sync` if installed as a service).
 
-```bash
-agents-sync --watch --config ~/.config/agents-sync/config.toml
+## State layout
+
 ```
-
-Prune generated targets when Claude sources are deleted:
-
-```bash
-agents-sync --watch --prune --config ~/.config/agents-sync/config.toml
+~/.local/state/agents-sync/
+  state.json                                    pair_id -> {paths, digests}
+  canonical/<pair_id>.json                      one canonical document per pair
+  archive/<pair_id>/<side>/<filename>.<ISO>     preserved prior bytes
 ```
 
 ## Notes
 
-Claude-specific fields such as `tools`, `permissionMode`, `hooks`, `mcpServers`, and some skill metadata are currently preserved as a "review metadata" block inside the rendered Codex output. Phase 2 moves this fidelity into a per-pair canonical JSON document and removes the in-output blob.
+- First sight of a Claude `.md` or skill `SKILL.md` without a `pair_id` triggers adoption: the original is archived, then `pair_id` is injected so the file's identity follows it across renames.
+- First sight of a Codex `.toml` or skill folder without a `pair_id` is treated symmetrically: original archived, `pair_id` injected, Claude counterpart created.
+- Removing one side of a pair archives the other side and drops the pair from state.
+- A v0.1 `claude-codex-sync` install at `~/.config/claude-codex-sync/` or `~/.local/state/claude-codex-sync/` is **not** auto-migrated; the daemon errors out and asks you to remove or move those paths first.
 
 ## Documentation
 
