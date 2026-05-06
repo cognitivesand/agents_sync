@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_NAME="claude-codex-sync"
+APP_NAME="agents-sync"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PROJECT_DIR}/.venv"
 BIN_DIR="${HOME}/.local/bin"
@@ -19,8 +19,8 @@ Usage:
 What it does:
   - verifies uv is available
   - creates/updates .venv with uv sync
-  - installs/updates ~/.local/bin/claude-codex-sync launcher
-  - creates ~/.config/claude-codex-sync/config.toml if missing
+  - installs/updates ~/.local/bin/agents-sync launcher
+  - creates ~/.config/agents-sync/config.toml if missing
   - optionally installs/updates a systemd user service
 EOF
 }
@@ -69,10 +69,10 @@ CONFIG_FILE="${CONFIG_DIR}/config.toml"
 
 if [[ ! -f "${CONFIG_FILE}" ]]; then
   cat > "${CONFIG_FILE}" <<'EOF'
-[claude-codex-sync]
+[agents-sync]
 poll_interval_seconds = 2.0
 prune = false
-state_path = "~/.local/state/claude-codex-sync/state.json"
+state_path = "~/.local/state/agents-sync/state.json"
 
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
@@ -87,7 +87,7 @@ if [[ "${INSTALL_SERVICE}" == "true" ]]; then
 
   cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
-Description=Sync Claude Code agents and skills to Codex
+Description=Sync Claude Code agents and skills with Codex
 
 [Service]
 Type=simple
