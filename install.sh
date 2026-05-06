@@ -9,28 +9,23 @@ STATE_DIR="${HOME}/.local/state/${APP_NAME}"
 CONFIG_DIR="${HOME}/.config/${APP_NAME}"
 SERVICE_DIR="${HOME}/.config/systemd/user"
 
-INSTALL_SERVICE=false
-
 usage() {
   cat <<'EOF'
 Usage:
-  ./install.sh [--service]
+  ./install.sh [-h|--help]
 
 What it does:
   - verifies uv is available
   - creates/updates .venv with uv sync
   - installs/updates ~/.local/bin/agents-sync launcher
   - creates ~/.config/agents-sync/config.toml if missing
-  - optionally installs/updates a systemd user service that runs the daemon
+  - installs and enables the systemd user service so the daemon runs
+    continuously and survives reboots
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --service)
-      INSTALL_SERVICE=true
-      shift
-      ;;
     -h|--help)
       usage
       exit 0
@@ -52,7 +47,12 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p "${BIN_DIR}" "${STATE_DIR}" "${CONFIG_DIR}"
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "systemctl is required (this script installs a systemd user service)." >&2
+  exit 1
+fi
+
+mkdir -p "${BIN_DIR}" "${STATE_DIR}" "${CONFIG_DIR}" "${SERVICE_DIR}"
 
 cd "${PROJECT_DIR}"
 
@@ -81,10 +81,7 @@ codex_skills_dir = "~/.agents/skills"
 EOF
 fi
 
-if [[ "${INSTALL_SERVICE}" == "true" ]]; then
-  mkdir -p "${SERVICE_DIR}"
-
-  cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
+cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
 Description=Bidirectional sync of Claude Code agents and skills with Codex
 
@@ -98,13 +95,9 @@ RestartSec=5
 WantedBy=default.target
 EOF
 
-  systemctl --user daemon-reload
-  systemctl --user enable --now "${APP_NAME}.service"
-fi
+systemctl --user daemon-reload
+systemctl --user enable --now "${APP_NAME}.service"
 
 echo "Installed ${APP_NAME}"
-echo "Run:      ${BIN_DIR}/${APP_NAME} --config ${CONFIG_FILE}"
-
-if [[ "${INSTALL_SERVICE}" == "true" ]]; then
-  echo "Service:  systemctl --user status ${APP_NAME}.service"
-fi
+echo "Service:  systemctl --user status ${APP_NAME}.service"
+echo "Logs:     journalctl --user -u ${APP_NAME}.service -f"

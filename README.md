@@ -18,11 +18,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Install and enable the user systemd service (the daemon runs continuously under your user account):
-
-```bash
-./install.sh --service
-```
+The script installs the `agents-sync` launcher under `~/.local/bin/`, seeds `~/.config/agents-sync/config.toml` if missing, and registers a systemd user service so the daemon runs continuously and survives reboots. `systemctl` and `uv` must be available; no other flags are needed.
 
 ## Run
 
