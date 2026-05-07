@@ -1,6 +1,6 @@
 # agents_sync
 
-Bidirectional sync of Claude Code user agents and skills with Codex. The daemon polls both sides at a configurable interval and propagates edits in both directions through a per-pair canonical JSON intermediate. Identity survives rename via injected `pair_id`s; data is preserved via timestamped archives; simultaneous edits resolve by last-`mtime`.
+Bidirectional sync of Claude Code user agents and skills with Codex. The daemon polls both sides at a configurable interval and propagates edits in both directions through a per-pair canonical JSON intermediate. Identity survives rename via injected `pair_id`s; data is preserved via timestamped archives; simultaneous edits resolve by last-`mtime`. 
 
 ## What it syncs
 
