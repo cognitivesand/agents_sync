@@ -26,6 +26,8 @@ from agents_sync.codex_io import (
     render_codex_skill_md,
 )
 from agents_sync.config import expand_path
+from agents_sync.config import validate_config
+from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.state import (
     PairState,
     atomic_write_text,
@@ -76,106 +78,207 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
 
 class Syncer:
     def __init__(self, config: dict[str, Any]) -> None:
+        self.config = dict(config)
         self.claude_agents_dir = expand_path(config["claude_agents_dir"])
         self.claude_skills_dir = expand_path(config["claude_skills_dir"])
         self.codex_agents_dir = expand_path(config["codex_agents_dir"])
         self.codex_skills_dir = expand_path(config["codex_skills_dir"])
         self.state_dir = expand_path(config["state_path"]).parent
+        self._blocked_pair_ids: set[str] = set()
 
     # ---------- discovery ----------
 
-    def _discover(self) -> dict[str, PairInfo]:
+    def _discover(self, state: dict[str, PairState]) -> dict[str, PairInfo]:
         pairs: dict[str, PairInfo] = {}
+        blocked_pair_ids: set[str] = set()
 
         if self.claude_agents_dir.exists():
             for path in sorted(
                 p for p in self.claude_agents_dir.glob("*.md")
                 if p.is_file() and not p.name.startswith(".")
             ):
-                self._add_claude_agent(path, pairs)
+                self._add_claude_agent(path, pairs, blocked_pair_ids, state)
 
         if self.claude_skills_dir.exists():
             for skill_md in sorted(
                 p for p in self.claude_skills_dir.glob("*/SKILL.md")
                 if not p.parent.name.startswith(".")
             ):
-                self._add_claude_skill(skill_md.parent, pairs)
+                self._add_claude_skill(skill_md.parent, pairs, blocked_pair_ids, state)
 
         if self.codex_agents_dir.exists():
             for path in sorted(
                 p for p in self.codex_agents_dir.glob("*.toml")
                 if p.is_file() and not p.name.startswith(".")
             ):
-                self._add_codex_agent(path, pairs)
+                self._add_codex_agent(path, pairs, blocked_pair_ids, state)
 
         if self.codex_skills_dir.exists():
             for skill_md in sorted(
                 p for p in self.codex_skills_dir.glob("*/SKILL.md")
                 if not p.parent.name.startswith(".")
             ):
-                self._add_codex_skill(skill_md.parent, pairs)
+                self._add_codex_skill(skill_md.parent, pairs, blocked_pair_ids, state)
 
+        self._blocked_pair_ids = blocked_pair_ids
         return pairs
 
-    def _add_claude_agent(self, path: Path, pairs: dict[str, PairInfo]) -> None:
+    def _add_claude_agent(
+        self,
+        path: Path,
+        pairs: dict[str, PairInfo],
+        blocked_pair_ids: set[str],
+        state: dict[str, PairState],
+    ) -> None:
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
             logging.exception("Cannot read Claude agent: %s", path)
+            self._block_state_owner(path, state, blocked_pair_ids)
             return
         pair_id = extract_pair_id_from_md(text)
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
+        else:
+            try:
+                validate_pair_id(pair_id)
+            except InvalidPairId:
+                logging.error("Invalid pair_id in Claude agent: path=%s", path)
+                self._block_state_owner(path, state, blocked_pair_ids)
+                return
         info = SideInfo(path, sha256_file(path), path.stat().st_mtime, present)
-        pairs.setdefault(pair_id, PairInfo(kind="agent")).claude = info
+        self._insert_side(pair_id, "agent", "claude", info, pairs, blocked_pair_ids)
 
-    def _add_claude_skill(self, path: Path, pairs: dict[str, PairInfo]) -> None:
+    def _add_claude_skill(
+        self,
+        path: Path,
+        pairs: dict[str, PairInfo],
+        blocked_pair_ids: set[str],
+        state: dict[str, PairState],
+    ) -> None:
         skill_md = path / "SKILL.md"
         try:
             text = skill_md.read_text(encoding="utf-8")
         except Exception:
             logging.exception("Cannot read Claude skill: %s", skill_md)
+            self._block_state_owner(path, state, blocked_pair_ids)
             return
         pair_id = extract_pair_id_from_md(text)
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
+        else:
+            try:
+                validate_pair_id(pair_id)
+            except InvalidPairId:
+                logging.error("Invalid pair_id in Claude skill: path=%s", skill_md)
+                self._block_state_owner(path, state, blocked_pair_ids)
+                return
         info = SideInfo(path, sha256_tree(path), path.stat().st_mtime, present)
-        pairs.setdefault(pair_id, PairInfo(kind="skill")).claude = info
+        self._insert_side(pair_id, "skill", "claude", info, pairs, blocked_pair_ids)
 
-    def _add_codex_agent(self, path: Path, pairs: dict[str, PairInfo]) -> None:
+    def _add_codex_agent(
+        self,
+        path: Path,
+        pairs: dict[str, PairInfo],
+        blocked_pair_ids: set[str],
+        state: dict[str, PairState],
+    ) -> None:
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
             logging.exception("Cannot read Codex agent: %s", path)
+            self._block_state_owner(path, state, blocked_pair_ids)
             return
         pair_id = extract_pair_id(text)
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
+        else:
+            try:
+                validate_pair_id(pair_id)
+            except InvalidPairId:
+                logging.error("Invalid pair_id in Codex agent: path=%s", path)
+                self._block_state_owner(path, state, blocked_pair_ids)
+                return
         info = SideInfo(path, sha256_file(path), path.stat().st_mtime, present)
-        pairs.setdefault(pair_id, PairInfo(kind="agent")).codex = info
+        self._insert_side(pair_id, "agent", "codex", info, pairs, blocked_pair_ids)
 
-    def _add_codex_skill(self, path: Path, pairs: dict[str, PairInfo]) -> None:
+    def _add_codex_skill(
+        self,
+        path: Path,
+        pairs: dict[str, PairInfo],
+        blocked_pair_ids: set[str],
+        state: dict[str, PairState],
+    ) -> None:
         skill_md = path / "SKILL.md"
         try:
             text = skill_md.read_text(encoding="utf-8")
         except Exception:
             logging.exception("Cannot read Codex skill: %s", skill_md)
+            self._block_state_owner(path, state, blocked_pair_ids)
             return
         pair_id = extract_pair_id_from_md(text)
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
+        else:
+            try:
+                validate_pair_id(pair_id)
+            except InvalidPairId:
+                logging.error("Invalid pair_id in Codex skill: path=%s", skill_md)
+                self._block_state_owner(path, state, blocked_pair_ids)
+                return
         info = SideInfo(path, sha256_tree(path), path.stat().st_mtime, present)
-        pairs.setdefault(pair_id, PairInfo(kind="skill")).codex = info
+        self._insert_side(pair_id, "skill", "codex", info, pairs, blocked_pair_ids)
+
+    def _insert_side(
+        self,
+        pair_id: str,
+        kind: str,
+        side: str,
+        info: SideInfo,
+        pairs: dict[str, PairInfo],
+        blocked_pair_ids: set[str],
+    ) -> None:
+        if pair_id in blocked_pair_ids:
+            return
+        pair = pairs.get(pair_id)
+        if pair is None:
+            pair = PairInfo(kind=kind)
+            pairs[pair_id] = pair
+        elif pair.kind != kind:
+            logging.error("pair_id reused across kinds: pair_id=%s", pair_id)
+            pairs.pop(pair_id, None)
+            blocked_pair_ids.add(pair_id)
+            return
+
+        if getattr(pair, side) is not None:
+            logging.error("duplicate pair_id on %s side: pair_id=%s", side, pair_id)
+            pairs.pop(pair_id, None)
+            blocked_pair_ids.add(pair_id)
+            return
+
+        setattr(pair, side, info)
+
+    def _block_state_owner(
+        self,
+        path: Path,
+        state: dict[str, PairState],
+        blocked_pair_ids: set[str],
+    ) -> None:
+        owner = self._state_owner_for_path(path, state)
+        if owner is not None:
+            blocked_pair_ids.add(owner)
 
     # ---------- top-level loop ----------
 
     def sync_once(self) -> int:
+        validate_config(self.config)
         state = load_state(self.state_dir)
-        discovery = self._discover()
+        discovery = self._discover(state)
+        self._block_target_collisions(discovery, state)
         changed = 0
 
         for pair_id, info in discovery.items():
@@ -188,6 +291,8 @@ class Syncer:
         # Detect deleted pairs (in state but not in discovery).
         for pair_id in list(state.keys()):
             if pair_id in discovery:
+                continue
+            if pair_id in self._blocked_pair_ids:
                 continue
             try:
                 if self._propagate_orphan_state(pair_id, state):
@@ -222,6 +327,92 @@ class Syncer:
         if codex_changed and not claude_changed:
             return self._sync_codex_to_claude(pair_id, info, state)
         return self._resolve_conflict(pair_id, info, state)
+
+    def _block_target_collisions(
+        self,
+        discovery: dict[str, PairInfo],
+        state: dict[str, PairState],
+    ) -> None:
+        targets: dict[Path, list[str]] = {}
+        blocked: set[str] = set()
+
+        for pair_id, info in discovery.items():
+            if pair_id in state:
+                continue
+            try:
+                target = self._planned_adoption_target(info)
+            except Exception:
+                logging.exception("Cannot plan adoption target: pair_id=%s", pair_id)
+                blocked.add(pair_id)
+                continue
+            if target is None:
+                continue
+            targets.setdefault(target, []).append(pair_id)
+
+            owner = self._state_owner_for_path(target, state)
+            if owner is not None and owner != pair_id:
+                logging.error(
+                    "Target path collision with managed pair: pair_id=%s owner_pair_id=%s target=%s",
+                    pair_id,
+                    owner,
+                    target,
+                )
+                blocked.add(pair_id)
+            elif owner is None and target.exists():
+                logging.error(
+                    "Target path collision with unmanaged path: pair_id=%s target=%s",
+                    pair_id,
+                    target,
+                )
+                blocked.add(pair_id)
+
+        for target, pair_ids in targets.items():
+            if len(pair_ids) <= 1:
+                continue
+            logging.error("Target path collision: target=%s pair_ids=%s", target, pair_ids)
+            blocked.update(pair_ids)
+
+        for pair_id in blocked:
+            discovery.pop(pair_id, None)
+            self._blocked_pair_ids.add(pair_id)
+
+    def _planned_adoption_target(self, info: PairInfo) -> Path | None:
+        if info.claude is not None and info.codex is not None:
+            return None
+        if info.claude is not None:
+            canonical = parse_claude_md(
+                self._read_text(info.kind, info.claude.path),
+                prior_canonical=None,
+                kind=info.kind,
+            )
+            slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
+            if info.kind == "agent":
+                return self.codex_agents_dir / f"{slug}.toml"
+            return self.codex_skills_dir / slug
+
+        if info.codex is None:
+            return None
+        text = self._read_text(info.kind, info.codex.path)
+        if info.kind == "agent":
+            canonical = parse_codex_agent_toml(text, prior_canonical=None)
+        else:
+            canonical = parse_codex_skill_md(text, prior_canonical=None)
+        slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
+        if info.kind == "agent":
+            return self.claude_agents_dir / f"{slug}.md"
+        return self.claude_skills_dir / slug
+
+    def _state_owner_for_path(
+        self,
+        path: Path,
+        state: dict[str, PairState],
+    ) -> str | None:
+        resolved = path.resolve()
+        for pair_id, pair_state in state.items():
+            for stored in (pair_state.claude_path, pair_state.codex_path):
+                if stored is not None and Path(stored).resolve() == resolved:
+                    return pair_id
+        return None
 
     # ---------- adoption ----------
 
@@ -374,9 +565,11 @@ class Syncer:
         slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
         if kind == "agent":
             target = existing_path or (self.claude_agents_dir / f"{slug}.md")
+            self._assert_target_available(target, existing_path)
             atomic_write_text(target, render_claude_md(canonical, prior_text=prior_text))
             return target
         target_dir = existing_path or (self.claude_skills_dir / slug)
+        self._assert_target_available(target_dir, existing_path)
         skill_md_text = render_claude_md(canonical, prior_text=prior_text)
         if codex_dir is not None and target_dir != codex_dir:
             stage_skill_dir(codex_dir, target_dir, skill_md_text)
@@ -390,9 +583,11 @@ class Syncer:
         slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
         if kind == "agent":
             target = existing_path or (self.codex_agents_dir / f"{slug}.toml")
+            self._assert_target_available(target, existing_path)
             atomic_write_text(target, render_codex_agent_toml(canonical))
             return target
         target_dir = existing_path or (self.codex_skills_dir / slug)
+        self._assert_target_available(target_dir, existing_path)
         skill_md_text = render_codex_skill_md(canonical)
         if claude_dir is not None and target_dir != claude_dir:
             stage_skill_dir(claude_dir, target_dir, skill_md_text)
@@ -413,3 +608,9 @@ class Syncer:
         ps.claude_last_written = claude_digest
         ps.codex_last_seen = codex_digest
         ps.codex_last_written = codex_digest
+
+    def _assert_target_available(self, target: Path, existing_path: Path | None) -> None:
+        if existing_path is not None and target.resolve() == existing_path.resolve():
+            return
+        if target.exists():
+            raise FileExistsError(f"Refusing to overwrite unowned target path: {target}")

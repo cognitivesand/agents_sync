@@ -44,7 +44,18 @@ Stop it with `Ctrl-C` (or `systemctl --user stop agents-sync` if installed as a 
 - First sight of a Claude `.md` or skill `SKILL.md` without a `pair_id` triggers adoption: the original is archived, then `pair_id` is injected so the file's identity follows it across renames.
 - First sight of a Codex `.toml` or skill folder without a `pair_id` is treated symmetrically: original archived, `pair_id` injected, Claude counterpart created.
 - Removing one side of a pair archives the other side and drops the pair from state.
+- The daemon fails closed when configured roots are missing or unreadable; a missing directory is never interpreted as "all files were deleted."
+- Managed `pair_id`s must be canonical UUIDv4 strings. Malformed IDs, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - A v0.1 `claude-codex-sync` install at `~/.config/claude-codex-sync/` or `~/.local/state/claude-codex-sync/` is **not** auto-migrated; the daemon errors out and asks you to remove or move those paths first.
+
+## Changelog
+
+### 0.2.1
+
+- Added fail-closed validation for configured sync roots.
+- Rejected malformed or duplicate `pair_id` values before filesystem use.
+- Added target collision checks for foreign artifact adoption.
+- Added regression tests for v0.2.1 safety behavior.
 
 ## Documentation
 
@@ -52,3 +63,8 @@ Stop it with `Ctrl-C` (or `systemctl --user stop agents-sync` if installed as a 
 - `docs/project_requirements.md` — FR / NFR.
 - `docs/stories/US-XX-*.md` — user stories.
 - `docs/v0.2_implementation_plan.md` — engineering plan.
+- `docs/v0.2.1_remediation_plan.md` — safety remediation plan.
+
+## License
+
+MIT License. See `LICENSE`.

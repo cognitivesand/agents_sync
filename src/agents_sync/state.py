@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agents_sync.identity import InvalidPairId, validate_pair_id
+
 
 @dataclass
 class PairState:
@@ -94,6 +96,11 @@ def load_state(state_dir: Path) -> dict[str, PairState]:
         return {}
     result: dict[str, PairState] = {}
     for pair_id, entry in data.items():
+        try:
+            validate_pair_id(pair_id)
+        except InvalidPairId:
+            logging.error("Skipping state entry with invalid pair_id=%r", pair_id)
+            continue
         if not isinstance(entry, dict):
             continue
         try:

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_sync.state import atomic_write_text
+from agents_sync.identity import validate_pair_id
 
 
 SCHEMA_VERSION = 1
@@ -46,6 +47,7 @@ def empty_canonical(kind: str, pair_id: str | None = None) -> dict[str, Any]:
 
 
 def canonical_path(state_dir: Path, pair_id: str) -> Path:
+    validate_pair_id(pair_id)
     return state_dir / "canonical" / f"{pair_id}.json"
 
 

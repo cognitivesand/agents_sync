@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from agents_sync.config import merged_config
+from agents_sync.config import ConfigError, merged_config, validate_config
 from agents_sync.daemon import watch
 from agents_sync.sync import Syncer
 
@@ -58,6 +58,11 @@ def main(argv: list[str] | None = None) -> int:
         return legacy_exit
 
     config = merged_config(args)
+    try:
+        validate_config(config)
+    except ConfigError:
+        logging.exception("Invalid agents-sync configuration")
+        return 2
     syncer = Syncer(config)
     watch(syncer, float(config["poll_interval_seconds"]))
     return 0

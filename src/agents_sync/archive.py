@@ -16,6 +16,8 @@ import datetime as _dt
 import shutil
 from pathlib import Path
 
+from agents_sync.identity import validate_pair_id
+
 
 def iso_timestamp(now: _dt.datetime | None = None) -> str:
     """ISO 8601 UTC timestamp with `:` replaced by `-` for filesystem use."""
@@ -24,6 +26,7 @@ def iso_timestamp(now: _dt.datetime | None = None) -> str:
 
 
 def archive_dir_for(state_dir: Path, pair_id: str, side: str) -> Path:
+    validate_pair_id(pair_id)
     return state_dir / "archive" / pair_id / side
 
 
