@@ -7,6 +7,13 @@ import time
 from agents_sync.sync import Syncer
 
 
+def _register_signal_if_available(signum: int, handler) -> None:
+    try:
+        signal.signal(signum, handler)
+    except (AttributeError, OSError, ValueError):
+        logging.debug("Skipping unsupported signal registration: %s", signum)
+
+
 def watch(syncer: Syncer, interval_seconds: float) -> None:
     """Continuous sync loop. SIGINT and SIGTERM cause a clean exit."""
     stop = False
@@ -15,8 +22,9 @@ def watch(syncer: Syncer, interval_seconds: float) -> None:
         nonlocal stop
         stop = True
 
-    signal.signal(signal.SIGINT, request_stop)
-    signal.signal(signal.SIGTERM, request_stop)
+    _register_signal_if_available(signal.SIGINT, request_stop)
+    if hasattr(signal, "SIGTERM"):
+        _register_signal_if_available(signal.SIGTERM, request_stop)
     logging.info("Watching Claude agents/skills with SHA256 polling")
     while not stop:
         try:

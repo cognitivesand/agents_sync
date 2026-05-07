@@ -16,6 +16,7 @@ import datetime as _dt
 import shutil
 from pathlib import Path
 
+from agents_sync.fs_retry import retry_fs
 from agents_sync.identity import validate_pair_id
 
 
@@ -53,7 +54,10 @@ def archive_move(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
     conflict losers being overwritten, and symmetric delete propagation.
     """
     target = _archive_target(state_dir, pair_id, side, source)
-    shutil.move(str(source), str(target))
+    retry_fs(
+        lambda: shutil.move(str(source), str(target)),
+        operation=f"archive_move {source} -> {target}",
+    )
     return target
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,7 @@ from agents_sync.codex_io import (
 )
 from agents_sync.config import expand_path
 from agents_sync.config import validate_config
+from agents_sync.fs_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.state import (
     PairState,
@@ -61,19 +63,37 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
     old = target.with_name(f".{target.name}.old")
     for stale in (tmp, old):
         if stale.exists():
-            shutil.rmtree(stale)
+            retry_fs(
+                lambda stale=stale: shutil.rmtree(stale),
+                operation=f"rmtree {stale}",
+            )
     shutil.copytree(source, tmp)
-    (tmp / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
+    atomic_write_text(tmp / "SKILL.md", skill_md_content)
     if target.exists():
-        target.rename(old)
+        retry_fs(
+            lambda: target.rename(old),
+            operation=f"rename {target} -> {old}",
+        )
         try:
-            tmp.rename(target)
+            retry_fs(
+                lambda: tmp.rename(target),
+                operation=f"rename {tmp} -> {target}",
+            )
         except Exception:
-            old.rename(target)
+            retry_fs(
+                lambda: old.rename(target),
+                operation=f"rollback {old} -> {target}",
+            )
             raise
-        shutil.rmtree(old)
+        retry_fs(
+            lambda: shutil.rmtree(old),
+            operation=f"cleanup {old}",
+        )
     else:
-        tmp.rename(target)
+        retry_fs(
+            lambda: tmp.rename(target),
+            operation=f"rename {tmp} -> {target}",
+        )
 
 
 class Syncer:
@@ -333,7 +353,8 @@ class Syncer:
         discovery: dict[str, PairInfo],
         state: dict[str, PairState],
     ) -> None:
-        targets: dict[Path, list[str]] = {}
+        targets: dict[str, list[str]] = {}
+        target_display: dict[str, Path] = {}
         blocked: set[str] = set()
 
         for pair_id, info in discovery.items():
@@ -347,7 +368,9 @@ class Syncer:
                 continue
             if target is None:
                 continue
-            targets.setdefault(target, []).append(pair_id)
+            target_key = self._path_collision_key(target)
+            targets.setdefault(target_key, []).append(pair_id)
+            target_display.setdefault(target_key, target)
 
             owner = self._state_owner_for_path(target, state)
             if owner is not None and owner != pair_id:
@@ -366,10 +389,14 @@ class Syncer:
                 )
                 blocked.add(pair_id)
 
-        for target, pair_ids in targets.items():
+        for target_key, pair_ids in targets.items():
             if len(pair_ids) <= 1:
                 continue
-            logging.error("Target path collision: target=%s pair_ids=%s", target, pair_ids)
+            logging.error(
+                "Target path collision: target=%s pair_ids=%s",
+                target_display[target_key],
+                pair_ids,
+            )
             blocked.update(pair_ids)
 
         for pair_id in blocked:
@@ -407,12 +434,18 @@ class Syncer:
         path: Path,
         state: dict[str, PairState],
     ) -> str | None:
-        resolved = path.resolve()
+        target_key = self._path_collision_key(path)
         for pair_id, pair_state in state.items():
             for stored in (pair_state.claude_path, pair_state.codex_path):
-                if stored is not None and Path(stored).resolve() == resolved:
+                if stored is None:
+                    continue
+                if self._path_collision_key(Path(stored)) == target_key:
                     return pair_id
         return None
+
+    def _path_collision_key(self, path: Path) -> str:
+        resolved = path.resolve()
+        return os.path.normcase(str(resolved))
 
     # ---------- adoption ----------
 
@@ -610,7 +643,9 @@ class Syncer:
         ps.codex_last_written = codex_digest
 
     def _assert_target_available(self, target: Path, existing_path: Path | None) -> None:
-        if existing_path is not None and target.resolve() == existing_path.resolve():
+        if existing_path is not None and (
+            self._path_collision_key(target) == self._path_collision_key(existing_path)
+        ):
             return
         if target.exists():
             raise FileExistsError(f"Refusing to overwrite unowned target path: {target}")
