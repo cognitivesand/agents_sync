@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from agents_sync.config import ConfigError, merged_config, validate_config
@@ -15,13 +16,24 @@ _LEGACY_PATHS = [
     Path.home() / ".config/claude-codex-sync",
     Path.home() / ".local/state/claude-codex-sync",
 ]
+if os.name == "nt":
+    _LEGACY_PATHS.extend([
+        Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+        / "claude-codex-sync",
+        Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+        / "claude-codex-sync",
+    ])
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Continuous bidirectional sync of Claude Code agents and skills with Codex.",
     )
-    parser.add_argument("--config", type=Path, help="Optional config TOML.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Optional config TOML (default: platform-specific user config path).",
+    )
     parser.add_argument("--interval", type=float, help="Polling interval in seconds.")
     parser.add_argument("--claude-agents-dir", type=str)
     parser.add_argument("--claude-skills-dir", type=str)

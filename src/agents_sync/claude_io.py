@@ -15,9 +15,10 @@ from agents_sync.canonical import empty_canonical, new_pair_id
 
 
 FRONTMATTER_RE = re.compile(
-    r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)(.*)\Z",
+    r"\A(?:\ufeff)?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)(.*)\Z",
     re.DOTALL,
 )
+_CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
 
 # Frontmatter keys the canonical maps explicitly. Anything else is preserved
 # in canonical["claude_extra"] so user-set fields we don't yet model are not
@@ -62,7 +63,21 @@ def _split_csv(value: Any) -> list[str]:
     return [str(value)]
 
 
+def _strip_bom_prefix(text: str) -> str:
+    if text.startswith("\ufeff"):
+        return text[1:]
+    # Defensive handling for already-corrupted BOM bytes rendered as text.
+    if text.startswith(_CORRUPTED_UTF8_BOM):
+        return text[3:]
+    return text
+
+
+def _normalize_markdown_text(text: str) -> str:
+    return _strip_bom_prefix(text)
+
+
 def extract_pair_id_from_md(text: str) -> str | None:
+    text = _normalize_markdown_text(text)
     match = FRONTMATTER_RE.match(text)
     if not match:
         return None
@@ -81,13 +96,14 @@ def parse_claude_md(text: str, prior_canonical: dict[str, Any] | None = None,
     the new frontmatter are dropped (since the user's frontmatter is the
     source of truth on the Claude side for Phase 2).
     """
+    text = _normalize_markdown_text(text)
     match = FRONTMATTER_RE.match(text)
     if match is None:
         frontmatter_data: dict[str, Any] = {}
-        body = text.strip()
+        body = _strip_bom_prefix(text.strip())
     else:
         raw_frontmatter, body_raw = match.groups()
-        body = body_raw.strip()
+        body = _strip_bom_prefix(body_raw.strip())
         loaded = _yaml_load(raw_frontmatter)
         if loaded is None:
             frontmatter_data = {}
@@ -153,6 +169,7 @@ def render_claude_md(canonical: dict[str, Any], prior_text: str | None = None) -
     """
     yml = _make_yaml()
 
+    prior_text = _normalize_markdown_text(prior_text) if prior_text is not None else None
     prior_match = FRONTMATTER_RE.match(prior_text) if prior_text is not None else None
 
     if prior_match is not None:
