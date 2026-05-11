@@ -1,10 +1,38 @@
 # agents_sync
 
-`agents_sync` is a bidirectional sync tool for keeping Claude Code agents and skills synchronized with Codex automatically.
+`agents_sync` is a bidirectional bridge between Claude Code and Codex.
 
-Create or edit an agent in Claude Code, and the matching Codex file appears within a few seconds. Create or edit an agent in Codex, and the matching Claude Code file appears the same way.
+It keeps your custom agents and skills in sync automatically, so you can build your AI workflow once and use it from both tools. Create or edit something in Claude Code, and it appears in Codex. Create or edit it in Codex, and it comes back to Claude Code.
 
-The daemon runs in the background, preserves user content through archives, and keeps pairs stable across renames with `pair_id`s.
+The daemon runs quietly in the background, protects your content with archives, and keeps files connected even when they are renamed.
+
+## What It Syncs
+
+`agents_sync` synchronizes the personal agents and skills you use with Claude Code and Codex.
+
+| What you edit | Where Claude Code stores it | Where Codex stores it |
+|---|---|---|
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` |
+
+In plain terms:
+
+- Agents are reusable AI personas or workflows.
+- Skills are reusable instruction folders.
+- You can edit either Claude Code's version or Codex's version.
+- `agents_sync` keeps the matching file or folder updated on the other side.
+
+```mermaid
+flowchart LR
+    Claude["Claude Code\nagents + skills"]
+    Sync["agents_sync\nbackground daemon"]
+    Codex["Codex\nagents + skills"]
+    Archive["Archive\nbefore overwrite or removal"]
+
+    Claude <-->|bidirectional sync| Sync
+    Sync <-->|bidirectional sync| Codex
+    Sync --> Archive
+```
 
 ## Bidirectional Sync
 
@@ -17,13 +45,6 @@ The daemon runs in the background, preserves user content through archives, and 
 | Create or edit a Claude Code skill | Codex receives the matching skill folder |
 | Create or edit a Codex skill | Claude Code receives the matching skill folder |
 | Remove one side of a synced pair | The other side is archived, then removed |
-
-## What It Syncs
-
-| Claude Code | Codex |
-|---|---|
-| `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` |
-| `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` |
 
 ## Quick Start
 
@@ -48,6 +69,12 @@ Check that it is running:
 systemctl --user status agents-sync.service
 journalctl --user -u agents-sync.service -n 20
 ```
+
+### macOS
+
+macOS support has not been tested yet.
+
+The sync logic is expected to be portable, but the current background install flow is only documented and validated for Linux and Windows.
 
 ### Windows
 
@@ -118,77 +145,6 @@ Expected log line:
 
 ```text
 INFO Watching Claude agents/skills with SHA256 polling
-```
-
-## Generated File Names
-
-When `agents_sync` creates a counterpart file, it uses explicit generated names that include the item kind.
-
-| Item name | Kind | Generated counterpart |
-|---|---|---|
-| `CI.yaml` | agent | `ci-yaml-agent.md` / `ci-yaml-agent.toml` |
-| `formatter` | skill | `formatter-skill/SKILL.md` |
-| `review-agent` | agent | `review-agent.md` / `review-agent.toml` |
-
-If a name already ends with `-agent`, `-agents`, `-skill`, or `-skills`, the kind is not duplicated.
-
-Existing managed paths are preserved. Upgrading the tool does not rename already-synced files unexpectedly.
-
-## Smoke Test
-
-This test creates a temporary Claude agent, checks that Codex receives it, edits Codex, and checks that Claude receives the edit.
-
-### Linux
-
-```bash
-mkdir -p ~/.claude/agents
-cat > ~/.claude/agents/readme-smoke-agent.md <<'EOF'
----
-name: readme-smoke-agent
-description: README smoke test
----
-You are a test agent.
-EOF
-
-sleep 4
-cat ~/.codex/agents/readme-smoke-agent.toml
-```
-
-You should see a Codex TOML file containing `name`, `description`, `developer_instructions`, and a generated `pair_id`.
-
-Clean up:
-
-```bash
-rm -f ~/.claude/agents/readme-smoke-agent.md
-rm -f ~/.codex/agents/readme-smoke-agent.toml
-```
-
-### Windows
-
-$name = "readme-smoke-agent"
-$claudeFile = "$HOME\.claude\agents\$name.md"
-$codexFile = "$HOME\.codex\agents\$name.toml"
-
-$content = @'
----
-name: readme-smoke-agent
-description: README smoke test
----
-You are a test agent.
-'@
-
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($claudeFile, $content, $utf8NoBom)
-
-Start-Sleep -Seconds 4
-Get-Content $codexFile
-```
-
-Clean up:
-
-```powershell
-Remove-Item "$HOME\.claude\agents\readme-smoke-agent.md" -ErrorAction SilentlyContinue
-Remove-Item "$HOME\.codex\agents\readme-smoke-agent.toml" -ErrorAction SilentlyContinue
 ```
 
 ## Run In Foreground For Debugging
@@ -266,64 +222,6 @@ State layout:
 state.json                                pair_id -> paths and digests
 canonical/<pair_id>.json                  one canonical document per pair
 archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
-```
-
-## Troubleshooting
-
-### Windows: `uv` is not found
-
-Install `uv`, then reopen PowerShell:
-
-```powershell
-winget install --id=astral-sh.uv -e
-```
-
-Alternative installer:
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-### Windows: no terminal appears at startup
-
-That is expected. The daemon runs hidden through Task Scheduler.
-
-Check the task:
-
-```powershell
-Get-ScheduledTask -TaskName agents-sync
-```
-
-Check logs:
-
-```powershell
-Get-Content "$env:LOCALAPPDATA\agents-sync\logs\agents-sync.log" -Tail 50
-```
-
-### Windows: PowerShell-created files contain a UTF-8 BOM
-
-`agents_sync` tolerates UTF-8 BOM input for:
-
-- config TOML
-- Claude Markdown files
-- Codex TOML files
-
-The Windows installer writes its seeded config as UTF-8 without BOM.
-
-### A file was removed unexpectedly
-
-Before overwriting or removing managed content, `agents_sync` archives prior bytes under the state archive directory.
-
-Linux archive:
-
-```text
-~/.local/state/agents-sync/archive/
-```
-
-Windows archive:
-
-```text
-%LOCALAPPDATA%\agents-sync\state\archive\
 ```
 
 ## Notes
