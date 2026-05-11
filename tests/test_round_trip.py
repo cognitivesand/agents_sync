@@ -69,3 +69,11 @@ def test_render_with_no_prior_text_produces_valid_frontmatter():
     assert rendered.startswith("---\n")
     assert "name: foo" in rendered
     assert f"pair_id: {canonical['pair_id']}" in rendered
+
+
+def test_parse_tolerates_utf8_bom_prefixed_frontmatter():
+    text = "\ufeff---\nname: demo\ndescription: from-bom\n---\nbody\n"
+    canonical = parse_claude_md(text, kind="agent")
+    assert canonical["name"] == "demo"
+    assert canonical["description"] == "from-bom"
+    assert canonical["body"] == "body"

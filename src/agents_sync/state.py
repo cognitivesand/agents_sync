@@ -9,7 +9,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agents_sync.fs_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
+
+
+_WINDOWS_RESERVED_BASENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
 
 
 @dataclass
@@ -50,7 +77,12 @@ def slugify(value: str) -> str:
     value = value.strip().lower()
     value = re.sub(r"[^a-z0-9_-]+", "-", value)
     value = re.sub(r"-{2,}", "-", value).strip("-")
-    return value or "converted"
+    value = value.rstrip(" .")
+    if not value:
+        return "converted"
+    if value.upper() in _WINDOWS_RESERVED_BASENAMES:
+        return f"{value}-item"
+    return value
 
 
 def sha256_file(path: Path) -> str:
@@ -75,8 +107,11 @@ def sha256_tree(root: Path) -> str:
 def atomic_write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
+    tmp.write_text(content, encoding="utf-8", newline="\n")
+    retry_fs(
+        lambda: tmp.replace(path),
+        operation=f"replace {path}",
+    )
 
 
 def state_path(state_dir: Path) -> Path:

@@ -80,3 +80,17 @@ def test_codex_agent_parse_preserves_unknown_fields_in_codex_extra():
     )
     c = parse_codex_agent_toml(text)
     assert c["codex_extra"] == {"unknown_codex_field": "value"}
+
+
+def test_codex_agent_parse_tolerates_utf8_bom():
+    text = (
+        '\ufeffpair_id = "abc"\n'
+        'name = "x"\n'
+        'description = "y"\n'
+        'developer_instructions = "body"\n'
+    )
+    c = parse_codex_agent_toml(text)
+    assert c["pair_id"] == "abc"
+    assert c["name"] == "x"
+    assert c["description"] == "y"
+    assert c["body"] == "body"

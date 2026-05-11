@@ -18,6 +18,7 @@ READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 PAIR_ID_RE = re.compile(r'^pair_id\s*=\s*"([^"]+)"', re.MULTILINE)
+_CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
 
 KNOWN_CODEX_TOML_KEYS = {
     "pair_id",
@@ -48,6 +49,15 @@ def _yaml_dump(data: Any) -> str:
     return buf.getvalue()
 
 
+def _normalize_toml_text(text: str) -> str:
+    if text.startswith("\ufeff"):
+        return text[1:]
+    # Defensive handling for already-corrupted BOM bytes rendered as text.
+    if text.startswith(_CORRUPTED_UTF8_BOM):
+        return text[3:]
+    return text
+
+
 def toml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
@@ -67,6 +77,7 @@ def infer_codex_sandbox(tools: list[str], disallowed_tools: list[str]) -> str | 
 
 
 def extract_pair_id(toml_text: str) -> str | None:
+    toml_text = _normalize_toml_text(toml_text)
     match = PAIR_ID_RE.search(toml_text)
     return match.group(1) if match else None
 
@@ -129,6 +140,7 @@ def parse_codex_agent_toml(text: str, prior_canonical: dict[str, Any] | None = N
     """
     from agents_sync.canonical import empty_canonical, new_pair_id
 
+    text = _normalize_toml_text(text)
     data = tomllib.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Codex agent TOML must be a table at root")
