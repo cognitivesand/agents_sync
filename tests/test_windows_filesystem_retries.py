@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agents_sync.fs_retry import retry_fs
+from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.state import atomic_write_text
 
 
@@ -23,7 +23,7 @@ def test_retry_fs_retries_permission_error_then_succeeds(monkeypatch: pytest.Mon
             raise PermissionError("locked")
         return "ok"
 
-    monkeypatch.setattr("agents_sync.fs_retry.time.sleep", lambda _: None)
+    monkeypatch.setattr("agents_sync.filesystem_windows_retry.time.sleep", lambda _: None)
 
     assert retry_fs(flaky, operation="flaky-op", attempts=4) == "ok"
     assert attempts["count"] == 3
@@ -36,7 +36,7 @@ def test_retry_fs_does_not_retry_non_transient_errors(monkeypatch: pytest.Monkey
         attempts["count"] += 1
         raise FileNotFoundError("missing")
 
-    monkeypatch.setattr("agents_sync.fs_retry.time.sleep", lambda _: None)
+    monkeypatch.setattr("agents_sync.filesystem_windows_retry.time.sleep", lambda _: None)
 
     with pytest.raises(FileNotFoundError):
         retry_fs(failing, operation="missing-op", attempts=4)

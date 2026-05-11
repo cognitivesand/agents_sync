@@ -9,6 +9,13 @@ Bidirectional sync of Claude Code user agents and skills with Codex. The daemon 
 | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` |
 | `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` |
 
+Newly created counterparts use explicit generated names based on the item kind:
+
+| Item name | Kind | Generated counterpart |
+|---|---|---|
+| `CI.yaml` | agent | `ci-yaml-agent.md` / `ci-yaml-agent.toml` |
+| `formatter` | skill | `formatter-skill/SKILL.md` |
+
 ## Install
 
 Install `uv` first if needed.
@@ -142,6 +149,7 @@ Manual smoke test:
 - Managed `pair_id`s must be canonical UUIDv4 strings. Malformed IDs, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - A v0.1 `claude-codex-sync` install at `~/.config/claude-codex-sync/` or `~/.local/state/claude-codex-sync/` is not auto-migrated; the daemon errors out and asks you to remove or move those paths first.
 - Windows-authored UTF-8 files with a BOM are tolerated for config, Claude Markdown, and Codex TOML inputs. The Windows installer writes its seeded config as UTF-8 without BOM.
+- New rendered counterpart filenames include the item kind (`-agent` or `-skill`) unless the name already ends with that kind, so generated paths are easier to identify.
 
 ## Changelog
 

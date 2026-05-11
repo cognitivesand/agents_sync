@@ -16,7 +16,7 @@ import datetime as _dt
 import shutil
 from pathlib import Path
 
-from agents_sync.fs_retry import retry_fs
+from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import validate_pair_id
 
 

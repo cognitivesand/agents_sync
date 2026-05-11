@@ -28,7 +28,7 @@ from agents_sync.codex_io import (
 )
 from agents_sync.config import expand_path
 from agents_sync.config import validate_config
-from agents_sync.fs_retry import retry_fs
+from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.state import (
     PairState,
@@ -37,7 +37,7 @@ from agents_sync.state import (
     save_state,
     sha256_file,
     sha256_tree,
-    slugify,
+    target_slug,
 )
 
 
@@ -412,7 +412,7 @@ class Syncer:
                 prior_canonical=None,
                 kind=info.kind,
             )
-            slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
+            slug = target_slug(canonical["name"], info.kind)
             if info.kind == "agent":
                 return self.codex_agents_dir / f"{slug}.toml"
             return self.codex_skills_dir / slug
@@ -424,7 +424,7 @@ class Syncer:
             canonical = parse_codex_agent_toml(text, prior_canonical=None)
         else:
             canonical = parse_codex_skill_md(text, prior_canonical=None)
-        slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
+        slug = target_slug(canonical["name"], info.kind)
         if info.kind == "agent":
             return self.claude_agents_dir / f"{slug}.md"
         return self.claude_skills_dir / slug
@@ -595,7 +595,7 @@ class Syncer:
     def _render_claude(self, kind: str, canonical: dict[str, Any],
                        existing_path: Path | None, *, prior_text: str | None,
                        codex_dir: Path | None) -> Path:
-        slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
+        slug = target_slug(canonical["name"], kind)
         if kind == "agent":
             target = existing_path or (self.claude_agents_dir / f"{slug}.md")
             self._assert_target_available(target, existing_path)
@@ -613,7 +613,7 @@ class Syncer:
 
     def _render_codex(self, kind: str, canonical: dict[str, Any],
                       existing_path: Path | None, *, claude_dir: Path | None) -> Path:
-        slug = slugify(canonical["name"]) or canonical["pair_id"][:8]
+        slug = target_slug(canonical["name"], kind)
         if kind == "agent":
             target = existing_path or (self.codex_agents_dir / f"{slug}.toml")
             self._assert_target_available(target, existing_path)

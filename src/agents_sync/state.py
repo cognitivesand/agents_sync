@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agents_sync.fs_retry import retry_fs
+from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 
 
@@ -83,6 +83,14 @@ def slugify(value: str) -> str:
     if value.upper() in _WINDOWS_RESERVED_BASENAMES:
         return f"{value}-item"
     return value
+
+
+def target_slug(value: str, kind: str) -> str:
+    slug = slugify(value)
+    suffix = "agent" if kind == "agent" else "skill"
+    if slug.endswith(f"-{suffix}") or slug.endswith(f"-{suffix}s"):
+        return slug
+    return f"{slug}-{suffix}"
 
 
 def sha256_file(path: Path) -> str:
