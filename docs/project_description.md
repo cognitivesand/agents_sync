@@ -18,6 +18,7 @@ In scope:
 - Conflict resolution by last-modified time when both sides diverge in the same poll.
 - Data preservation: every operation that would overwrite or remove user content first archives the prior bytes.
 - Auto-adoption of foreign artifacts (files created directly on either side without using the tool).
+- Explicit generated filenames for new counterparts, with the item kind included in the slug.
 - Continuous daemon operation (no one-shot CLI mode).
 - Background supervision:
   - Linux: `systemd --user` service.
@@ -86,7 +87,7 @@ The tool does not use an on-disk lock; concurrency safety is achieved by atomic 
 - **Parse**: the inverse of render; read a side-specific file and update the canonical.
 - **Archive**: the directory under the state root where prior versions of files are preserved before any destructive overwrite.
 - **Foreign artifact**: a file on either side without a `pair_id`, awaiting adoption.
-- **Slug**: the filesystem-friendly form of an agent or skill `name`; determines the basename of the rendered file.
+- **Slug**: the filesystem-friendly form of an agent or skill `name`; determines the basename of a rendered file. New generated counterparts include the item kind, for example `ci-yaml-agent.toml` or `formatter-skill/SKILL.md`.
 
 ## References
 

@@ -33,7 +33,7 @@ def test_adopt_from_claude_creates_codex_counterpart_and_archives_original(synce
 
     assert changed == 1
     codex_files = list(Path(syncer.codex_agents_dir).iterdir())
-    assert [p.name for p in codex_files] == ["foo.toml"]
+    assert [p.name for p in codex_files] == ["foo-agent.toml"]
 
     # pair_id was injected into the Claude file.
     assert "pair_id:" in claude_md.read_text()
@@ -56,8 +56,8 @@ def test_adopt_from_codex_creates_claude_counterpart(syncer: Syncer):
 
     assert changed == 1
     claude_files = list(Path(syncer.claude_agents_dir).iterdir())
-    assert [p.name for p in claude_files] == ["bar.md"]
-    assert "the body" in (Path(syncer.claude_agents_dir) / "bar.md").read_text()
+    assert [p.name for p in claude_files] == ["bar-agent.md"]
+    assert "the body" in (Path(syncer.claude_agents_dir) / "bar-agent.md").read_text()
 
 
 # ---------------- edit propagation ----------------
@@ -73,7 +73,7 @@ def test_edit_claude_propagates_to_codex(syncer: Syncer):
     changed = syncer.sync_once()
     assert changed == 1
 
-    codex_text = (Path(syncer.codex_agents_dir) / "foo.toml").read_text()
+    codex_text = (Path(syncer.codex_agents_dir) / "foo-agent.toml").read_text()
     assert "EDITED" in codex_text
 
 
@@ -82,7 +82,7 @@ def test_edit_codex_propagates_to_claude(syncer: Syncer):
     claude_md.write_text(_claude_md(description="original"))
     syncer.sync_once()
 
-    codex_toml = Path(syncer.codex_agents_dir) / "foo.toml"
+    codex_toml = Path(syncer.codex_agents_dir) / "foo-agent.toml"
     text = codex_toml.read_text()
     codex_toml.write_text(text.replace("original", "EDITED"))
 
@@ -138,7 +138,7 @@ def test_remove_claude_archives_codex(syncer: Syncer):
     assert changed == 1
 
     assert list(Path(syncer.codex_agents_dir).iterdir()) == []
-    archived = list((syncer.state_dir / "archive").rglob("foo.toml*"))
+    archived = list((syncer.state_dir / "archive").rglob("foo-agent.toml*"))
     assert len(archived) >= 1
 
 
@@ -147,7 +147,7 @@ def test_remove_codex_archives_claude(syncer: Syncer):
     claude_md.write_text(_claude_md())
     syncer.sync_once()
 
-    (Path(syncer.codex_agents_dir) / "foo.toml").unlink()
+    (Path(syncer.codex_agents_dir) / "foo-agent.toml").unlink()
     changed = syncer.sync_once()
     assert changed == 1
 
@@ -161,7 +161,7 @@ def test_conflict_is_resolved_by_mtime_with_loser_archived(syncer: Syncer):
     claude_md.write_text(_claude_md(description="original"))
     syncer.sync_once()
 
-    codex_toml = Path(syncer.codex_agents_dir) / "foo.toml"
+    codex_toml = Path(syncer.codex_agents_dir) / "foo-agent.toml"
 
     # Edit both sides; explicitly set mtimes so Claude wins.
     text_codex = codex_toml.read_text()
@@ -194,7 +194,7 @@ def test_skill_aux_files_propagate_and_are_preserved(syncer: Syncer):
 
     syncer.sync_once()
 
-    codex_skill = Path(syncer.codex_skills_dir) / "skill-a"
+    codex_skill = Path(syncer.codex_skills_dir) / "skill-a-skill"
     assert codex_skill.is_dir()
     assert (codex_skill / "SKILL.md").exists()
     assert (codex_skill / "asset.txt").read_text() == "aux payload\n"
@@ -212,7 +212,7 @@ def test_dotfile_md_is_ignored_by_discovery(syncer: Syncer):
     changed = syncer.sync_once()
 
     assert changed == 1
-    assert [p.name for p in Path(syncer.codex_agents_dir).iterdir()] == ["real.toml"]
+    assert [p.name for p in Path(syncer.codex_agents_dir).iterdir()] == ["real-agent.toml"]
 
 
 # ---------------- v0.2.1 safety regressions ----------------
@@ -242,7 +242,7 @@ def test_invalid_pair_id_is_skipped_without_blocking_valid_pairs(syncer: Syncer)
 
     assert changed == 1
     assert "pair_id: ../escape" in bad.read_text()
-    assert [p.name for p in Path(syncer.codex_agents_dir).iterdir()] == ["good.toml"]
+    assert [p.name for p in Path(syncer.codex_agents_dir).iterdir()] == ["good-agent.toml"]
     assert not (syncer.state_dir.parent / "escape.json").exists()
 
 
@@ -250,7 +250,7 @@ def test_invalid_pair_id_on_managed_file_does_not_propagate_deletion(syncer: Syn
     claude_md = Path(syncer.claude_agents_dir) / "foo.md"
     claude_md.write_text(_claude_md())
     syncer.sync_once()
-    codex_toml = Path(syncer.codex_agents_dir) / "foo.toml"
+    codex_toml = Path(syncer.codex_agents_dir) / "foo-agent.toml"
     state_before = (syncer.state_dir / "state.json").read_text()
 
     text = claude_md.read_text()
