@@ -6,7 +6,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $TaskName = "agents-sync"
-$LauncherPath = Join-Path $env:LOCALAPPDATA "agents-sync\bin\agents-sync.cmd"
+$LauncherDir = Join-Path $env:LOCALAPPDATA "agents-sync\bin"
+$LauncherPath = Join-Path $LauncherDir "agents-sync.cmd"
+$HiddenLauncherPath = Join-Path $LauncherDir "agents-sync-hidden.vbs"
+$LegacyHiddenLauncherPath = Join-Path $LauncherDir "agents-sync-hidden.ps1"
 $ConfigDir = Join-Path $env:APPDATA "agents-sync"
 $StateDir = Join-Path $env:LOCALAPPDATA "agents-sync"
 
@@ -44,9 +47,11 @@ function Remove-DataIfRequested([switch]$DoCleanup, [string]$ConfigRoot, [string
 
 Unregister-AgentsSyncTask -Name $TaskName
 Remove-Launcher -LauncherFile $LauncherPath
+Remove-Launcher -LauncherFile $HiddenLauncherPath
+Remove-Launcher -LauncherFile $LegacyHiddenLauncherPath
 Remove-DataIfRequested -DoCleanup:$CleanupData -ConfigRoot $ConfigDir -StateRoot $StateDir
 
-Write-Host "Uninstalled agents-sync task and launcher."
+Write-Host "Uninstalled agents-sync task and launchers."
 if ($CleanupData) {
   Write-Host "Config/state directories were also removed."
 } else {

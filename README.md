@@ -49,7 +49,7 @@ The script installs the `agents-sync` launcher under `~/.local/bin/`, seeds `~/.
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-The script verifies `python` and `uv`, runs `uv sync`, writes a launcher under `%LOCALAPPDATA%\\agents-sync\\bin\\agents-sync.cmd`, seeds `%APPDATA%\\agents-sync\\config.toml` if missing, and registers a per-user scheduled task `agents-sync` triggered at logon.
+The script verifies `python` and `uv`, runs `uv sync`, writes a manual launcher under `%LOCALAPPDATA%\\agents-sync\\bin\\agents-sync.cmd`, writes a hidden startup launcher under `%LOCALAPPDATA%\\agents-sync\\bin\\agents-sync-hidden.vbs`, seeds `%APPDATA%\\agents-sync\\config.toml` if missing, and registers a per-user scheduled task `agents-sync` triggered at logon. The scheduled task starts through `wscript.exe`, so no terminal window should appear at logon.
 
 Use `-Force` to regenerate the Windows config file:
 
@@ -88,6 +88,7 @@ Windows task management:
 Get-ScheduledTask -TaskName agents-sync
 Stop-ScheduledTask -TaskName agents-sync
 Start-ScheduledTask -TaskName agents-sync
+Get-Content "$env:LOCALAPPDATA\agents-sync\logs\agents-sync.log" -Tail 50
 ```
 
 Windows uninstall:
