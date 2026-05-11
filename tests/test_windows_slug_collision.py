@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agents_sync.state import PairState, slugify
+from agents_sync.state import PairState, slugify, target_slug
 from agents_sync.sync import PairInfo, Syncer
 
 
@@ -12,6 +12,12 @@ def test_slugify_avoids_reserved_windows_basenames():
     assert slugify("CON") == "con-item"
     assert slugify("nul") == "nul-item"
     assert slugify("LPT1") == "lpt1-item"
+
+
+def test_target_slug_adds_kind_for_explicit_generated_names():
+    assert target_slug("CI.yaml", "agent") == "ci-yaml-agent"
+    assert target_slug("formatter", "skill") == "formatter-skill"
+    assert target_slug("review-agent", "agent") == "review-agent"
 
 
 def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
