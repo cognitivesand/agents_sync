@@ -22,7 +22,7 @@ In scope:
 - Continuous daemon operation (no one-shot CLI mode).
 - Background supervision:
   - Linux: `systemd --user` service.
-  - Windows: per-user Task Scheduler task.
+  - Windows: per-user Task Scheduler task using a hidden startup launcher.
 
 Out of scope (initially):
 
@@ -57,7 +57,7 @@ Out of scope (initially):
 
 - Cross-platform user environment:
   - Linux supported via `systemd --user`.
-  - Windows supported via per-user Task Scheduler.
+  - Windows supported via per-user Task Scheduler without a visible terminal at logon.
 - Python 3.12+.
 - `uv` for environment management.
 - Single user, single workstation.
