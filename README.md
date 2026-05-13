@@ -14,11 +14,11 @@
 
 ## 🎯 Purpose
 
-`agents_sync` is a bidirectional bridge between Claude Code and Codex.
+`agents_sync` is a bidirectional bridge between **Claude Code** and **Codex**.
 
-> It keeps your custom agents and skills in sync automatically, so you can build your AI workflow once and use it from both tools. Create or edit something in Claude Code, and it appears in Codex. Create or edit it in Codex, and it comes back to Claude Code.
+> It keeps your user level custom agents and skills in sync automatically, so you can build your AI workflow once and use it from both tools. Create or edit something in Claude Code, and it appears in Codex. Create or edit it in Codex, and it comes back to Claude Code.
 
-The daemon runs quietly in the background, protects your content with archives, and keeps files connected even when they are renamed.
+The daemon runs quietly in the background, protects your content with archives, and keeps user level files connected even when they are renamed.
 
 ---
 
@@ -44,7 +44,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes the personal agents and skills you use with Claude Code and Codex.
+`agents_sync` synchronizes agents and skills you use with Claude Code and Codex at user level.
 
 | What you edit | Where Claude Code stores it | Where Codex stores it |
 |:---|:---|:---|
@@ -94,7 +94,7 @@ flowchart LR
 
 ## 🔁 Bidirectional Sync
 
-`agents_sync` does not have a primary side. Claude Code and Codex can both be edited directly.
+`agents_sync` treats Claude Code and Codex as equal peers, so you can edit either side directly and changes automatically propagate to the other.
 
 | Action | Result |
 |:---|:---|
@@ -304,7 +304,7 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 - Removing one side of a pair archives the other side and drops the pair from state.
 - Missing or unreadable configured roots fail closed. A missing directory is never interpreted as "all files were deleted."
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
-- A v0.1 `claude-codex-sync` install at `~/.config/claude-codex-sync/` or `~/.local/state/claude-codex-sync/` is not auto-migrated. The daemon errors out and asks you to remove or move those paths first.
+- This tool was developed with the support of both Claude Code and Codex.
 
 ---
 
