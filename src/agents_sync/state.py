@@ -38,6 +38,9 @@ _WINDOWS_RESERVED_BASENAMES = {
     "LPT9",
 }
 
+_IGNORED_TREE_FILE_NAMES = {".DS_Store"}
+_IGNORED_TREE_FILE_PREFIXES = ("._",)
+
 
 @dataclass
 class PairState:
@@ -101,9 +104,21 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def is_ignored_tree_path(path: Path) -> bool:
+    return path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(_IGNORED_TREE_FILE_PREFIXES)
+
+
+def ignored_tree_names(names: list[str]) -> set[str]:
+    return {
+        name
+        for name in names
+        if name in _IGNORED_TREE_FILE_NAMES or name.startswith(_IGNORED_TREE_FILE_PREFIXES)
+    }
+
+
 def sha256_tree(root: Path) -> str:
     digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    for path in sorted(p for p in root.rglob("*") if p.is_file() and not is_ignored_tree_path(p)):
         relative = path.relative_to(root).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")

@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,7 @@ from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.state import (
     PairState,
     atomic_write_text,
+    ignored_tree_names,
     load_state,
     save_state,
     sha256_file,
@@ -67,7 +70,7 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
                 lambda stale=stale: shutil.rmtree(stale),
                 operation=f"rmtree {stale}",
             )
-    shutil.copytree(source, tmp)
+    shutil.copytree(source, tmp, ignore=lambda _dir, names: ignored_tree_names(names))
     atomic_write_text(tmp / "SKILL.md", skill_md_content)
     if target.exists():
         retry_fs(
@@ -445,7 +448,10 @@ class Syncer:
 
     def _path_collision_key(self, path: Path) -> str:
         resolved = path.resolve()
-        return os.path.normcase(str(resolved))
+        normalized = unicodedata.normalize("NFC", os.path.normcase(str(resolved)))
+        if sys.platform == "darwin":
+            return normalized.casefold()
+        return normalized
 
     # ---------- adoption ----------
 

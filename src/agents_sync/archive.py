@@ -18,6 +18,7 @@ from pathlib import Path
 
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import validate_pair_id
+from agents_sync.state import ignored_tree_names
 
 
 def iso_timestamp(now: _dt.datetime | None = None) -> str:
@@ -41,7 +42,7 @@ def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
     """Copy `source` into the per-pair archive; original remains in place."""
     target = _archive_target(state_dir, pair_id, side, source)
     if source.is_dir():
-        shutil.copytree(source, target)
+        shutil.copytree(source, target, ignore=lambda _dir, names: ignored_tree_names(names))
     else:
         shutil.copy2(source, target)
     return target
