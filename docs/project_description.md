@@ -1,24 +1,39 @@
-﻿# agents_sync
+# agents_sync
 
 ## Purpose
 
-`agents_sync` keeps Claude Code user-defined agents and skills in sync with their Codex equivalents in both directions. Edit on either side; the change propagates to the other within seconds.
+`agents_sync` keeps user-authored agents and skills in sync across multiple agentic_tools (for example Claude Code, Codex, Google Antigravity) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
 
 ## Problem statement
 
-Claude Code stores user-level agents at `~/.claude/agents/*.md` and user-level skills at `~/.claude/skills/<name>/`. Codex stores its agent and skill equivalents at `~/.codex/agents/*.toml` and `~/.agents/skills/<name>/`. Maintaining the same set of agents and skills on both sides by hand is tedious and drifts. The first version of this tool (`claude-codex-sync` v0.1) translated one-way, Claude -> Codex, and dropped Claude-only metadata into a JSON-in-body blob for manual review. `agents_sync` v0.2 made sync bidirectional and lossless via a per-pair canonical JSON intermediate; v0.3 adds first-class Windows operations.
+Every agentic_tool stores its agents and skills under its own filesystem layout. For example:
+
+- Claude Code: user-level agents at `~/.claude/agents/*.md`; user-level skills at `~/.claude/skills/<name>/SKILL.md`.
+- Codex: agents at `~/.codex/agents/*.toml`; skills at `~/.agents/skills/<name>/SKILL.md`.
+- Google Antigravity: skills at `~/.gemini/antigravity/skills/<name>/SKILL.md` (no per-agent file format as of v0.4 release).
+
+Maintaining the same library of customizations across two or more such agentic_tools by hand is tedious and drifts.
+
+Release history:
+
+- v0.1 (`claude-codex-sync`): one-way translation, Claude → Codex; Claude-only metadata dropped into a JSON-in-body blob for manual review.
+- v0.2: bidirectional, lossless sync between two agentic_tools (Claude Code, Codex) via a per-customization_artifact canonical JSON intermediate.
+- v0.3: first-class Windows operations.
+- v0.4: generalisation to **N agentic_tools** via the agentic-tool-integration protocol (`docs/agentic_tool_integration_protocol.md`). Each additional agentic_tool is a small, isolated module under `src/agents_sync/agentic_tools/` plus a config entry; no sync-algorithm changes are required.
 
 ## Scope
 
 In scope:
 
-- Bidirectional sync of user-level agents and skills between Claude Code and Codex.
-- Lossless round-trip via a per-pair canonical JSON intermediate.
-- Identity-preserving sync via injected `pair_id` UUIDs on both sides.
-- Conflict resolution by last-modified time when both sides diverge in the same poll.
-- Data preservation: every operation that would overwrite or remove user content first archives the prior bytes.
-- Auto-adoption of foreign artifacts (files created directly on either side without using the tool).
-- Explicit generated filenames for new counterparts, with the item kind included in the slug.
+- Bidirectional sync of user-level customizations across N registered agentic_tools.
+- N may be 1 (degenerate, no work), 2 (two-tool sync as in v0.3), or higher (multi-tool sync introduced in v0.4).
+- Lossless round-trip via a per-customization_artifact canonical JSON intermediate; every agentic_tool is a projection of the canonical.
+- Identity-preserving sync: a UUIDv4 `customization_artifact_id` is injected into every agentic_tool's copy of the artifact.
+- Conflict resolution by last-modified time: when ≥ 2 agentic_tools diverge in one poll, the most recent wins and every loser's bytes are archived first (US-06).
+- Data preservation: every operation that would overwrite or remove user content first archives the prior bytes under a deterministic, recoverable layout (US-05).
+- Auto-adoption of new customization artifacts; first-boot reconciliation of multi-tool duplicates by `(customization_type, target_slug(name))` reconciliation key (US-03).
+- Graceful absence: if a registered, enabled agentic_tool's root becomes missing or unreadable, the tool is marked `unavailable` and the transition is logged once. An `unavailable` tool never causes a removal to propagate to healthy tools (US-11).
+- Explicit generated filenames for new counterparts; the `customization_type` is included in the slug (e.g. `formatter-skill/SKILL.md`).
 - Continuous daemon operation (no one-shot CLI mode).
 - Background supervision:
   - Linux: `systemd --user` service.
@@ -26,38 +41,40 @@ In scope:
 
 Out of scope (initially):
 
-- Project-scoped agents (`<project>/.claude/agents/`) - only user-level for now.
+- Project-scoped customizations (e.g. `<project>/.claude/agents/`, `<workspace>/.agents/skills/`) — only user-level for now.
 - Multi-user / multi-host sync (cloud, network filesystem).
 - Sync of session state, conversation history, hooks state, or MCP server runtime data.
 - A GUI; CLI only.
-- inotify / fsevents / ReadDirectoryChangesW - periodic polling at a configurable interval is sufficient.
-- Field-level merge of simultaneous edits - last-`mtime`-wins is the policy.
+- inotify / fsevents / ReadDirectoryChangesW — periodic polling at a configurable interval is sufficient.
+- Field-level merge of simultaneous edits — last-`mtime`-wins is the policy.
 
 ## Stakeholders
 
-- **Primary user**: a developer running both Claude Code and Codex on the same workstation, maintaining a personal set of agents and skills, wanting a single source of truth without manual translation.
+- **Primary user**: a developer running two or more agentic_tools on the same workstation, maintaining a personal set of agents and skills, wanting a single source of truth without manual translation across agentic_tools.
 - **Personas** (used in user stories):
-  - **Alice** - experienced power user; values efficiency, configurability, observability.
-  - **Bob** - novice user; relies on sensible defaults and clear error messages.
+  - **Alice** — experienced power user; values efficiency, configurability, observability.
+  - **Bob** — novice user; relies on sensible defaults and clear error messages.
 
 ## Goals
 
-1. Editing on either side propagates to the other within at most two polling intervals.
-2. Renaming, editing, or reorganizing agents on either side does not break the sync pair.
+1. Editing a customization on any one agentic_tool propagates to every other participating agentic_tool within at most two polling intervals.
+2. Renaming, editing, or reorganising a customization on any one agentic_tool does not break the customization_artifact's sync across the other agentic_tools.
 3. No user-authored content is ever destroyed; every overwrite or removal first archives the prior bytes under a deterministic, recoverable layout.
 4. The tool runs unattended as a background user service/task and recovers from transient errors without operator intervention.
+5. Adding support for a new agentic_tool is a small, isolated change: one new module under `src/agents_sync/agentic_tools/<tool_name>.py` plus a `[agentic_tools.<tool_name>]` config block — no edits to the sync engine.
 
 ## Non-goals
 
-- Modifying Claude Code or Codex themselves.
+- Modifying the agentic_tools themselves.
 - Resolving simultaneous concurrent writes from a third-party tool to the same file mid-poll.
-- Translating fields that have no semantic mapping between sides; such fields ride in passthrough buckets within the canonical and are emitted only on the side they came from.
+- Translating fields that have no semantic mapping across agentic_tools. Such fields are kept in the canonical's per-tool passthrough sections (`per_agentic_tool_only`, `per_agentic_tool_extra`) and re-emitted only on the agentic_tool they came from.
 
 ## Constraints
 
 - Cross-platform user environment:
   - Linux supported via `systemd --user`.
   - Windows supported via per-user Task Scheduler.
+  - macOS supported on a best-effort basis (background-install flow untested as of v0.4).
 - Python 3.12+.
 - `uv` for environment management.
 - Single user, single workstation.
@@ -65,31 +82,44 @@ Out of scope (initially):
 ## Architectural sketch
 
 ```
-Claude .md  --parse-->  canonical.json  --render-->  Codex .toml
-Claude .md  <--render-- canonical.json  <--parse---  Codex .toml
+agentic_tool_1 native format  ──parse──▶  canonical.json  ──render──▶  agentic_tool_2 native format
+agentic_tool_1 native format  ◀──render──  canonical.json  ──parse──▶  agentic_tool_3 native format
+                                                          ──render──▶  agentic_tool_N native format
 ```
 
-Each side is a projection of the canonical. On any change to a side, the tool reverse-projects the change into the canonical, then forward-projects to the other side. Round-trip stability - `parse(render(c)) == c` - is what makes loop suppression sound.
+Each agentic_tool is a projection of the canonical. On any change to an agentic_tool, the daemon reverse-projects the change into the canonical, then forward-projects to every other participating agentic_tool. Round-trip stability — `parse(render(c)) == c` over the agentic_tool-relevant subset of `c` — is what makes loop suppression sound.
 
-Per-pair state is stored under the platform default state root (Linux `~/.local/state/agents-sync/`; Windows `%LOCALAPPDATA%\\agents-sync\\state\\`):
+Per-customization_artifact state is stored under the platform default state root (Linux `~/.local/state/agents-sync/`; Windows `%LOCALAPPDATA%\\agents-sync\\state\\`):
 
-- `state.json` - thin index of `pair_id -> {paths, digests}`.
-- `canonical/<pair_id>.json` - one canonical document per pair.
-- `archive/<pair_id>/<side>/<filename>.<ISO-timestamp>` - preserved prior bytes.
+- `state.json` — versioned envelope: `{"schema_version": 2, "customization_artifacts": {<customization_artifact_id>: {"customization_artifact": ..., "agentic_tools": {<name>: {"path": ..., "digests": ...}}}}}`.
+- `canonical/<customization_artifact_id>.json` — one canonical document per customization_artifact, including `per_agentic_tool_only` and `per_agentic_tool_extra` passthrough bags per agentic_tool.
+- `archive/<customization_artifact_id>/<agentic_tool_name>/<filename>.<ISO-timestamp>` — preserved prior bytes.
 
-The tool does not use an on-disk lock; concurrency safety is achieved by atomic writes and self-healing polls - see US-09 and NFR-03 / NFR-04.
+The tool does not use an on-disk lock; concurrency safety is achieved by atomic writes and self-healing polls — see US-09 and NFR-03 / NFR-04.
 
 ## Glossary
 
-- **Pair**: a logical agent or skill that exists on both sides, identified by a UUIDv4 `pair_id` injected into both sides' files.
-- **Canonical**: a per-pair JSON document storing the union of fields from both sides; the lossless intermediate that drives both renderers.
-- **Render**: project the canonical into a side-specific file (Claude `.md` or Codex `.toml`).
-- **Parse**: the inverse of render; read a side-specific file and update the canonical.
-- **Archive**: the directory under the state root where prior versions of files are preserved before any destructive overwrite.
-- **Foreign artifact**: a file on either side without a `pair_id`, awaiting adoption.
-- **Slug**: the filesystem-friendly form of an agent or skill `name`; determines the basename of a rendered file. New generated counterparts include the item kind, for example `ci-yaml-agent.toml` or `formatter-skill/SKILL.md`.
+Each entry pairs the technical identifier used in code, configs, ACs, and schemas with the first-person prose form used in user stories and the README.
+
+- **`agentic_tool`** (prose: "my agentic_tools") — an external application that consumes user-authored, reusable files (e.g. Claude Code, Codex, Google Antigravity). The user installs and uses agentic_tools directly; `agents_sync` does not modify them. In this codebase, the integration module for a given agentic_tool is itself called an `agentic_tool` — a 1:1 correspondence with the external tool, with no separate "side" or "peer" abstraction.
+- **`agentic_tool` status** (prose: "available / unavailable / disabled") — at a given poll: `available` (configured, enabled, root reachable), `unavailable` (configured, enabled, root missing or unreadable), or `disabled` (turned off in config).
+- **`user_customization`** (prose: "my customizations") — the umbrella term for the domain of user-authored customizations that `agents_sync` manages, across every `customization_type`. Used in user-facing prose and as a global concept. The concrete unit of synchronisation is the `customization_artifact` (below); a `user_customization` is what you mean colloquially when you say "I'm customising my agentic_tools."
+- **`customization_artifact`** (prose: "a customization", "my agent", "my skill") — a specific managed instance: a user-authored customization identified by a UUIDv4 `customization_artifact_id` and present on N agentic_tools (N ≥ 1) as N renditions of the same content. It is the technical unit of synchronisation: every poll, sync, conflict, removal, and reconciliation operates over customization_artifacts.
+- **`customization_type`** — the category of a customization_artifact. v0.4 ships two: `agent` (a single managed file per customization_artifact) and `skill` (a managed folder containing a `SKILL.md` written by the agentic_tool's renderer, plus optional auxiliary files). Future versions may add `prompt_template`, `mcp_server_config`, etc. An agentic_tool declares which customization_types it can read and write via `supported_customization_types`. Each customization_type has an associated `file_layout` (single file or folder) describing how it is stored on disk.
+- **Participating `agentic_tools` for a customization_artifact** — agentic_tools whose `supported_customization_types` include the customization_artifact's `customization_type` AND whose status is `available`. Denoted **N** (N ≥ 1 for the customization_artifact to exist; N ≥ 2 for any cross-tool sync to happen; ≥ 2 changed simultaneously for a conflict).
+- **Changed `agentic_tools` for a customization_artifact at the current poll** — the subset of participating agentic_tools whose current digest differs from the `last_written` digest recorded in state. ≥ 2 changed = conflict; exactly 1 = one-way propagation; 0 = no-op.
+- **Available `agentic_tools` at a given poll** — registered, enabled agentic_tools whose status is `available` (root reachable, readable, writable).
+- **Canonical** — per-customization_artifact JSON document storing the union of fields from every agentic_tool; the lossless intermediate that drives every renderer.
+- **Render / parse** — project the canonical onto an agentic_tool's native format; or fold the native format back into the canonical.
+- **Archive** — directory under the state root where prior versions of files are preserved before any destructive overwrite.
+- **New customization_artifact** — a customization_artifact whose artifact metadata does not yet contain a `customization_artifact_id`, awaiting adoption or reconciliation. See US-03.
+- **Artifact metadata** — the structured block on a customization_artifact that declares its identifying fields (`name`, `customization_artifact_id`, `description`, and any agentic_tool-specific fields). Physical form varies per agentic_tool: a YAML block delimited by `---` for `.md` files, the whole TOML document for `.toml` files, etc. Each agentic_tool module's `parse` and `render` functions are responsible for reading and writing it.
+- **Reconciliation key** — `(customization_type, target_slug(name))`, used to group new customization_artifacts that represent the same logical user_customization across agentic_tools.
+- **Slug** — the filesystem-friendly form of a customization_artifact's `name`; determines the basename of a rendered file. New counterparts include the `customization_type` in the slug (e.g. `formatter-skill/SKILL.md`).
 
 ## References
 
-- User stories: `docs/stories/US-XX-*.md`
-- Requirements: `docs/project_requirements.md`
+- Agentic-tool integration protocol (how to add a new agentic_tool): `docs/agentic_tool_integration_protocol.md`.
+- User stories: `docs/stories/US-XX-*.md`.
+- Requirements: `docs/project_requirements.md`.
+- v0.4 implementation plan: `docs/v0.4_implementation_plan.md`.
