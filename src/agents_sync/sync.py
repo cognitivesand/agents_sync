@@ -448,9 +448,12 @@ class Syncer:
 
     def _path_collision_key(self, path: Path) -> str:
         resolved = path.resolve()
-        normalized = unicodedata.normalize("NFC", os.path.normcase(str(resolved)))
-        if sys.platform == "darwin":
-            return normalized.casefold()
+        normalized = unicodedata.normalize("NFC", str(resolved))
+        normcased = os.path.normcase(normalized)
+        if sys.platform in {"darwin", "win32"}:
+            return normcased.casefold()
+        elif os.name != "nt" and normcased != normalized:
+            return normcased
         return normalized
 
     # ---------- adoption ----------

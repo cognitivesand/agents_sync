@@ -6,6 +6,7 @@
 
 <p align="center">
   <img alt="Linux available" src="https://img.shields.io/badge/Linux-available-f9ab00">
+  <img alt="macOS available" src="https://img.shields.io/badge/macOS-available-1f883d">
   <img alt="Windows available" src="https://img.shields.io/badge/Windows-available-8250df">
   <img alt="sync" src="https://img.shields.io/badge/sync-bidirectional-2ea44f">
   <img alt="daemon" src="https://img.shields.io/badge/daemon-background-0969da">
@@ -143,7 +144,20 @@ The Windows installer registers a per-user scheduled task. It starts at logon wi
 
 ### macOS
 
-macOS support has not been tested yet; only Linux and Windows background install flows are documented and validated.
+**Install `uv` if needed:**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Install and start `agents_sync`:**
+
+```bash
+chmod +x install-macos.sh
+./install-macos.sh
+```
+
+The macOS installer registers a per-user LaunchAgent. It starts at login and keeps the daemon running in the background.
 
 Verify it with [Check That It Is Running](#check-that-it-is-running).
 
@@ -156,6 +170,7 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 After installation, there is nothing else to start manually:
 
 - Linux runs `agents_sync` as a `systemd --user` service.
+- macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
 Use Claude Code or Codex normally. Create, edit, rename, or remove agents and skills from either side; matching changes propagate automatically. Removals archive the opposite side before cleanup, and existing pairs keep their identity through `pair_id`.
@@ -205,6 +220,15 @@ Get-Content "$env:LOCALAPPDATA\agents-sync\logs\agents-sync.log" -Tail 20
 INFO Watching Claude agents/skills with SHA256 polling
 ```
 
+### macOS
+
+On macOS, `launchctl` shows the status of the per-user LaunchAgent. The installer writes stdout and stderr logs under `~/Library/Logs/agents-sync/`.
+
+```bash
+launchctl print "gui/$(id -u)/com.agents-sync.daemon"
+tail -n 20 ~/Library/Logs/agents-sync/agents-sync.log
+```
+
 ---
 
 <a id="run-in-foreground-for-debugging"></a>
@@ -223,6 +247,12 @@ agents-sync --config ~/.config/agents-sync/config.toml --verbose
 
 ```powershell
 & "$env:LOCALAPPDATA\agents-sync\bin\agents-sync.cmd" --config "$env:APPDATA\agents-sync\config.toml" --verbose
+```
+
+### macOS
+
+```bash
+agents-sync --config ~/.config/agents-sync/config.toml --verbose
 ```
 
 ---
@@ -245,6 +275,14 @@ journalctl --user -u agents-sync.service -f
 Stop-ScheduledTask -TaskName agents-sync
 Start-ScheduledTask -TaskName agents-sync
 Get-Content "$env:LOCALAPPDATA\agents-sync\logs\agents-sync.log" -Tail 50
+```
+
+### macOS
+
+```bash
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.agents-sync.daemon.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.agents-sync.daemon.plist
+tail -f ~/Library/Logs/agents-sync/agents-sync.log
 ```
 
 ---
@@ -282,6 +320,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 | Platform | Config | State | Logs |
 |:---|:---|:---|:---|
 | Linux | `~/.config/agents-sync/config.toml` | `~/.local/state/agents-sync/` | `journalctl --user -u agents-sync.service` |
+| macOS | `~/.config/agents-sync/config.toml` | `~/.local/state/agents-sync/` | `~/Library/Logs/agents-sync/agents-sync.log` |
 | Windows | `%APPDATA%\agents-sync\config.toml` | `%LOCALAPPDATA%\agents-sync\state\` | `%LOCALAPPDATA%\agents-sync\logs\agents-sync.log` |
 
 **State layout:**
