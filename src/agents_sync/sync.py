@@ -540,11 +540,59 @@ class Syncer:
             if info.agentic_tools[t].digest
             != (ps.agentic_tools[t].last_written if t in ps.agentic_tools else None)
         ]
+        # Available tools that are newly participating (in neither state nor
+        # info) — extend the canonical to them per v0.4 plan §5 first bullet.
+        to_extend = [
+            t for t in available
+            if t not in ps.agentic_tools and t not in info.agentic_tools
+        ]
         if not changed:
+            if to_extend:
+                return self._extend_to_new_tools(pair_id, info, state, to_extend)
             return False
         if len(changed) == 1:
             return self._sync_from_agentic_tool(pair_id, changed[0], info, state)
         return self._resolve_conflict_n_way(pair_id, info, state, changed)
+
+    def _extend_to_new_tools(
+        self,
+        pair_id: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+        target_tools: list[str],
+    ) -> bool:
+        """Render the canonical to newly-participating tools (§5 first bullet)."""
+        canonical = load_canonical(self.state_dir, pair_id)
+        if canonical is None:
+            logging.error(
+                "Cannot extend pair_id=%s: canonical document missing", pair_id
+            )
+            return False
+
+        source_dir: Path | None = None
+        if info.kind == "skill":
+            for tool_name, tool_info in info.agentic_tools.items():
+                if tool_info.path.exists():
+                    source_dir = tool_info.path
+                    break
+
+        paths: dict[str, Path] = {}
+        for tool_name in target_tools:
+            target_spec = self.agentic_tools[tool_name]
+            paths[tool_name] = self._render_to_agentic_tool(
+                target_spec,
+                info.kind,
+                canonical,
+                existing_path=None,
+                prior_text=None,
+                source_dir=source_dir,
+            )
+        self._update_state_n_way(state, pair_id, info.kind, paths)
+        logging.info(
+            "Extended to newly available tools: pair_id=%s tools=%s",
+            pair_id, target_tools,
+        )
+        return True
 
     def _participating_tools(self, kind: str) -> list[str]:
         """Tools whose registry supports this customization_type, in deterministic order."""
@@ -724,7 +772,14 @@ class Syncer:
         info: CustomizationArtifactInfo,
         state: dict[str, CustomizationArtifactState],
     ) -> bool:
-        """Project the source tool's bytes to every other present tool."""
+        """Project the source tool's bytes to every other available tool.
+
+        Tools that are available-but-absent-from-info (a newly available
+        antigravity tool whose dir was just provisioned, for example) are
+        extended to in the same poll per v0.4 plan §5 first bullet — the
+        canonical from the source is rendered onto a fresh slug-derived path
+        on the target.
+        """
         prior_canonical = load_canonical(self.state_dir, pair_id)
         source_info = info.agentic_tools[source_tool]
         source_spec = self.agentic_tools[source_tool]
@@ -740,20 +795,21 @@ class Syncer:
             if tool_name == source_tool:
                 continue
             target_info = info.agentic_tools.get(tool_name)
-            if target_info is None:
-                continue
             target_spec = self.agentic_tools[tool_name]
             target_io = target_spec.io[info.kind]
+            existing_path: Path | None = None
             prior_text: str | None = None
-            try:
-                prior_text = self._read_artifact_text(target_io, target_info.path)
-            except Exception:
-                prior_text = None
+            if target_info is not None:
+                existing_path = target_info.path
+                try:
+                    prior_text = self._read_artifact_text(target_io, target_info.path)
+                except Exception:
+                    prior_text = None
             paths[tool_name] = self._render_to_agentic_tool(
                 target_spec,
                 info.kind,
                 canonical,
-                existing_path=target_info.path,
+                existing_path=existing_path,
                 prior_text=prior_text,
                 source_dir=source_dir,
             )
