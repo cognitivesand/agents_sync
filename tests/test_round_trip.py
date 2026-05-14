@@ -46,10 +46,10 @@ def test_parse_preserves_existing_pair_id():
     assert canonical["pair_id"] == "11111111-2222-3333-4444-555555555555"
 
 
-def test_parse_passthrough_routes_unmapped_fields_into_claude_extra():
+def test_parse_passthrough_routes_unmapped_fields_into_per_agentic_tool_extra():
     text = "---\nname: foo\ndescription: bar\nweird_field: something\n---\nbody"
     canonical = parse_claude_md(text, kind="agent")
-    assert canonical["claude_extra"] == {"weird_field": "something"}
+    assert canonical["per_agentic_tool_extra"]["claude"] == {"weird_field": "something"}
 
 
 def test_render_preserves_pair_id_after_injection():

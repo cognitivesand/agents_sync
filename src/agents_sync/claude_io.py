@@ -21,8 +21,8 @@ FRONTMATTER_RE = re.compile(
 _CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
 
 # Frontmatter keys the canonical maps explicitly. Anything else is preserved
-# in canonical["claude_extra"] so user-set fields we don't yet model are not
-# silently dropped.
+# in canonical["per_agentic_tool_extra"]["claude"] so user-set fields we don't
+# yet model are not silently dropped.
 KNOWN_CLAUDE_FIELDS = {
     "pair_id",
     "name",
@@ -144,13 +144,17 @@ def parse_claude_md(text: str, prior_canonical: dict[str, Any] | None = None,
         claude_only["hooks"] = frontmatter_data["hooks"]
     if "mcpServers" in frontmatter_data:
         claude_only["mcp_servers"] = frontmatter_data["mcpServers"]
-    canonical["claude_only"] = claude_only
+    per_agentic_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
+    per_agentic_tool_only["claude"] = claude_only
+    canonical["per_agentic_tool_only"] = per_agentic_tool_only
 
-    canonical["claude_extra"] = {
+    per_agentic_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
+    per_agentic_tool_extra["claude"] = {
         key: value
         for key, value in frontmatter_data.items()
         if key not in KNOWN_CLAUDE_FIELDS
     }
+    canonical["per_agentic_tool_extra"] = per_agentic_tool_extra
 
     if "pair_id" in frontmatter_data:
         canonical["pair_id"] = str(frontmatter_data["pair_id"])
@@ -195,13 +199,13 @@ def render_claude_md(canonical: dict[str, Any], prior_text: str | None = None) -
     if canonical.get("permission_mode") is not None:
         frontmatter["permissionMode"] = canonical["permission_mode"]
 
-    claude_only = canonical.get("claude_only", {})
+    claude_only = canonical.get("per_agentic_tool_only", {}).get("claude", {})
     if "hooks" in claude_only:
         frontmatter["hooks"] = claude_only["hooks"]
     if "mcp_servers" in claude_only:
         frontmatter["mcpServers"] = claude_only["mcp_servers"]
 
-    for key, value in canonical.get("claude_extra", {}).items():
+    for key, value in canonical.get("per_agentic_tool_extra", {}).get("claude", {}).items():
         frontmatter[key] = value
 
     body = canonical.get("body", "")

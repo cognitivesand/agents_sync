@@ -19,7 +19,7 @@ from agents_sync.state import atomic_write_text
 from agents_sync.identity import validate_pair_id
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def new_pair_id() -> str:
@@ -39,10 +39,8 @@ def empty_canonical(kind: str, pair_id: str | None = None) -> dict[str, Any]:
         "tools": [],
         "disallowed_tools": [],
         "permission_mode": None,
-        "claude_only": {},
-        "codex_only": {},
-        "claude_extra": {},
-        "codex_extra": {},
+        "per_agentic_tool_only": {},
+        "per_agentic_tool_extra": {},
     }
 
 
