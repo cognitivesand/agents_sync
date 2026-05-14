@@ -33,7 +33,7 @@ from agents_sync.config import validate_config
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.state import (
-    PairState,
+    CustomizationArtifactState,
     atomic_write_text,
     ignored_tree_names,
     load_state,
@@ -45,7 +45,7 @@ from agents_sync.state import (
 
 
 @dataclass
-class SideInfo:
+class AgenticToolInfo:
     path: Path
     digest: str
     mtime: float
@@ -53,10 +53,10 @@ class SideInfo:
 
 
 @dataclass
-class PairInfo:
+class CustomizationArtifactInfo:
     kind: str
-    claude: SideInfo | None = None
-    codex: SideInfo | None = None
+    claude: AgenticToolInfo | None = None
+    codex: AgenticToolInfo | None = None
 
 
 def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
@@ -111,8 +111,8 @@ class Syncer:
 
     # ---------- discovery ----------
 
-    def _discover(self, state: dict[str, PairState]) -> dict[str, PairInfo]:
-        pairs: dict[str, PairInfo] = {}
+    def _discover(self, state: dict[str, CustomizationArtifactState]) -> dict[str, CustomizationArtifactInfo]:
+        pairs: dict[str, CustomizationArtifactInfo] = {}
         blocked_pair_ids: set[str] = set()
 
         if self.claude_agents_dir.exists():
@@ -149,9 +149,9 @@ class Syncer:
     def _add_claude_agent(
         self,
         path: Path,
-        pairs: dict[str, PairInfo],
+        pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
-        state: dict[str, PairState],
+        state: dict[str, CustomizationArtifactState],
     ) -> None:
         try:
             text = path.read_text(encoding="utf-8")
@@ -170,15 +170,15 @@ class Syncer:
                 logging.error("Invalid pair_id in Claude agent: path=%s", path)
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
-        info = SideInfo(path, sha256_file(path), path.stat().st_mtime, present)
+        info = AgenticToolInfo(path, sha256_file(path), path.stat().st_mtime, present)
         self._insert_side(pair_id, "agent", "claude", info, pairs, blocked_pair_ids)
 
     def _add_claude_skill(
         self,
         path: Path,
-        pairs: dict[str, PairInfo],
+        pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
-        state: dict[str, PairState],
+        state: dict[str, CustomizationArtifactState],
     ) -> None:
         skill_md = path / "SKILL.md"
         try:
@@ -198,15 +198,15 @@ class Syncer:
                 logging.error("Invalid pair_id in Claude skill: path=%s", skill_md)
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
-        info = SideInfo(path, sha256_tree(path), path.stat().st_mtime, present)
+        info = AgenticToolInfo(path, sha256_tree(path), path.stat().st_mtime, present)
         self._insert_side(pair_id, "skill", "claude", info, pairs, blocked_pair_ids)
 
     def _add_codex_agent(
         self,
         path: Path,
-        pairs: dict[str, PairInfo],
+        pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
-        state: dict[str, PairState],
+        state: dict[str, CustomizationArtifactState],
     ) -> None:
         try:
             text = path.read_text(encoding="utf-8")
@@ -225,15 +225,15 @@ class Syncer:
                 logging.error("Invalid pair_id in Codex agent: path=%s", path)
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
-        info = SideInfo(path, sha256_file(path), path.stat().st_mtime, present)
+        info = AgenticToolInfo(path, sha256_file(path), path.stat().st_mtime, present)
         self._insert_side(pair_id, "agent", "codex", info, pairs, blocked_pair_ids)
 
     def _add_codex_skill(
         self,
         path: Path,
-        pairs: dict[str, PairInfo],
+        pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
-        state: dict[str, PairState],
+        state: dict[str, CustomizationArtifactState],
     ) -> None:
         skill_md = path / "SKILL.md"
         try:
@@ -253,7 +253,7 @@ class Syncer:
                 logging.error("Invalid pair_id in Codex skill: path=%s", skill_md)
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
-        info = SideInfo(path, sha256_tree(path), path.stat().st_mtime, present)
+        info = AgenticToolInfo(path, sha256_tree(path), path.stat().st_mtime, present)
         self._insert_side(pair_id, "skill", "codex", info, pairs, blocked_pair_ids)
 
     def _insert_side(
@@ -261,15 +261,15 @@ class Syncer:
         pair_id: str,
         kind: str,
         side: str,
-        info: SideInfo,
-        pairs: dict[str, PairInfo],
+        info: AgenticToolInfo,
+        pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
     ) -> None:
         if pair_id in blocked_pair_ids:
             return
         pair = pairs.get(pair_id)
         if pair is None:
-            pair = PairInfo(kind=kind)
+            pair = CustomizationArtifactInfo(kind=kind)
             pairs[pair_id] = pair
         elif pair.kind != kind:
             logging.error("pair_id reused across kinds: pair_id=%s", pair_id)
@@ -288,7 +288,7 @@ class Syncer:
     def _block_state_owner(
         self,
         path: Path,
-        state: dict[str, PairState],
+        state: dict[str, CustomizationArtifactState],
         blocked_pair_ids: set[str],
     ) -> None:
         owner = self._state_owner_for_path(path, state)
@@ -326,7 +326,7 @@ class Syncer:
         save_state(self.state_dir, state)
         return changed
 
-    def _process_pair(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _process_pair(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         ps = state.get(pair_id)
 
         if ps is None:
@@ -353,8 +353,8 @@ class Syncer:
 
     def _block_target_collisions(
         self,
-        discovery: dict[str, PairInfo],
-        state: dict[str, PairState],
+        discovery: dict[str, CustomizationArtifactInfo],
+        state: dict[str, CustomizationArtifactState],
     ) -> None:
         targets: dict[str, list[str]] = {}
         target_display: dict[str, Path] = {}
@@ -406,7 +406,7 @@ class Syncer:
             discovery.pop(pair_id, None)
             self._blocked_pair_ids.add(pair_id)
 
-    def _planned_adoption_target(self, info: PairInfo) -> Path | None:
+    def _planned_adoption_target(self, info: CustomizationArtifactInfo) -> Path | None:
         if info.claude is not None and info.codex is not None:
             return None
         if info.claude is not None:
@@ -435,7 +435,7 @@ class Syncer:
     def _state_owner_for_path(
         self,
         path: Path,
-        state: dict[str, PairState],
+        state: dict[str, CustomizationArtifactState],
     ) -> str | None:
         target_key = self._path_collision_key(path)
         for pair_id, pair_state in state.items():
@@ -458,7 +458,7 @@ class Syncer:
 
     # ---------- adoption ----------
 
-    def _adopt_new_pair(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _adopt_new_pair(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         if info.claude is not None and info.codex is None:
             return self._adopt_from_claude(pair_id, info, state)
         if info.codex is not None and info.claude is None:
@@ -468,7 +468,7 @@ class Syncer:
             return self._adopt_from_claude(pair_id, info, state)
         return self._adopt_from_codex(pair_id, info, state)
 
-    def _adopt_from_claude(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _adopt_from_claude(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         side = info.claude
         text = self._read_text(info.kind, side.path)
         canonical = parse_claude_md(text, prior_canonical=None, kind=info.kind)
@@ -486,7 +486,7 @@ class Syncer:
         logging.info("Adopted from Claude: %s -> %s (pair_id=%s)", side.path, codex_path, pair_id)
         return True
 
-    def _adopt_from_codex(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _adopt_from_codex(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         side = info.codex
         text = self._read_text(info.kind, side.path)
         if info.kind == "agent":
@@ -514,7 +514,7 @@ class Syncer:
 
     # ---------- one-direction sync ----------
 
-    def _sync_claude_to_codex(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _sync_claude_to_codex(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         prior_canonical = load_canonical(self.state_dir, pair_id)
         text = self._read_text(info.kind, info.claude.path)
         canonical = parse_claude_md(text, prior_canonical=prior_canonical, kind=info.kind)
@@ -527,7 +527,7 @@ class Syncer:
         logging.info("Synced Claude->Codex: %s (pair_id=%s)", info.claude.path, pair_id)
         return True
 
-    def _sync_codex_to_claude(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _sync_codex_to_claude(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         prior_canonical = load_canonical(self.state_dir, pair_id)
         text = self._read_text(info.kind, info.codex.path)
         if info.kind == "agent":
@@ -545,7 +545,7 @@ class Syncer:
         logging.info("Synced Codex->Claude: %s (pair_id=%s)", info.codex.path, pair_id)
         return True
 
-    def _resolve_conflict(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _resolve_conflict(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         if info.claude.mtime >= info.codex.mtime:
             archive.archive_copy(self.state_dir, pair_id, "codex", info.codex.path)
             logging.warning(
@@ -562,21 +562,21 @@ class Syncer:
 
     # ---------- removal propagation ----------
 
-    def _propagate_claude_removal(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _propagate_claude_removal(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         if info.codex is not None and info.codex.path.exists():
             archive.archive_move(self.state_dir, pair_id, "codex", info.codex.path)
         del state[pair_id]
         logging.info("Propagated Claude removal: pair_id=%s", pair_id)
         return True
 
-    def _propagate_codex_removal(self, pair_id: str, info: PairInfo, state: dict[str, PairState]) -> bool:
+    def _propagate_codex_removal(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         if info.claude is not None and info.claude.path.exists():
             archive.archive_move(self.state_dir, pair_id, "claude", info.claude.path)
         del state[pair_id]
         logging.info("Propagated Codex removal: pair_id=%s", pair_id)
         return True
 
-    def _propagate_orphan_state(self, pair_id: str, state: dict[str, PairState]) -> bool:
+    def _propagate_orphan_state(self, pair_id: str, state: dict[str, CustomizationArtifactState]) -> bool:
         """Pair_id is in state but neither side was discovered this poll.
 
         Both sides removed: drop from state, no archive needed (nothing to
@@ -638,11 +638,11 @@ class Syncer:
             atomic_write_text(target_dir / "SKILL.md", skill_md_text)
         return target_dir
 
-    def _update_state(self, state: dict[str, PairState], pair_id: str, kind: str,
+    def _update_state(self, state: dict[str, CustomizationArtifactState], pair_id: str, kind: str,
                        claude_path: Path, codex_path: Path) -> None:
         claude_digest = sha256_file(claude_path) if kind == "agent" else sha256_tree(claude_path)
         codex_digest = sha256_file(codex_path) if kind == "agent" else sha256_tree(codex_path)
-        ps = state.setdefault(pair_id, PairState(kind=kind))
+        ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
         ps.kind = kind
         ps.claude_path = str(claude_path)
         ps.codex_path = str(codex_path)

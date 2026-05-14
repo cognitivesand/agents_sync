@@ -43,7 +43,7 @@ _IGNORED_TREE_FILE_PREFIXES = ("._",)
 
 
 @dataclass
-class PairState:
+class CustomizationArtifactState:
     kind: str  # "agent" | "skill"
     claude_path: str | None = None
     codex_path: str | None = None
@@ -64,7 +64,7 @@ class PairState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PairState":
+    def from_dict(cls, data: dict[str, Any]) -> "CustomizationArtifactState":
         return cls(
             kind=data["kind"],
             claude_path=data.get("claude_path"),
@@ -141,7 +141,7 @@ def state_path(state_dir: Path) -> Path:
     return state_dir / "state.json"
 
 
-def load_state(state_dir: Path) -> dict[str, PairState]:
+def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
     path = state_path(state_dir)
     if not path.exists():
         return {}
@@ -152,7 +152,7 @@ def load_state(state_dir: Path) -> dict[str, PairState]:
         return {}
     if not isinstance(data, dict):
         return {}
-    result: dict[str, PairState] = {}
+    result: dict[str, CustomizationArtifactState] = {}
     for pair_id, entry in data.items():
         try:
             validate_pair_id(pair_id)
@@ -162,13 +162,13 @@ def load_state(state_dir: Path) -> dict[str, PairState]:
         if not isinstance(entry, dict):
             continue
         try:
-            result[pair_id] = PairState.from_dict(entry)
+            result[pair_id] = CustomizationArtifactState.from_dict(entry)
         except KeyError:
             logging.warning("Skipping malformed state entry for pair_id=%s", pair_id)
     return result
 
 
-def save_state(state_dir: Path, state: dict[str, PairState]) -> None:
+def save_state(state_dir: Path, state: dict[str, CustomizationArtifactState]) -> None:
     path = state_path(state_dir)
     serializable = {pair_id: ps.to_dict() for pair_id, ps in state.items()}
     atomic_write_text(

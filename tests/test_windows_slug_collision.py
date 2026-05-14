@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agents_sync.state import PairState, slugify, target_slug
-from agents_sync.sync import PairInfo, Syncer
+from agents_sync.state import CustomizationArtifactState, slugify, target_slug
+from agents_sync.sync import CustomizationArtifactInfo, Syncer
 
 
 def test_slugify_avoids_reserved_windows_basenames():
@@ -24,7 +24,7 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
     monkeypatch.setattr("agents_sync.sync.os.path.normcase", lambda value: value.lower())
     codex_path = Path(syncer.codex_agents_dir) / "Alpha.toml"
     state = {
-        "pair-1": PairState(
+        "pair-1": CustomizationArtifactState(
             kind="agent",
             claude_path=str(Path(syncer.claude_agents_dir) / "alpha.md"),
             codex_path=str(codex_path),
@@ -38,8 +38,8 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
 def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("agents_sync.sync.os.path.normcase", lambda value: value.lower())
     discovery = {
-        "pair-a": PairInfo(kind="agent"),
-        "pair-b": PairInfo(kind="agent"),
+        "pair-a": CustomizationArtifactInfo(kind="agent"),
+        "pair-b": CustomizationArtifactInfo(kind="agent"),
     }
     targets = iter([
         Path(syncer.codex_agents_dir) / "Alpha.toml",
