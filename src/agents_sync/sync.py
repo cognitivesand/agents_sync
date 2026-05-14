@@ -33,6 +33,7 @@ from agents_sync.config import validate_config
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.state import (
+    AgenticToolState,
     CustomizationArtifactState,
     atomic_write_text,
     ignored_tree_names,
@@ -340,8 +341,12 @@ class Syncer:
         if info.codex is None:
             return self._propagate_codex_removal(pair_id, info, state)
 
-        claude_changed = info.claude.digest != ps.claude_last_written
-        codex_changed = info.codex.digest != ps.codex_last_written
+        claude_state = ps.agentic_tools.get("claude")
+        codex_state = ps.agentic_tools.get("codex")
+        claude_last_written = claude_state.last_written if claude_state else None
+        codex_last_written = codex_state.last_written if codex_state else None
+        claude_changed = info.claude.digest != claude_last_written
+        codex_changed = info.codex.digest != codex_last_written
 
         if not claude_changed and not codex_changed:
             return False
@@ -439,10 +444,8 @@ class Syncer:
     ) -> str | None:
         target_key = self._path_collision_key(path)
         for pair_id, pair_state in state.items():
-            for stored in (pair_state.claude_path, pair_state.codex_path):
-                if stored is None:
-                    continue
-                if self._path_collision_key(Path(stored)) == target_key:
+            for tool_state in pair_state.agentic_tools.values():
+                if self._path_collision_key(Path(tool_state.path)) == target_key:
                     return pair_id
         return None
 
@@ -644,12 +647,16 @@ class Syncer:
         codex_digest = sha256_file(codex_path) if kind == "agent" else sha256_tree(codex_path)
         ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
         ps.kind = kind
-        ps.claude_path = str(claude_path)
-        ps.codex_path = str(codex_path)
-        ps.claude_last_seen = claude_digest
-        ps.claude_last_written = claude_digest
-        ps.codex_last_seen = codex_digest
-        ps.codex_last_written = codex_digest
+        ps.agentic_tools["claude"] = AgenticToolState(
+            path=str(claude_path),
+            last_seen=claude_digest,
+            last_written=claude_digest,
+        )
+        ps.agentic_tools["codex"] = AgenticToolState(
+            path=str(codex_path),
+            last_seen=codex_digest,
+            last_written=codex_digest,
+        )
 
     def _assert_target_available(self, target: Path, existing_path: Path | None) -> None:
         if existing_path is not None and (

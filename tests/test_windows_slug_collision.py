@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from agents_sync.state import CustomizationArtifactState, slugify, target_slug
+from agents_sync.state import (
+    AgenticToolState,
+    CustomizationArtifactState,
+    slugify,
+    target_slug,
+)
 from agents_sync.sync import CustomizationArtifactInfo, Syncer
 
 
@@ -26,8 +31,12 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
     state = {
         "pair-1": CustomizationArtifactState(
             kind="agent",
-            claude_path=str(Path(syncer.claude_agents_dir) / "alpha.md"),
-            codex_path=str(codex_path),
+            agentic_tools={
+                "claude": AgenticToolState(
+                    path=str(Path(syncer.claude_agents_dir) / "alpha.md"),
+                ),
+                "codex": AgenticToolState(path=str(codex_path)),
+            },
         )
     }
 
