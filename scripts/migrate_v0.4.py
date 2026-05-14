@@ -46,7 +46,9 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, TypeVar
 
 
 HOME = Path.home()
@@ -80,7 +82,12 @@ def detect_pre_v04_fix_state() -> bool:
     if CONFIG_FILE.exists():
         try:
             cfg_text = CONFIG_FILE.read_text(encoding="utf-8")
-        except Exception:
+        except (OSError, UnicodeDecodeError) as exc:
+            print(
+                f"warning: could not read {CONFIG_FILE} during detection "
+                f"({type(exc).__name__}: {exc}); proceeding as if empty",
+                file=sys.stderr,
+            )
             cfg_text = ""
         if _STALE_CODEX_PATH_RE.search(cfg_text):
             return True
@@ -88,8 +95,12 @@ def detect_pre_v04_fix_state() -> bool:
         return False
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        # Malformed state — migrate to be safe.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(
+            f"warning: state.json is unreadable or malformed "
+            f"({type(exc).__name__}: {exc}); will migrate to be safe",
+            file=sys.stderr,
+        )
         return True
     artifacts = data.get("customization_artifacts")
     if not isinstance(artifacts, dict):
@@ -210,7 +221,12 @@ def strip_pair_ids_in_root(root: Path, patterns: tuple[str, ...]) -> int:
                 continue
             try:
                 text = md.read_text(encoding="utf-8")
-            except Exception:
+            except (OSError, UnicodeDecodeError) as exc:
+                print(
+                    f"warning: skipping unreadable file {md} "
+                    f"({type(exc).__name__}: {exc})",
+                    file=sys.stderr,
+                )
                 continue
             new, changed = strip_pair_id_in_text(text)
             if changed:
@@ -226,6 +242,134 @@ def wipe_state(backup_dir: Path) -> None:
     STATE_FILE.unlink(missing_ok=True)
     if CANONICAL_DIR.exists():
         shutil.rmtree(CANONICAL_DIR)
+
+
+@dataclass
+class MigrationResults:
+    config_updated: bool
+    suffix_counts: dict[str, int]
+    stripped: dict[str, int]
+
+
+class MigrationError(Exception):
+    """A migration phase failed; carries the phase name and chains the cause."""
+
+    def __init__(self, phase: str) -> None:
+        super().__init__(f"phase {phase!r} failed")
+        self.phase = phase
+
+
+T = TypeVar("T")
+
+
+def _run_phase(phase_name: str, fn: Callable[[], T]) -> T:
+    """Execute `fn`, wrapping any failure in a MigrationError that names the phase."""
+    try:
+        return fn()
+    except Exception as exc:
+        raise MigrationError(phase_name) from exc
+
+
+def _print_plan_banner(backup_dir: Path) -> None:
+    print("agents-sync v0.4 migration is required.")
+    print()
+    print("This will:")
+    print("  - stop the agents-sync daemon if it is running")
+    print("  - back up state, canonical, the existing config.toml, and every")
+    print(f"    configured skill / agent root to {backup_dir}")
+    print("  - rewrite codex_skills_dir in config.toml from ~/.agents/skills")
+    print("    to ~/.codex/skills (Codex's real user-level skills directory)")
+    print("  - move daemon-projected `<name>-skill/` directories aside in")
+    print("    every skill root (claude / codex / opencode / antigravity)")
+    print("  - strip injected `pair_id:` frontmatter from every SKILL.md and")
+    print("    claude agent .md so first-boot §5.5 reconciliation treats them")
+    print("    as fresh inputs")
+    print("  - wipe state.json and canonical/ so the next sync rebuilds")
+    print()
+    print("~/.agents/skills/ (OpenCode's directory) is otherwise left alone.")
+    print("Nothing is deleted: everything is moved into the backup.")
+    print()
+
+
+def _confirm_proceed() -> bool:
+    try:
+        response = input("Proceed? [y/N] ").strip().lower()
+    except EOFError:
+        response = ""
+    return response in {"y", "yes"}
+
+
+def _snapshot_tool_roots(backup_dir: Path) -> None:
+    """Snapshot every tool root that we are about to mutate. We deliberately do
+    not copy STATE_DIR wholesale (it contains ``backups/`` itself); state.json
+    and canonical/ are copied by ``wipe_state``, and archive/ is preserved in
+    place per US-05.
+    """
+    for root in (*AGENT_ROOTS, *SKILL_ROOTS):
+        backup_copy(root, backup_dir, f"sources/{root.relative_to(HOME)}")
+
+
+def _move_all_skill_suffix_duplicates(backup_dir: Path) -> dict[str, int]:
+    return {
+        str(root): move_skill_suffix_duplicates(root, backup_dir)
+        for root in SKILL_ROOTS
+    }
+
+
+def _strip_pair_ids_everywhere() -> dict[str, int]:
+    """Strip injected pair_id frontmatter so reconciliation treats every
+    remaining artifact as fresh. ``~/.agents/skills/`` is included so
+    OpenCode's library is left clean even though the daemon won't manage it
+    until OpenCode is registered as a fourth agentic_tool.
+    """
+    return {
+        "claude-agents": strip_pair_ids_in_root(HOME / ".claude/agents", ("*.md",)),
+        "claude-skills": strip_pair_ids_in_root(HOME / ".claude/skills", ("*/SKILL.md",)),
+        "codex-skills": strip_pair_ids_in_root(HOME / ".codex/skills", ("*/SKILL.md",)),
+        "opencode-skills": strip_pair_ids_in_root(HOME / ".agents/skills", ("*/SKILL.md",)),
+        "antigravity-skills": strip_pair_ids_in_root(
+            HOME / ".gemini/antigravity/skills", ("*/SKILL.md",),
+        ),
+    }
+
+
+def run_migration(backup_dir: Path) -> MigrationResults:
+    """Execute every migration phase under per-phase error reporting."""
+    _run_phase("stop daemon", stop_daemon)
+    _run_phase(
+        "create backup directory",
+        lambda: backup_dir.mkdir(parents=True, exist_ok=True),
+    )
+    _run_phase("snapshot tool roots", lambda: _snapshot_tool_roots(backup_dir))
+    config_updated = _run_phase(
+        "rewrite config.toml",
+        lambda: update_config_codex_skills_path(backup_dir),
+    )
+    suffix_counts = _run_phase(
+        "move -skill duplicates aside",
+        lambda: _move_all_skill_suffix_duplicates(backup_dir),
+    )
+    stripped = _run_phase("strip pair_id frontmatter", _strip_pair_ids_everywhere)
+    _run_phase("wipe state and canonical", lambda: wipe_state(backup_dir))
+    return MigrationResults(
+        config_updated=config_updated,
+        suffix_counts=suffix_counts,
+        stripped=stripped,
+    )
+
+
+def _print_summary(backup_dir: Path, results: MigrationResults) -> None:
+    print()
+    print("Migration complete.")
+    if results.config_updated:
+        print("  rewrote codex_skills_dir in config.toml → ~/.codex/skills")
+    for root, n in results.suffix_counts.items():
+        if n:
+            print(f"  moved aside as duplicates from {root}: {n}")
+    for label, n in results.stripped.items():
+        if n:
+            print(f"  stripped pair_id frontmatter ({label}): {n}")
+    print(f"  backup: {backup_dir}")
 
 
 def main() -> int:
@@ -244,92 +388,25 @@ def main() -> int:
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     backup_dir = STATE_DIR / "backups" / f"v0.4-migration-{timestamp}"
 
-    print("agents-sync v0.4 migration is required.")
-    print()
-    print("This will:")
-    print("  - stop the agents-sync daemon if it is running")
-    print(f"  - back up state, canonical, the existing config.toml, and every")
-    print(f"    configured skill / agent root to {backup_dir}")
-    print("  - rewrite codex_skills_dir in config.toml from ~/.agents/skills")
-    print("    to ~/.codex/skills (Codex's real user-level skills directory)")
-    print("  - move daemon-projected `<name>-skill/` directories aside in")
-    print("    every skill root (claude / codex / opencode / antigravity)")
-    print("  - strip injected `pair_id:` frontmatter from every SKILL.md and")
-    print("    claude agent .md so first-boot §5.5 reconciliation treats them")
-    print("    as fresh inputs")
-    print("  - wipe state.json and canonical/ so the next sync rebuilds")
-    print()
-    print("~/.agents/skills/ (OpenCode's directory) is otherwise left alone.")
-    print("Nothing is deleted: everything is moved into the backup.")
-    print()
+    _print_plan_banner(backup_dir)
 
-    if not args.yes:
-        try:
-            response = input("Proceed? [y/N] ").strip().lower()
-        except EOFError:
-            response = ""
-        if response not in {"y", "yes"}:
-            print("Migration declined; daemon will not be restarted.", file=sys.stderr)
-            return 1
+    if not args.yes and not _confirm_proceed():
+        print("Migration declined; daemon will not be restarted.", file=sys.stderr)
+        return 1
 
     try:
-        stop_daemon()
-        backup_dir.mkdir(parents=True, exist_ok=True)
-
-        # 1. Snapshot every tool root that we are about to mutate. The
-        #    daemon state directory contains ``backups/`` itself (where this
-        #    backup lives), so we deliberately do not copy STATE_DIR
-        #    wholesale — ``wipe_state`` below copies ``state.json`` and
-        #    ``canonical/`` individually, and ``archive/`` is preserved
-        #    in place per US-05.
-        for root in (*AGENT_ROOTS, *SKILL_ROOTS):
-            backup_copy(root, backup_dir, f"sources/{root.relative_to(HOME)}")
-
-        # 2. Rewrite config.toml's codex_skills_dir if it still points at
-        #    ~/.agents/skills (the pre-fix default). install.sh's seed-only-
-        #    if-missing rule means an existing config never gets updated by
-        #    re-running the installer.
-        config_updated = update_config_codex_skills_path(backup_dir)
-
-        # 3. Move daemon-projected `-skill` duplicates out of every skill root.
-        suffix_counts = {
-            str(root): move_skill_suffix_duplicates(root, backup_dir)
-            for root in SKILL_ROOTS
-        }
-
-        # 4. Strip injected pair_id frontmatter so reconciliation treats
-        #    every remaining artifact as fresh. `~/.agents/skills/` is
-        #    included so OpenCode's library is left in a clean state
-        #    even though the daemon won't manage it until OpenCode is
-        #    registered as a fourth agentic_tool.
-        stripped = {
-            "claude-agents": strip_pair_ids_in_root(HOME / ".claude/agents", ("*.md",)),
-            "claude-skills": strip_pair_ids_in_root(HOME / ".claude/skills", ("*/SKILL.md",)),
-            "codex-skills": strip_pair_ids_in_root(HOME / ".codex/skills", ("*/SKILL.md",)),
-            "opencode-skills": strip_pair_ids_in_root(HOME / ".agents/skills", ("*/SKILL.md",)),
-            "antigravity-skills": strip_pair_ids_in_root(
-                HOME / ".gemini/antigravity/skills", ("*/SKILL.md",),
-            ),
-        }
-
-        # 5. Wipe state + canonical; archive/ is preserved (per US-05).
-        wipe_state(backup_dir)
-    except Exception as exc:  # pragma: no cover — last-ditch reporting
-        print(f"Migration failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        results = run_migration(backup_dir)
+    except MigrationError as exc:
+        underlying = exc.__cause__
+        print(
+            f"Migration failed during phase {exc.phase!r}: "
+            f"{type(underlying).__name__}: {underlying}",
+            file=sys.stderr,
+        )
         print(f"Partial backup may exist at: {backup_dir}", file=sys.stderr)
         return 2
 
-    print()
-    print("Migration complete.")
-    if config_updated:
-        print("  rewrote codex_skills_dir in config.toml → ~/.codex/skills")
-    for root, n in suffix_counts.items():
-        if n:
-            print(f"  moved aside as duplicates from {root}: {n}")
-    for label, n in stripped.items():
-        if n:
-            print(f"  stripped pair_id frontmatter ({label}): {n}")
-    print(f"  backup: {backup_dir}")
+    _print_summary(backup_dir, results)
     return 0
 
 
