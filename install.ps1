@@ -99,6 +99,19 @@ Assert-Command "python" "Install Python 3.12+ and reopen PowerShell."
 Assert-Command "uv" "Install uv first: https://docs.astral.sh/uv/getting-started/installation/"
 Assert-Command "Register-ScheduledTask" "The ScheduledTasks module is required on Windows 10/11."
 
+# Pre-create the agentic-tool roots so each tool is `available` on first boot
+# (US-11). A missing root would otherwise mark the whole tool unavailable.
+$ToolRoots = @(
+  (Join-Path $env:USERPROFILE ".claude\agents"),
+  (Join-Path $env:USERPROFILE ".claude\skills"),
+  (Join-Path $env:USERPROFILE ".codex\agents"),
+  (Join-Path $env:USERPROFILE ".agents\skills"),
+  (Join-Path $env:USERPROFILE ".gemini\antigravity\skills")
+)
+foreach ($Dir in $ToolRoots) {
+  New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+}
+
 Sync-Venv $ProjectDir
 
 if (-not (Test-Path $VenvExe)) {
