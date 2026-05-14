@@ -6,23 +6,23 @@ import os
 import shutil
 import sys
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agents_sync import archive
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    CustomizationTypeIO,
+    default_agentic_tools,
+)
 from agents_sync.canonical import (
     load_canonical,
     new_pair_id,
     save_canonical,
 )
-from agents_sync.claude_io import (
-    extract_pair_id_from_md,
-    parse_claude_md,
-    render_claude_md,
-)
+from agents_sync.claude_io import parse_claude_md, render_claude_md
 from agents_sync.codex_io import (
-    extract_pair_id,
     parse_codex_agent_toml,
     parse_codex_skill_md,
     render_codex_agent_toml,
@@ -56,8 +56,15 @@ class AgenticToolInfo:
 @dataclass
 class CustomizationArtifactInfo:
     kind: str
-    claude: AgenticToolInfo | None = None
-    codex: AgenticToolInfo | None = None
+    agentic_tools: dict[str, AgenticToolInfo] = field(default_factory=dict)
+
+    @property
+    def claude(self) -> AgenticToolInfo | None:
+        return self.agentic_tools.get("claude")
+
+    @property
+    def codex(self) -> AgenticToolInfo | None:
+        return self.agentic_tools.get("codex")
 
 
 def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
@@ -101,8 +108,15 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
 
 
 class Syncer:
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        agentic_tools: dict[str, AgenticToolSpec] | None = None,
+    ) -> None:
         self.config = dict(config)
+        self.agentic_tools: dict[str, AgenticToolSpec] = (
+            agentic_tools if agentic_tools is not None else default_agentic_tools()
+        )
         self.claude_agents_dir = expand_path(config["claude_agents_dir"])
         self.claude_skills_dir = expand_path(config["claude_skills_dir"])
         self.codex_agents_dir = expand_path(config["codex_agents_dir"])
@@ -113,54 +127,77 @@ class Syncer:
     # ---------- discovery ----------
 
     def _discover(self, state: dict[str, CustomizationArtifactState]) -> dict[str, CustomizationArtifactInfo]:
+        """Walk every (agentic_tool, customization_type) cell in the registry.
+
+        For each cell, enumerate on-disk artifacts under that root and dispatch
+        to _add_agentic_tool_artifact. The on-disk shape (single file vs.
+        directory + SKILL.md) is read from each cell's CustomizationTypeIO.
+        """
         pairs: dict[str, CustomizationArtifactInfo] = {}
         blocked_pair_ids: set[str] = set()
 
-        if self.claude_agents_dir.exists():
-            for path in sorted(
-                p for p in self.claude_agents_dir.glob("*.md")
-                if p.is_file() and not p.name.startswith(".")
-            ):
-                self._add_claude_agent(path, pairs, blocked_pair_ids, state)
-
-        if self.claude_skills_dir.exists():
-            for skill_md in sorted(
-                p for p in self.claude_skills_dir.glob("*/SKILL.md")
-                if not p.parent.name.startswith(".")
-            ):
-                self._add_claude_skill(skill_md.parent, pairs, blocked_pair_ids, state)
-
-        if self.codex_agents_dir.exists():
-            for path in sorted(
-                p for p in self.codex_agents_dir.glob("*.toml")
-                if p.is_file() and not p.name.startswith(".")
-            ):
-                self._add_codex_agent(path, pairs, blocked_pair_ids, state)
-
-        if self.codex_skills_dir.exists():
-            for skill_md in sorted(
-                p for p in self.codex_skills_dir.glob("*/SKILL.md")
-                if not p.parent.name.startswith(".")
-            ):
-                self._add_codex_skill(skill_md.parent, pairs, blocked_pair_ids, state)
+        for tool_name, spec in self.agentic_tools.items():
+            for customization_type in sorted(spec.supported_customization_types):
+                io = spec.io[customization_type]
+                root = expand_path(self.config[spec.config_dir_keys[customization_type]])
+                if not root.exists():
+                    continue
+                for artifact_path in self._enumerate_artifacts(root, io):
+                    self._add_agentic_tool_artifact(
+                        tool_name,
+                        customization_type,
+                        artifact_path,
+                        io,
+                        pairs,
+                        blocked_pair_ids,
+                        state,
+                    )
 
         self._blocked_pair_ids = blocked_pair_ids
         return pairs
 
-    def _add_claude_agent(
+    def _enumerate_artifacts(self, root: Path, io: CustomizationTypeIO) -> list[Path]:
+        """Return the on-disk artifact paths under `root` for this IO cell.
+
+        For single_file storage, returns the matching files. For
+        directory_skill storage, returns the parent directory of each
+        `*/SKILL.md` so callers get the artifact path (not the metadata file).
+        """
+        if io.storage == "single_file":
+            return sorted(
+                p for p in root.glob(f"*{io.file_suffix}")
+                if p.is_file() and not p.name.startswith(".")
+            )
+        if io.storage == "directory_skill":
+            return sorted(
+                p.parent for p in root.glob("*/SKILL.md")
+                if not p.parent.name.startswith(".")
+            )
+        raise ValueError(f"Unknown storage shape: {io.storage}")
+
+    def _add_agentic_tool_artifact(
         self,
+        tool_name: str,
+        customization_type: str,
         path: Path,
+        io: CustomizationTypeIO,
         pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
         state: dict[str, CustomizationArtifactState],
     ) -> None:
+        """Read one on-disk artifact, validate, and register it under its pair_id."""
         try:
-            text = path.read_text(encoding="utf-8")
+            text = self._read_artifact_text(io, path)
         except Exception:
-            logging.exception("Cannot read Claude agent: %s", path)
+            logging.exception(
+                "Cannot read %s %s: path=%s",
+                tool_name,
+                customization_type,
+                path,
+            )
             self._block_state_owner(path, state, blocked_pair_ids)
             return
-        pair_id = extract_pair_id_from_md(text)
+        pair_id = io.extract_pair_id(text)
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
@@ -168,100 +205,31 @@ class Syncer:
             try:
                 validate_pair_id(pair_id)
             except InvalidPairId:
-                logging.error("Invalid pair_id in Claude agent: path=%s", path)
+                logging.error(
+                    "Invalid pair_id in %s %s: path=%s",
+                    tool_name,
+                    customization_type,
+                    path,
+                )
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
-        info = AgenticToolInfo(path, sha256_file(path), path.stat().st_mtime, present)
-        self._insert_side(pair_id, "agent", "claude", info, pairs, blocked_pair_ids)
+        digest = sha256_file(path) if io.storage == "single_file" else sha256_tree(path)
+        info = AgenticToolInfo(path, digest, path.stat().st_mtime, present)
+        self._insert_agentic_tool(
+            pair_id, customization_type, tool_name, info, pairs, blocked_pair_ids
+        )
 
-    def _add_claude_skill(
-        self,
-        path: Path,
-        pairs: dict[str, CustomizationArtifactInfo],
-        blocked_pair_ids: set[str],
-        state: dict[str, CustomizationArtifactState],
-    ) -> None:
-        skill_md = path / "SKILL.md"
-        try:
-            text = skill_md.read_text(encoding="utf-8")
-        except Exception:
-            logging.exception("Cannot read Claude skill: %s", skill_md)
-            self._block_state_owner(path, state, blocked_pair_ids)
-            return
-        pair_id = extract_pair_id_from_md(text)
-        present = pair_id is not None
-        if pair_id is None:
-            pair_id = new_pair_id()
-        else:
-            try:
-                validate_pair_id(pair_id)
-            except InvalidPairId:
-                logging.error("Invalid pair_id in Claude skill: path=%s", skill_md)
-                self._block_state_owner(path, state, blocked_pair_ids)
-                return
-        info = AgenticToolInfo(path, sha256_tree(path), path.stat().st_mtime, present)
-        self._insert_side(pair_id, "skill", "claude", info, pairs, blocked_pair_ids)
+    def _read_artifact_text(self, io: CustomizationTypeIO, path: Path) -> str:
+        """Read the artifact-metadata text for an artifact at `path`."""
+        if io.storage == "single_file":
+            return path.read_text(encoding="utf-8")
+        return (path / "SKILL.md").read_text(encoding="utf-8")
 
-    def _add_codex_agent(
-        self,
-        path: Path,
-        pairs: dict[str, CustomizationArtifactInfo],
-        blocked_pair_ids: set[str],
-        state: dict[str, CustomizationArtifactState],
-    ) -> None:
-        try:
-            text = path.read_text(encoding="utf-8")
-        except Exception:
-            logging.exception("Cannot read Codex agent: %s", path)
-            self._block_state_owner(path, state, blocked_pair_ids)
-            return
-        pair_id = extract_pair_id(text)
-        present = pair_id is not None
-        if pair_id is None:
-            pair_id = new_pair_id()
-        else:
-            try:
-                validate_pair_id(pair_id)
-            except InvalidPairId:
-                logging.error("Invalid pair_id in Codex agent: path=%s", path)
-                self._block_state_owner(path, state, blocked_pair_ids)
-                return
-        info = AgenticToolInfo(path, sha256_file(path), path.stat().st_mtime, present)
-        self._insert_side(pair_id, "agent", "codex", info, pairs, blocked_pair_ids)
-
-    def _add_codex_skill(
-        self,
-        path: Path,
-        pairs: dict[str, CustomizationArtifactInfo],
-        blocked_pair_ids: set[str],
-        state: dict[str, CustomizationArtifactState],
-    ) -> None:
-        skill_md = path / "SKILL.md"
-        try:
-            text = skill_md.read_text(encoding="utf-8")
-        except Exception:
-            logging.exception("Cannot read Codex skill: %s", skill_md)
-            self._block_state_owner(path, state, blocked_pair_ids)
-            return
-        pair_id = extract_pair_id_from_md(text)
-        present = pair_id is not None
-        if pair_id is None:
-            pair_id = new_pair_id()
-        else:
-            try:
-                validate_pair_id(pair_id)
-            except InvalidPairId:
-                logging.error("Invalid pair_id in Codex skill: path=%s", skill_md)
-                self._block_state_owner(path, state, blocked_pair_ids)
-                return
-        info = AgenticToolInfo(path, sha256_tree(path), path.stat().st_mtime, present)
-        self._insert_side(pair_id, "skill", "codex", info, pairs, blocked_pair_ids)
-
-    def _insert_side(
+    def _insert_agentic_tool(
         self,
         pair_id: str,
         kind: str,
-        side: str,
+        tool_name: str,
         info: AgenticToolInfo,
         pairs: dict[str, CustomizationArtifactInfo],
         blocked_pair_ids: set[str],
@@ -278,13 +246,17 @@ class Syncer:
             blocked_pair_ids.add(pair_id)
             return
 
-        if getattr(pair, side) is not None:
-            logging.error("duplicate pair_id on %s side: pair_id=%s", side, pair_id)
+        if tool_name in pair.agentic_tools:
+            logging.error(
+                "duplicate pair_id on %s agentic tool: pair_id=%s",
+                tool_name,
+                pair_id,
+            )
             pairs.pop(pair_id, None)
             blocked_pair_ids.add(pair_id)
             return
 
-        setattr(pair, side, info)
+        pair.agentic_tools[tool_name] = info
 
     def _block_state_owner(
         self,
