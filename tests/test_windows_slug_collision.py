@@ -43,7 +43,9 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
         )
     }
 
-    owner = syncer._state_owner_for_path(Path(syncer.codex_skills_dir) / "alpha", state)
+    owner = syncer.discovery.state_owner_for_path(
+        Path(syncer.codex_skills_dir) / "alpha", state
+    )
     assert owner == "pair-1"
 
 
@@ -57,8 +59,11 @@ def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: py
         Path(syncer.codex_skills_dir) / "Alpha",
         Path(syncer.codex_skills_dir) / "alpha",
     ])
-    monkeypatch.setattr(syncer, "_planned_adoption_targets", lambda info: [next(targets)])
+    monkeypatch.setattr(
+        syncer.discovery, "_planned_adoption_targets", lambda info: [next(targets)]
+    )
 
-    syncer._block_target_collisions(discovery, state={})
+    blocked = syncer.discovery.block_target_collisions(discovery, state={})
 
     assert discovery == {}
+    assert blocked == {"pair-a", "pair-b"}

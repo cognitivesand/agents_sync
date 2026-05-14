@@ -108,6 +108,13 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
 
 # ---------- artifact rendering ----------
 
+def read_artifact_text(io: CustomizationTypeIO, path: Path) -> str:
+    """Read the artifact-metadata text for an artifact at `path`."""
+    if io.storage == "single_file":
+        return path.read_text(encoding="utf-8")
+    return (path / "SKILL.md").read_text(encoding="utf-8")
+
+
 def write_artifact_inplace(io: CustomizationTypeIO, path: Path, text: str) -> None:
     """Write `text` back to the artifact-metadata location at `path`."""
     if io.storage == "single_file":
