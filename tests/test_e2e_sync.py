@@ -171,6 +171,46 @@ def test_two_foreign_artifacts_with_same_slug_are_not_adopted(syncer: Syncer):
     assert list(Path(syncer.codex_skills_dir).iterdir()) == []
 
 
+# ---------------- prior-text read failures (CQ-04) ----------------
+
+def test_unreadable_prior_text_logs_warning_and_continues(
+    syncer: Syncer, caplog, monkeypatch
+):
+    """When the target's prior text can't be read during a sync from another
+    tool, the renderer must fall back to prior_text=None and the failure must
+    be visible in the logs — not silently swallowed."""
+    claude_dir = _write_claude_skill(syncer, body="v1")
+    syncer.sync_once()
+
+    codex_dir = Path(syncer.codex_skills_dir) / "foo"
+    assert (codex_dir / "SKILL.md").exists()
+
+    original_read = syncer._read_artifact_text
+    codex_read_count = [0]
+
+    def patched_read(io, path: Path) -> str:
+        if Path(path) == codex_dir:
+            codex_read_count[0] += 1
+            if codex_read_count[0] > 1:
+                raise OSError("simulated prior-text read failure")
+        return original_read(io, path)
+
+    monkeypatch.setattr(syncer, "_read_artifact_text", patched_read)
+
+    claude_md = claude_dir / "SKILL.md"
+    claude_md.write_text(claude_md.read_text().replace("v1", "v2"))
+    _set_mtime(claude_md, 2_000_000_000.0)
+
+    with caplog.at_level("WARNING", logger="root"):
+        syncer.sync_once()
+
+    assert any(
+        "Could not read prior text" in record.getMessage()
+        for record in caplog.records
+    ), f"expected warning not logged; got: {[r.getMessage() for r in caplog.records]}"
+    assert "v2" in (codex_dir / "SKILL.md").read_text()
+
+
 def test_foreign_artifact_slug_collision_with_managed_pair_is_not_adopted(syncer: Syncer):
     managed = Path(syncer.claude_skills_dir) / "managed"
     managed.mkdir()

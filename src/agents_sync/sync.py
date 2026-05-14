@@ -837,7 +837,13 @@ class Syncer:
                 existing_path = target_info.path
                 try:
                     prior_text = self._read_artifact_text(target_io, target_info.path)
-                except Exception:
+                except (OSError, UnicodeDecodeError) as exc:
+                    logging.warning(
+                        "Could not read prior text at %s for pair_id=%s; "
+                        "rendered output will not preserve existing frontmatter "
+                        "formatting (%s: %s)",
+                        target_info.path, pair_id, type(exc).__name__, exc,
+                    )
                     prior_text = None
             paths[tool_name] = self._render_to_agentic_tool(
                 target_spec,
