@@ -45,18 +45,17 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents and skills across Claude Code, Codex, and Google Antigravity.
+`agents_sync` synchronizes user-level skills across Claude Code, Codex, and Google Antigravity. Agents are tracked on Claude Code only (the other tools have no per-agent file format).
 
 | What you edit | Claude Code | Codex | Antigravity |
 |:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | — (not supported) |
+| Agents | `~/.claude/agents/*.md` | — (uses a single `~/.codex/AGENTS.md`) | — (no per-agent format) |
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` |
 
 **In plain terms:**
 
-- Agents are reusable AI personas or workflows.
-- Skills are reusable instruction folders.
-- Antigravity adopts the same open `SKILL.md` spec as Claude Code and Codex skills, so skills are a three-way sync. Antigravity has no stable user-level agent format yet, so agents remain a two-way sync between Claude Code and Codex.
+- Skills are reusable instruction folders. All three tools use the same open `SKILL.md` spec, so skills sync three ways.
+- Agents are reusable AI personas. Only Claude Code keeps them as per-agent files; Codex collapses its global guidance into a single `AGENTS.md`. Until another tool adopts a per-agent file format, claude agents are tracked locally but have no projection target.
 
 ```mermaid
 flowchart LR
@@ -364,7 +363,9 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 
 ### 0.4.0
 
-- Added Google Antigravity as a third agentic tool. Antigravity participates in skills only; agents continue to sync between Claude Code and Codex.
+- Added Google Antigravity as a third agentic tool. Antigravity participates in skills only.
+- Codex is now skills-only too. v0.3 assumed Codex used per-agent `.toml` files under `~/.codex/agents/`, but the real Codex layout is a single global `~/.codex/AGENTS.md`. The `codex_agents_dir` config key and `--codex-agents-dir` CLI flag are removed; Codex's per-agent `codex_io` functions stay in the codebase for any future Codex release that adds a per-agent format.
+- Agents (per-agent files) are therefore Claude-only in v0.4. Adoption still mints and injects a `pair_id` so your Claude agents are ready to sync if another tool ever adopts a per-agent file format.
 - Generalised the sync algorithm from two named peers (`claude` / `codex`) to an N-tool registry. Adding another agentic tool is now an IO module + a config entry; the sync engine, conflict resolution, adoption, reconciliation, and removal-propagation paths are tool-agnostic.
 - Replaced the v0.2.1 "exit on missing root" startup behavior with per-tool status (`available` / `unavailable` / `disabled`). A missing root marks the tool unavailable for that poll and is logged once; the daemon continues to sync the remaining available tools. Removal-propagation never fires from an unavailable tool, so an uninstalled or unmounted tool never wipes your library.
 - Added first-boot reconciliation: when the same logical skill exists on multiple tools without a `pair_id`, the daemon merges them by most-recent mtime instead of failing on a slug collision.

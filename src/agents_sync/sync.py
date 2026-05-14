@@ -105,7 +105,6 @@ class Syncer:
         )
         self.claude_agents_dir = expand_path(config["claude_agents_dir"])
         self.claude_skills_dir = expand_path(config["claude_skills_dir"])
-        self.codex_agents_dir = expand_path(config["codex_agents_dir"])
         self.codex_skills_dir = expand_path(config["codex_skills_dir"])
         self.state_dir = expand_path(config["state_path"]).parent
         self._blocked_pair_ids: set[str] = set()
@@ -234,6 +233,12 @@ class Syncer:
                         state,
                     )
 
+        # A pair_id can be blocked (e.g. invalid id on one tool) after another
+        # tool has already inserted its valid entry into `pairs`. Evict those
+        # late-blocked entries so per-pair processing doesn't see a partial
+        # info and mistake the blocked tools for removed.
+        for pair_id in blocked_pair_ids:
+            pairs.pop(pair_id, None)
         self._blocked_pair_ids = blocked_pair_ids
         return pairs
 
@@ -658,11 +663,13 @@ class Syncer:
     def _planned_adoption_targets(self, info: CustomizationArtifactInfo) -> list[Path]:
         """Return target paths adoption would write on tools that don't yet hold the artifact.
 
-        If every participating tool already has a copy of the artifact, returns
-        []. Otherwise, parses one present tool's bytes to compute the slug, and
-        builds the slug-derived target for each absent participating tool.
+        If every available participating tool already has a copy of the
+        artifact, returns []. Otherwise, parses one present tool's bytes to
+        compute the slug, and builds the slug-derived target for each absent
+        available tool. Disabled / unavailable tools never figure in adoption
+        targets and therefore never participate in collision blocking.
         """
-        participating = self._participating_tools(info.kind)
+        participating = self._available_participating_tools(info.kind)
         missing = [t for t in participating if t not in info.agentic_tools]
         if not missing:
             return []

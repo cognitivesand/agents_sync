@@ -300,7 +300,7 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     the antigravity dir becomes available on a later poll."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs"):
+    for sub in ("ca", "cs", "xs"):
         (tmp_path / sub).mkdir()
     # Start with antigravity disabled so the first sync_once registers only claude+codex.
     config_two_tool = {
@@ -308,7 +308,6 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),  # doesn't exist yet
         "antigravity_enabled": False,
@@ -412,18 +411,21 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
     assert "C-ag" in c_claude_text
 
 
-# ---------- agent kind not on antigravity ----------
+# ---------- agent customization_type is Claude-only in v0.4 ----------
 
-def test_antigravity_does_not_participate_in_agent_sync(syncer: Syncer):
-    """Antigravity supports skill only; an agent on claude/codex does not
-    project to antigravity_skills_dir."""
+def test_agent_customization_type_is_claude_only(syncer: Syncer):
+    """In v0.4, only claude supports the agent customization_type. Codex
+    uses a single AGENTS.md file (not per-agent files), and Antigravity
+    has no stable per-agent format. A claude agent adopts with paths
+    containing only claude — no codex or antigravity projection."""
     claude_md = Path(syncer.claude_agents_dir) / "foo.md"
     claude_md.write_text("---\nname: foo\ndescription: x\n---\nbody\n")
 
     syncer.sync_once()
 
-    # Pair state should have claude and codex, NOT antigravity.
     _, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex"}
-    # Antigravity dir is untouched.
+    assert entry["customization_type"] == "agent"
+    assert set(entry["agentic_tools"].keys()) == {"claude"}
+    # Neither codex nor antigravity skills dir gets touched by the agent flow.
+    assert list(Path(syncer.codex_skills_dir).iterdir()) == []
     assert list(Path(syncer.config["antigravity_skills_dir"]).iterdir()) == []

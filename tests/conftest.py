@@ -12,7 +12,7 @@ from agents_sync.sync import Syncer
 def syncer(tmp_path: Path) -> Syncer:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "as"):
+    for sub in ("ca", "cs", "xs", "as"):
         (tmp_path / sub).mkdir()
 
     config = {
@@ -20,7 +20,6 @@ def syncer(tmp_path: Path) -> Syncer:
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": True,

@@ -37,7 +37,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interval", type=float, help="Polling interval in seconds.")
     parser.add_argument("--claude-agents-dir", type=str)
     parser.add_argument("--claude-skills-dir", type=str)
-    parser.add_argument("--codex-agents-dir", type=str)
     parser.add_argument("--codex-skills-dir", type=str)
     parser.add_argument(
         "--antigravity-skills-dir",

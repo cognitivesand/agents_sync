@@ -70,7 +70,6 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
         interval=None,
         claude_agents_dir=None,
         claude_skills_dir=None,
-        codex_agents_dir=None,
         codex_skills_dir=None,
         antigravity_skills_dir=None,
         antigravity_enabled=None,
@@ -134,14 +133,13 @@ def test_explicit_disable_with_existing_dir_is_disabled_and_silent(
     """Plan §3 deliverable: antigravity_enabled=false ⇒ disabled, no log lines."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "as"):
+    for sub in ("ca", "cs", "xs", "as"):
         (tmp_path / sub).mkdir()
     config = {
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": False,
@@ -162,7 +160,7 @@ def test_explicit_override_path_is_honored(tmp_path: Path):
     """Plan §3 deliverable: a non-default antigravity_skills_dir is used as-is."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs"):
+    for sub in ("ca", "cs", "xs"):
         (tmp_path / sub).mkdir()
     custom_root = tmp_path / "custom-antigravity-root"
     custom_root.mkdir()
@@ -172,7 +170,6 @@ def test_explicit_override_path_is_honored(tmp_path: Path):
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(custom_root),
         "antigravity_enabled": True,
@@ -191,7 +188,7 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
     """
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "as"):
+    for sub in ("ca", "cs", "xs", "as"):
         (tmp_path / sub).mkdir()
     # Put a skill on the antigravity side that would otherwise adopt.
     ag_skill = tmp_path / "as" / "preexisting"
@@ -205,7 +202,6 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": False,
@@ -224,14 +220,13 @@ def test_disabled_then_enabled_picks_up_new_artifacts(
     """Re-enabling antigravity transitions the status and resumes discovery."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "as"):
+    for sub in ("ca", "cs", "xs", "as"):
         (tmp_path / sub).mkdir()
     base_config = {
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": False,

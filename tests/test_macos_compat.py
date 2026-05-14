@@ -15,8 +15,8 @@ def test_darwin_path_collision_key_is_case_insensitive(
 ) -> None:
     monkeypatch.setattr("agents_sync.sync.sys.platform", "darwin")
 
-    upper = Path(syncer.codex_agents_dir) / "Alpha.toml"
-    lower = Path(syncer.codex_agents_dir) / "alpha.toml"
+    upper = Path(syncer.codex_skills_dir) / "Alpha"
+    lower = Path(syncer.codex_skills_dir) / "alpha"
 
     assert syncer._path_collision_key(upper) == syncer._path_collision_key(lower)
 
@@ -27,15 +27,15 @@ def test_linux_path_collision_key_is_case_sensitive(
 ) -> None:
     monkeypatch.setattr("agents_sync.sync.sys.platform", "linux")
 
-    upper = Path(syncer.codex_agents_dir) / "Alpha.toml"
-    lower = Path(syncer.codex_agents_dir) / "alpha.toml"
+    upper = Path(syncer.codex_skills_dir) / "Alpha"
+    lower = Path(syncer.codex_skills_dir) / "alpha"
 
     assert syncer._path_collision_key(upper) != syncer._path_collision_key(lower)
 
 
 def test_path_collision_key_normalizes_nfd_and_nfc(syncer: Syncer) -> None:
-    nfc = Path(syncer.codex_agents_dir) / "café.toml"
-    nfd = Path(syncer.codex_agents_dir) / "café.toml"
+    nfc = Path(syncer.codex_skills_dir) / "café"
+    nfd = Path(syncer.codex_skills_dir) / "café"
 
     assert str(nfc) != str(nfd)
     assert syncer._path_collision_key(nfc) == syncer._path_collision_key(nfd)

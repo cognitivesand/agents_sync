@@ -101,20 +101,20 @@ def _build_claude_spec() -> AgenticToolSpec:
 
 
 def _build_codex_spec() -> AgenticToolSpec:
+    """Codex is skills-only in v0.4.
+
+    Codex's user-level instructions live in a single ``~/.codex/AGENTS.md``
+    file, not per-agent files in a directory, so there is no per-agent
+    customization to sync. ``codex_io.parse_codex_agent_toml`` /
+    ``render_codex_agent_toml`` remain in the codebase for any future
+    Codex release that adds a per-agent file format, but they are not
+    reachable through the default registry.
+    """
     from agents_sync.claude_io import extract_pair_id_from_md
     from agents_sync.codex_io import (
-        extract_pair_id,
-        parse_codex_agent_toml,
         parse_codex_skill_md,
-        render_codex_agent_toml,
         render_codex_skill_md,
     )
-
-    def parse_agent(text: str, prior_canonical: dict[str, Any] | None) -> dict[str, Any]:
-        return parse_codex_agent_toml(text, prior_canonical=prior_canonical)
-
-    def render_agent(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_codex_agent_toml(canonical)
 
     def parse_skill(text: str, prior_canonical: dict[str, Any] | None) -> dict[str, Any]:
         return parse_codex_skill_md(text, prior_canonical=prior_canonical)
@@ -124,18 +124,8 @@ def _build_codex_spec() -> AgenticToolSpec:
 
     return AgenticToolSpec(
         name="codex",
-        config_dir_keys={
-            "agent": "codex_agents_dir",
-            "skill": "codex_skills_dir",
-        },
+        config_dir_keys={"skill": "codex_skills_dir"},
         io={
-            "agent": CustomizationTypeIO(
-                parse=parse_agent,
-                render=render_agent,
-                extract_pair_id=extract_pair_id,
-                storage="single_file",
-                file_suffix=".toml",
-            ),
             "skill": CustomizationTypeIO(
                 parse=parse_skill,
                 render=render_skill,

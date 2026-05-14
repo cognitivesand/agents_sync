@@ -57,7 +57,8 @@ state_path = "$tomlStatePath"
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
 
-codex_agents_dir = "~/.codex/agents"
+# Codex is skills-only in v0.4: it stores its global instructions in a single
+# ~/.codex/AGENTS.md (not per-agent files).
 codex_skills_dir = "~/.agents/skills"
 
 # Google Antigravity (skills only). Enabled by default once

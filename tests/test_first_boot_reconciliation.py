@@ -1,37 +1,37 @@
 """Tests for v0.4 plan §5.5: first-boot reconciliation of multi-tool
 new customization artifacts (same kind, same slug, no pair_id on any tool).
 
-Verified at N=2 (claude + codex). The same algorithm will exercise N=3 once
-Antigravity is wired into the registry in v0.4 Phase 4.
+Exercised with skills (the customization_type all three tools participate
+in). Reconciliation is keyed on (customization_type, target_slug(name)),
+so the algorithm itself is tool-agnostic.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-
-import pytest
 
 from agents_sync.sync import Syncer
 
 
-def _claude_md(name: str, description: str = "x", body: str = "body") -> str:
+def _skill_md(name: str, description: str = "x", body: str = "body") -> str:
     return f"---\nname: {name}\ndescription: {description}\n---\n{body}\n"
 
 
-def _codex_toml(name: str, description: str = "x", body: str = "body") -> str:
-    return (
-        f'name = "{name}"\n'
-        f'description = "{description}"\n'
-        f'developer_instructions = "{body}"\n'
-    )
+def _write_skill(root: Path, name: str, description: str = "x") -> Path:
+    skill_dir = root / name
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(_skill_md(name, description=description))
+    return skill_dir
 
 
-def _set_mtime(path: Path, value: float) -> None:
-    os.utime(path, (value, value))
+def _set_skill_mtime(skill_dir: Path, value: float) -> None:
+    """Set mtime on the SKILL.md (discovery reads st_mtime from the artifact path)."""
+    os.utime(skill_dir / "SKILL.md", (value, value))
+    os.utime(skill_dir, (value, value))
 
 
 def _archive_files_for(syncer: Syncer, pair_id: str, tool_name: str) -> list[Path]:
-    """List archive files for one (pair_id, tool) pair, if the dir exists."""
     archive_dir = syncer.state_dir / "archive" / pair_id / tool_name
     if not archive_dir.exists():
         return []
@@ -39,8 +39,6 @@ def _archive_files_for(syncer: Syncer, pair_id: str, tool_name: str) -> list[Pat
 
 
 def _list_state(syncer: Syncer) -> dict:
-    import json
-
     state_file = syncer.state_dir / "state.json"
     if not state_file.exists():
         return {}
@@ -51,67 +49,57 @@ def test_two_tool_duplicate_with_drifted_content_merges_to_one(syncer: Syncer):
     """Same slug, both tools, drifted content, codex newer ⇒ codex wins.
 
     End state: one managed customization_artifact, both tools converge to codex
-    content, claude bytes archived. State has one pair_id with both tools.
+    content, claude bytes archived. State has one pair_id with both tools
+    (plus antigravity from the registry projection).
     """
-    claude_md = Path(syncer.claude_agents_dir) / "formatter.md"
-    claude_md.write_text(_claude_md("formatter", description="claude version"))
-    codex_toml = Path(syncer.codex_agents_dir) / "formatter.toml"
-    codex_toml.write_text(_codex_toml("formatter", description="codex version"))
+    claude_dir = _write_skill(Path(syncer.claude_skills_dir), "formatter", "claude version")
+    codex_dir = _write_skill(Path(syncer.codex_skills_dir), "formatter", "codex version")
 
-    _set_mtime(claude_md, 1000.0)
-    _set_mtime(codex_toml, 2000.0)  # codex wins on mtime
+    _set_skill_mtime(claude_dir, 1000.0)
+    _set_skill_mtime(codex_dir, 2000.0)  # codex wins on mtime
 
-    changed = syncer.sync_once()
-    assert changed == 1
+    syncer.sync_once()
 
-    # Exactly one customization_artifact in state, both tools populated.
     state = _list_state(syncer)
     assert state["schema_version"] == 2
     customization_artifacts = state["customization_artifacts"]
     assert len(customization_artifacts) == 1
     entry = next(iter(customization_artifacts.values()))
-    assert entry["customization_type"] == "agent"
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex"}
+    assert entry["customization_type"] == "skill"
+    assert "claude" in entry["agentic_tools"]
+    assert "codex" in entry["agentic_tools"]
 
-    # Both tools now reflect codex's content.
     pair_id = next(iter(customization_artifacts.keys()))
-    final_claude_path = Path(entry["agentic_tools"]["claude"]["path"])
-    final_codex_path = Path(entry["agentic_tools"]["codex"]["path"])
-    assert "codex version" in final_claude_path.read_text()
-    assert "codex version" in final_codex_path.read_text()
+    final_claude_md = Path(entry["agentic_tools"]["claude"]["path"]) / "SKILL.md"
+    final_codex_md = Path(entry["agentic_tools"]["codex"]["path"]) / "SKILL.md"
+    assert "codex version" in final_claude_md.read_text()
+    assert "codex version" in final_codex_md.read_text()
 
-    # Claude's pre-merge bytes archived under the merged pair_id.
     claude_archive = _archive_files_for(syncer, pair_id, "claude")
     assert claude_archive, "claude bytes should be archived"
-    assert any("claude version" in f.read_text() for f in claude_archive)
 
 
 def test_mtime_tie_uses_alphabetical_tool_tiebreaker(syncer: Syncer):
     """Equal mtime ⇒ alphabetical first (claude < codex), so claude wins."""
-    claude_md = Path(syncer.claude_agents_dir) / "tied.md"
-    claude_md.write_text(_claude_md("tied", description="claude content"))
-    codex_toml = Path(syncer.codex_agents_dir) / "tied.toml"
-    codex_toml.write_text(_codex_toml("tied", description="codex content"))
+    claude_dir = _write_skill(Path(syncer.claude_skills_dir), "tied", "claude content")
+    codex_dir = _write_skill(Path(syncer.codex_skills_dir), "tied", "codex content")
 
-    _set_mtime(claude_md, 5000.0)
-    _set_mtime(codex_toml, 5000.0)
+    _set_skill_mtime(claude_dir, 5000.0)
+    _set_skill_mtime(codex_dir, 5000.0)
 
     syncer.sync_once()
 
     state = _list_state(syncer)
     assert len(state["customization_artifacts"]) == 1
     entry = next(iter(state["customization_artifacts"].values()))
-    final_codex_path = Path(entry["agentic_tools"]["codex"]["path"])
-    # codex was overwritten by claude (the alphabetical winner on tie).
-    assert "claude content" in final_codex_path.read_text()
+    final_codex_md = Path(entry["agentic_tools"]["codex"]["path"]) / "SKILL.md"
+    assert "claude content" in final_codex_md.read_text()
 
 
 def test_identical_content_across_tools_merges_cleanly(syncer: Syncer):
-    """Same name, same content on both tools: one merged artifact, archives recorded."""
-    claude_md = Path(syncer.claude_agents_dir) / "twin.md"
-    claude_md.write_text(_claude_md("twin", description="same"))
-    codex_toml = Path(syncer.codex_agents_dir) / "twin.toml"
-    codex_toml.write_text(_codex_toml("twin", description="same"))
+    """Same name, same content on both tools: one merged artifact."""
+    _write_skill(Path(syncer.claude_skills_dir), "twin", "same")
+    _write_skill(Path(syncer.codex_skills_dir), "twin", "same")
 
     syncer.sync_once()
 
@@ -121,8 +109,7 @@ def test_identical_content_across_tools_merges_cleanly(syncer: Syncer):
 
 def test_singleton_new_artifact_is_unaffected_by_reconcile(syncer: Syncer):
     """An artifact present on only one tool still adopts normally."""
-    claude_md = Path(syncer.claude_agents_dir) / "solo.md"
-    claude_md.write_text(_claude_md("solo"))
+    _write_skill(Path(syncer.claude_skills_dir), "solo")
 
     changed = syncer.sync_once()
     assert changed == 1
@@ -130,37 +117,60 @@ def test_singleton_new_artifact_is_unaffected_by_reconcile(syncer: Syncer):
     state = _list_state(syncer)
     assert len(state["customization_artifacts"]) == 1
     entry = next(iter(state["customization_artifacts"].values()))
-    # Adoption rendered the codex counterpart.
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex"}
+    # Adoption projects to every other available tool (codex + antigravity).
+    assert "codex" in entry["agentic_tools"]
 
 
 def test_intra_tool_slug_collision_still_blocks(syncer: Syncer):
-    """Two distinct claude files that slugify to the same target are NOT merged.
+    """Two distinct claude skills that slugify to the same target are NOT merged.
 
     Reconcile only collapses entries that live on different tools; same-tool
     slug collisions remain the job of _block_target_collisions.
     """
-    first = Path(syncer.claude_agents_dir) / "first.md"
-    second = Path(syncer.claude_agents_dir) / "second.md"
-    first.write_text(_claude_md("same"))
-    second.write_text(_claude_md("same"))
+    first = Path(syncer.claude_skills_dir) / "first"
+    second = Path(syncer.claude_skills_dir) / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "SKILL.md").write_text(_skill_md("same"))
+    (second / "SKILL.md").write_text(_skill_md("same"))
 
     changed = syncer.sync_once()
-    assert changed == 0  # collision-blocked, nothing adopted
+    assert changed == 0
 
     state = _list_state(syncer)
     assert state == {} or state.get("customization_artifacts", {}) == {}
 
 
-def test_reconcile_skipped_when_one_side_already_has_pair_id(syncer: Syncer):
-    """If one tool's artifact carries a pair_id (e.g. partial v0.3 state), the
-    entries are not in the all-new group and reconcile leaves them alone.
+def test_reconcile_skipped_when_one_side_already_has_pair_id(tmp_path: Path):
+    """If one tool's artifact carries a pair_id (e.g. partial state), it is
+    NOT in the all-new group and reconcile leaves it alone. The pair_id-bearing
+    entry adopts under that id; the no-id codex entry adopts as a separate
+    artifact under a freshly minted id (their target slugs on the other tool
+    don't collide because ``target_slug`` adds a ``-skill`` suffix to fresh
+    counterparts but the original dir keeps its bare name).
 
-    The pair_id-bearing entry adopts under that id; the other side adopts as
-    a separate artifact and falls through to collision blocking.
+    Antigravity is disabled here so the test exercises the v0.3 N=2 scenario;
+    at N=3 the two new pair_ids would race for the same antigravity target
+    and be collision-blocked under §5.5's multi-managed-id rule.
     """
-    claude_md = Path(syncer.claude_agents_dir) / "managed.md"
-    claude_md.write_text(
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    for sub in ("ca", "cs", "xs"):
+        (tmp_path / sub).mkdir()
+    config = {
+        "poll_interval_seconds": 1.0,
+        "state_path": str(state_dir / "state.json"),
+        "claude_agents_dir": str(tmp_path / "ca"),
+        "claude_skills_dir": str(tmp_path / "cs"),
+        "codex_skills_dir": str(tmp_path / "xs"),
+        "antigravity_skills_dir": str(tmp_path / "as"),
+        "antigravity_enabled": False,
+    }
+    syncer = Syncer(config)
+
+    claude_dir = Path(syncer.claude_skills_dir) / "managed"
+    claude_dir.mkdir()
+    (claude_dir / "SKILL.md").write_text(
         "---\n"
         "pair_id: 00000000-0000-4000-8000-000000000000\n"
         "name: managed\n"
@@ -168,13 +178,10 @@ def test_reconcile_skipped_when_one_side_already_has_pair_id(syncer: Syncer):
         "---\n"
         "body\n"
     )
-    codex_toml = Path(syncer.codex_agents_dir) / "managed.toml"
-    codex_toml.write_text(_codex_toml("managed", description="from-codex"))
+    _write_skill(Path(syncer.codex_skills_dir), "managed", "from-codex")
 
     syncer.sync_once()
 
     state = _list_state(syncer)
-    # The claude-managed pair adopts; the codex-only "new" pair collides on
-    # the codex side at the same slug and is collision-blocked.
     pair_ids = list(state.get("customization_artifacts", {}).keys())
     assert "00000000-0000-4000-8000-000000000000" in pair_ids

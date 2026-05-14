@@ -9,7 +9,7 @@
 Every agentic_tool stores its agents and skills under its own filesystem layout. For example:
 
 - Claude Code: user-level agents at `~/.claude/agents/*.md`; user-level skills at `~/.claude/skills/<name>/SKILL.md`.
-- Codex: agents at `~/.codex/agents/*.toml`; skills at `~/.agents/skills/<name>/SKILL.md`.
+- Codex: skills at `~/.agents/skills/<name>/SKILL.md`. Codex stores its global guidance in a single `~/.codex/AGENTS.md` and has no per-agent file format, so it participates in the `skill` customization_type only.
 - Google Antigravity: skills at `~/.gemini/antigravity/skills/<name>/SKILL.md` (no per-agent file format as of v0.4 release).
 
 Maintaining the same library of customizations across two or more such agentic_tools by hand is tedious and drifts.
