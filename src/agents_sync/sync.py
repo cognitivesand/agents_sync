@@ -721,24 +721,15 @@ class Syncer:
 
         save_canonical(self.state_dir, pair_id, canonical)
 
-        paths: dict[str, Path] = {source_tool: source_info.path}
         source_dir = source_info.path if source_io.storage == "directory_skill" else None
-        for tool_name in self._available_participating_tools(info.kind):
-            if tool_name == source_tool:
-                continue
-            existing_target_info = info.agentic_tools.get(tool_name)
-            existing_target_path = (
-                existing_target_info.path if existing_target_info is not None else None
-            )
-            paths[tool_name] = render_to_agentic_tool(
-                self.config,
-                self.agentic_tools[tool_name],
-                info.kind,
-                canonical,
-                existing_path=existing_target_path,
-                prior_text=None,
-                source_dir=source_dir,
-            )
+        paths = self._project_to_other_tools(
+            pair_id=pair_id,
+            canonical=canonical,
+            info=info,
+            source_tool=source_tool,
+            source_dir=source_dir,
+            read_prior_text=False,
+        )
 
         update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
         logging.info(
@@ -773,28 +764,59 @@ class Syncer:
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
 
-        paths: dict[str, Path] = {source_tool: source_info.path}
         source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        paths = self._project_to_other_tools(
+            pair_id=pair_id,
+            canonical=canonical,
+            info=info,
+            source_tool=source_tool,
+            source_dir=source_dir,
+            read_prior_text=True,
+        )
+
+        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
+        logging.info("Synced from %s: pair_id=%s", source_tool, pair_id)
+        return True
+
+    def _project_to_other_tools(
+        self,
+        *,
+        pair_id: str,
+        canonical: dict[str, Any],
+        info: CustomizationArtifactInfo,
+        source_tool: str,
+        source_dir: Path | None,
+        read_prior_text: bool,
+    ) -> dict[str, Path]:
+        """Render `canonical` onto every available tool except `source_tool`.
+
+        `read_prior_text=True` (the sync path) re-reads each target's existing
+        bytes so the renderer can preserve user frontmatter ordering;
+        `read_prior_text=False` (the adoption path) skips that read since the
+        target either doesn't exist yet or hasn't been claimed by this pair.
+        """
+        paths: dict[str, Path] = {source_tool: info.agentic_tools[source_tool].path}
         for tool_name in self._available_participating_tools(info.kind):
             if tool_name == source_tool:
                 continue
             target_info = info.agentic_tools.get(tool_name)
             target_spec = self.agentic_tools[tool_name]
-            target_io = target_spec.io[info.kind]
             existing_path: Path | None = None
             prior_text: str | None = None
             if target_info is not None:
                 existing_path = target_info.path
-                try:
-                    prior_text = self._read_artifact_text(target_io, target_info.path)
-                except (OSError, UnicodeDecodeError) as exc:
-                    logging.warning(
-                        "Could not read prior text at %s for pair_id=%s; "
-                        "rendered output will not preserve existing frontmatter "
-                        "formatting (%s: %s)",
-                        target_info.path, pair_id, type(exc).__name__, exc,
-                    )
-                    prior_text = None
+                if read_prior_text:
+                    target_io = target_spec.io[info.kind]
+                    try:
+                        prior_text = self._read_artifact_text(target_io, target_info.path)
+                    except (OSError, UnicodeDecodeError) as exc:
+                        logging.warning(
+                            "Could not read prior text at %s for pair_id=%s; "
+                            "rendered output will not preserve existing frontmatter "
+                            "formatting (%s: %s)",
+                            target_info.path, pair_id, type(exc).__name__, exc,
+                        )
+                        prior_text = None
             paths[tool_name] = render_to_agentic_tool(
                 self.config,
                 target_spec,
@@ -804,10 +826,7 @@ class Syncer:
                 prior_text=prior_text,
                 source_dir=source_dir,
             )
-
-        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
-        logging.info("Synced from %s: pair_id=%s", source_tool, pair_id)
-        return True
+        return paths
 
     def _resolve_conflict_n_way(
         self,
