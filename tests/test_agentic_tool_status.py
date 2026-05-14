@@ -39,8 +39,8 @@ def test_missing_root_at_startup_does_not_raise(syncer: Syncer):
     """US-11 AC-1: a missing root marks the tool unavailable; daemon continues."""
     shutil.rmtree(syncer.codex_skills_dir)
     syncer.sync_once()  # must not raise
-    assert syncer._tool_status["codex"] == "unavailable"
-    assert syncer._tool_status["claude"] == "available"
+    assert syncer.tool_status.snapshot()["codex"] == "unavailable"
+    assert syncer.tool_status.snapshot()["claude"] == "available"
 
 
 def test_missing_root_at_startup_logs_info_line(syncer: Syncer, caplog: pytest.LogCaptureFixture):
@@ -106,14 +106,14 @@ def test_returning_to_available_logs_info_and_extends(syncer: Syncer, caplog: py
 
     shutil.rmtree(syncer.codex_skills_dir)
     syncer.sync_once()  # codex now unavailable
-    assert syncer._tool_status["codex"] == "unavailable"
+    assert syncer.tool_status.snapshot()["codex"] == "unavailable"
 
     syncer.codex_skills_dir.mkdir(parents=True)
     caplog.clear()
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
 
-    assert syncer._tool_status["codex"] == "available"
+    assert syncer.tool_status.snapshot()["codex"] == "available"
     info_records = [r for r in caplog.records if r.levelno == logging.INFO]
     assert any(
         "agentic_tool codex" in r.getMessage() and "-> available" in r.getMessage()
@@ -154,7 +154,7 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     # No raise, zero changes.
     changed = syncer.sync_once()
     assert changed == 0
-    assert syncer._tool_status == {
+    assert syncer.tool_status.snapshot() == {
         "antigravity": "unavailable",
         "claude": "unavailable",
         "codex": "unavailable",

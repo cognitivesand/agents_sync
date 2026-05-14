@@ -27,6 +27,7 @@ from agents_sync.rendering import (
     update_state_n_way,
     write_artifact_inplace,
 )
+from agents_sync.tool_status import ToolStatusTracker
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,
@@ -66,124 +67,19 @@ class Syncer:
         self.codex_skills_dir = expand_path(config["codex_skills_dir"])
         self.state_dir = expand_path(config["state_path"]).parent
         self._blocked_pair_ids: set[str] = set()
-        # Per-tool status per US-11: "available" | "unavailable" | "disabled".
-        # Empty until the first sync_once: that first poll's _refresh_tool_statuses
-        # emits the startup INFO line for every tool.
-        self._tool_status: dict[str, str] = {}
+        self.tool_status = ToolStatusTracker(self.config, self.agentic_tools)
         # Best-effort: create each enabled tool's roots once at startup. This
         # turns "fresh-install, dir-not-yet-materialised" into `available` on
         # the first poll, instead of US-11 `unavailable` (which would silently
         # strand the user's library). Mid-life loss of a root still flips the
         # tool to `unavailable` per US-11 AC-2.
-        self._ensure_tool_roots()
-
-    def _ensure_tool_roots(self) -> None:
-        """mkdir -p every enabled tool's configured customization-type roots.
-
-        Best-effort: a failure here (permission denied, parent is a file) is
-        not fatal — `_refresh_tool_statuses` will observe the failure on the
-        first poll and mark the tool `unavailable` with the underlying OSError.
-        """
-        for spec in self.agentic_tools.values():
-            if not self._is_tool_enabled(spec):
-                continue
-            for config_key in spec.config_dir_keys.values():
-                root = expand_path(self.config[config_key])
-                try:
-                    root.mkdir(parents=True, exist_ok=True)
-                except OSError as exc:
-                    logging.warning(
-                        "Could not pre-create %s root %s (%s: %s); "
-                        "next poll will mark this tool unavailable.",
-                        spec.name, root, type(exc).__name__, exc,
-                    )
-
-    # ---------- per-tool status (US-11) ----------
-
-    def _refresh_tool_statuses(self) -> None:
-        """Compute each tool's `available` / `unavailable` / `disabled` status.
-
-        Status rules (US-11):
-          - `disabled` ⇒ tool is registered but its enable-flag in config is False.
-          - `unavailable` ⇒ tool is enabled but at least one of its
-            customization_type roots is missing or unreadable on this poll.
-          - `available` ⇒ tool is enabled and every root is reachable.
-
-        Transitions are logged once (AC-5). Steady-state polls are silent.
-        """
-        new_status: dict[str, str] = {}
-        reasons: dict[str, tuple[str, str]] = {}
-        for tool_name, spec in self.agentic_tools.items():
-            if not self._is_tool_enabled(spec):
-                new_status[tool_name] = "disabled"
-                continue
-            status, reason = self._probe_tool_roots(spec)
-            new_status[tool_name] = status
-            if reason is not None:
-                reasons[tool_name] = reason
-
-        for tool_name, status in new_status.items():
-            prev = self._tool_status.get(tool_name)
-            if prev == status:
-                continue
-            self._log_status_transition(tool_name, prev, status, reasons.get(tool_name))
-        self._tool_status = new_status
-
-    def _is_tool_enabled(self, spec: AgenticToolSpec) -> bool:
-        """Whether a tool's config-side enable-flag is on.
-
-        A tool without `disable_config_key` cannot be disabled — it can only
-        become `unavailable` by losing its root. Antigravity's
-        `antigravity_enabled = False` is the only opt-out in v0.4.
-        """
-        if spec.disable_config_key is None:
-            return True
-        return bool(self.config.get(spec.disable_config_key, True))
-
-    def _probe_tool_roots(self, spec: AgenticToolSpec) -> tuple[str, tuple[str, str] | None]:
-        """Return (status, reason_or_None) for one tool's on-disk reachability."""
-        for kind, config_key in spec.config_dir_keys.items():
-            root = expand_path(self.config[config_key])
-            if not root.exists():
-                return "unavailable", (str(root), "path does not exist")
-            try:
-                next(root.iterdir(), None)
-            except OSError as exc:
-                return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
-        return "available", None
-
-    def _log_status_transition(
-        self,
-        tool_name: str,
-        prev: str | None,
-        status: str,
-        reason: tuple[str, str] | None,
-    ) -> None:
-        if status == "disabled":
-            return  # US-11 AC-5 / US-10 AC-7: disabled tools are silent.
-        from_label = prev if prev is not None else "startup"
-        if status == "available":
-            logging.info("agentic_tool %s: %s -> available", tool_name, from_label)
-            return
-        # status == "unavailable"
-        root_str = reason[0] if reason else "?"
-        reason_str = reason[1] if reason else "?"
-        if prev is None:
-            logging.info(
-                "agentic_tool %s: startup -> unavailable (root=%s reason=%s)",
-                tool_name, root_str, reason_str,
-            )
-        else:
-            logging.warning(
-                "agentic_tool %s: %s -> unavailable (root=%s reason=%s)",
-                tool_name, prev, root_str, reason_str,
-            )
+        self.tool_status.ensure_roots()
 
     def _available_participating_tools(self, kind: str) -> list[str]:
         """Participating tools whose status is currently `available`."""
         return [
             name for name in self._participating_tools(kind)
-            if self._tool_status.get(name) == "available"
+            if self.tool_status.is_available(name)
         ]
 
     # ---------- discovery ----------
@@ -200,7 +96,7 @@ class Syncer:
         blocked_pair_ids: set[str] = set()
 
         for tool_name, spec in self.agentic_tools.items():
-            if self._tool_status.get(tool_name) != "available":
+            if not self.tool_status.is_available(tool_name):
                 continue
             for customization_type in sorted(spec.supported_customization_types):
                 io = spec.io[customization_type]
@@ -343,7 +239,7 @@ class Syncer:
 
     def sync_once(self) -> int:
         validate_config(self.config)
-        self._refresh_tool_statuses()
+        self.tool_status.refresh()
         state = load_state(self.state_dir)
         discovery = self._discover(state)
         self._reconcile_new_groups(discovery, state)
@@ -368,8 +264,7 @@ class Syncer:
                 continue
             ps = state[pair_id]
             if not any(
-                self._tool_status.get(t) == "available"
-                for t in ps.agentic_tools
+                self.tool_status.is_available(t) for t in ps.agentic_tools
             ):
                 continue
             try:
@@ -914,7 +809,7 @@ class Syncer:
         """
         ps = state[pair_id]
         for tool in list(ps.agentic_tools.keys()):
-            if self._tool_status.get(tool) == "available":
+            if self.tool_status.is_available(tool):
                 del ps.agentic_tools[tool]
         if not ps.agentic_tools:
             del state[pair_id]

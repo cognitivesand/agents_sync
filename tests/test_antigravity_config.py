@@ -103,7 +103,7 @@ def test_default_when_dir_present_is_available(syncer: Syncer, caplog: pytest.Lo
     """Plan §3 deliverable: status=available when antigravity_skills_dir exists."""
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
-    assert syncer._tool_status["antigravity"] == "available"
+    assert syncer.tool_status.snapshot()["antigravity"] == "available"
     info_records = [r for r in caplog.records if r.levelno == logging.INFO]
     assert any(
         "agentic_tool antigravity" in r.getMessage() and "-> available" in r.getMessage()
@@ -118,7 +118,7 @@ def test_enabled_but_missing_dir_is_unavailable_and_logs(
     shutil.rmtree(tmp_path / "as")
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
-    assert syncer._tool_status["antigravity"] == "unavailable"
+    assert syncer.tool_status.snapshot()["antigravity"] == "unavailable"
     info_records = [r for r in caplog.records if r.levelno == logging.INFO]
     assert any(
         "agentic_tool antigravity" in r.getMessage()
@@ -147,7 +147,7 @@ def test_explicit_disable_with_existing_dir_is_disabled_and_silent(
     syncer = Syncer(config)
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
-    assert syncer._tool_status["antigravity"] == "disabled"
+    assert syncer.tool_status.snapshot()["antigravity"] == "disabled"
     antigravity_logs = [
         r for r in caplog.records if "agentic_tool antigravity" in r.getMessage()
     ]
@@ -176,7 +176,7 @@ def test_explicit_override_path_is_honored(tmp_path: Path):
     }
     syncer = Syncer(config)
     syncer.sync_once()
-    assert syncer._tool_status["antigravity"] == "available"
+    assert syncer.tool_status.snapshot()["antigravity"] == "available"
 
 
 def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path):
@@ -233,11 +233,11 @@ def test_disabled_then_enabled_picks_up_new_artifacts(
     }
     syncer_disabled = Syncer(dict(base_config))
     syncer_disabled.sync_once()
-    assert syncer_disabled._tool_status["antigravity"] == "disabled"
+    assert syncer_disabled.tool_status.snapshot()["antigravity"] == "disabled"
 
     enabled_config = dict(base_config)
     enabled_config["antigravity_enabled"] = True
     syncer_enabled = Syncer(enabled_config)
     with caplog.at_level(logging.INFO):
         syncer_enabled.sync_once()
-    assert syncer_enabled._tool_status["antigravity"] == "available"
+    assert syncer_enabled.tool_status.snapshot()["antigravity"] == "available"
