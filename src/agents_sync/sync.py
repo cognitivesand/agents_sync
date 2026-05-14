@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,13 +21,6 @@ from agents_sync.canonical import (
     load_canonical,
     new_pair_id,
     save_canonical,
-)
-from agents_sync.claude_io import parse_claude_md, render_claude_md
-from agents_sync.codex_io import (
-    parse_codex_agent_toml,
-    parse_codex_skill_md,
-    render_codex_agent_toml,
-    render_codex_skill_md,
 )
 from agents_sync.config import expand_path
 from agents_sync.config import validate_config
@@ -57,14 +51,6 @@ class AgenticToolInfo:
 class CustomizationArtifactInfo:
     kind: str
     agentic_tools: dict[str, AgenticToolInfo] = field(default_factory=dict)
-
-    @property
-    def claude(self) -> AgenticToolInfo | None:
-        return self.agentic_tools.get("claude")
-
-    @property
-    def codex(self) -> AgenticToolInfo | None:
-        return self.agentic_tools.get("codex")
 
 
 def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
@@ -301,32 +287,40 @@ class Syncer:
 
     def _process_pair(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
         ps = state.get(pair_id)
-
         if ps is None:
             return self._adopt_new_pair(pair_id, info, state)
 
-        # Either side may be missing in this poll (file removed).
-        if info.claude is None and info.codex is None:
+        participating = self._participating_tools(info.kind)
+        present = [t for t in participating if t in info.agentic_tools]
+        # Tools that the state remembered but discovery did not surface this poll
+        missing_from_state = [
+            t for t in participating
+            if t in ps.agentic_tools and t not in info.agentic_tools
+        ]
+        if missing_from_state:
+            return self._propagate_removal(
+                pair_id, info, state, missing_from_state, survivors=present
+            )
+        if not present:
             return False
-        if info.claude is None:
-            return self._propagate_claude_removal(pair_id, info, state)
-        if info.codex is None:
-            return self._propagate_codex_removal(pair_id, info, state)
 
-        claude_state = ps.agentic_tools.get("claude")
-        codex_state = ps.agentic_tools.get("codex")
-        claude_last_written = claude_state.last_written if claude_state else None
-        codex_last_written = codex_state.last_written if codex_state else None
-        claude_changed = info.claude.digest != claude_last_written
-        codex_changed = info.codex.digest != codex_last_written
-
-        if not claude_changed and not codex_changed:
+        changed = [
+            t for t in present
+            if info.agentic_tools[t].digest
+            != (ps.agentic_tools[t].last_written if t in ps.agentic_tools else None)
+        ]
+        if not changed:
             return False
-        if claude_changed and not codex_changed:
-            return self._sync_claude_to_codex(pair_id, info, state)
-        if codex_changed and not claude_changed:
-            return self._sync_codex_to_claude(pair_id, info, state)
-        return self._resolve_conflict(pair_id, info, state)
+        if len(changed) == 1:
+            return self._sync_from_agentic_tool(pair_id, changed[0], info, state)
+        return self._resolve_conflict_n_way(pair_id, info, state, changed)
+
+    def _participating_tools(self, kind: str) -> list[str]:
+        """Tools whose registry supports this customization_type, in deterministic order."""
+        return [
+            name for name, spec in self.agentic_tools.items()
+            if kind in spec.supported_customization_types
+        ]
 
     def _block_target_collisions(
         self,
@@ -341,33 +335,32 @@ class Syncer:
             if pair_id in state:
                 continue
             try:
-                target = self._planned_adoption_target(info)
+                planned_targets = self._planned_adoption_targets(info)
             except Exception:
                 logging.exception("Cannot plan adoption target: pair_id=%s", pair_id)
                 blocked.add(pair_id)
                 continue
-            if target is None:
-                continue
-            target_key = self._path_collision_key(target)
-            targets.setdefault(target_key, []).append(pair_id)
-            target_display.setdefault(target_key, target)
+            for target in planned_targets:
+                target_key = self._path_collision_key(target)
+                targets.setdefault(target_key, []).append(pair_id)
+                target_display.setdefault(target_key, target)
 
-            owner = self._state_owner_for_path(target, state)
-            if owner is not None and owner != pair_id:
-                logging.error(
-                    "Target path collision with managed pair: pair_id=%s owner_pair_id=%s target=%s",
-                    pair_id,
-                    owner,
-                    target,
-                )
-                blocked.add(pair_id)
-            elif owner is None and target.exists():
-                logging.error(
-                    "Target path collision with unmanaged path: pair_id=%s target=%s",
-                    pair_id,
-                    target,
-                )
-                blocked.add(pair_id)
+                owner = self._state_owner_for_path(target, state)
+                if owner is not None and owner != pair_id:
+                    logging.error(
+                        "Target path collision with managed pair: pair_id=%s owner_pair_id=%s target=%s",
+                        pair_id,
+                        owner,
+                        target,
+                    )
+                    blocked.add(pair_id)
+                elif owner is None and target.exists():
+                    logging.error(
+                        "Target path collision with unmanaged path: pair_id=%s target=%s",
+                        pair_id,
+                        target,
+                    )
+                    blocked.add(pair_id)
 
         for target_key, pair_ids in targets.items():
             if len(pair_ids) <= 1:
@@ -383,31 +376,36 @@ class Syncer:
             discovery.pop(pair_id, None)
             self._blocked_pair_ids.add(pair_id)
 
-    def _planned_adoption_target(self, info: CustomizationArtifactInfo) -> Path | None:
-        if info.claude is not None and info.codex is not None:
-            return None
-        if info.claude is not None:
-            canonical = parse_claude_md(
-                self._read_text(info.kind, info.claude.path),
-                prior_canonical=None,
-                kind=info.kind,
-            )
-            slug = target_slug(canonical["name"], info.kind)
-            if info.kind == "agent":
-                return self.codex_agents_dir / f"{slug}.toml"
-            return self.codex_skills_dir / slug
+    def _planned_adoption_targets(self, info: CustomizationArtifactInfo) -> list[Path]:
+        """Return target paths adoption would write on tools that don't yet hold the artifact.
 
-        if info.codex is None:
-            return None
-        text = self._read_text(info.kind, info.codex.path)
-        if info.kind == "agent":
-            canonical = parse_codex_agent_toml(text, prior_canonical=None)
-        else:
-            canonical = parse_codex_skill_md(text, prior_canonical=None)
+        If every participating tool already has a copy of the artifact, returns
+        []. Otherwise, parses one present tool's bytes to compute the slug, and
+        builds the slug-derived target for each absent participating tool.
+        """
+        participating = self._participating_tools(info.kind)
+        missing = [t for t in participating if t not in info.agentic_tools]
+        if not missing:
+            return []
+        if not info.agentic_tools:
+            return []
+        # Deterministic source pick: alphabetical first present tool.
+        source_tool = sorted(info.agentic_tools.keys())[0]
+        source_info = info.agentic_tools[source_tool]
+        source_io = self.agentic_tools[source_tool].io[info.kind]
+        text = self._read_artifact_text(source_io, source_info.path)
+        canonical = source_io.parse(text, None)
         slug = target_slug(canonical["name"], info.kind)
-        if info.kind == "agent":
-            return self.claude_agents_dir / f"{slug}.md"
-        return self.claude_skills_dir / slug
+        targets: list[Path] = []
+        for tool_name in missing:
+            spec = self.agentic_tools[tool_name]
+            io = spec.io[info.kind]
+            root = expand_path(self.config[spec.config_dir_keys[info.kind]])
+            if io.storage == "single_file":
+                targets.append(root / f"{slug}{io.file_suffix}")
+            else:
+                targets.append(root / slug)
+        return targets
 
     def _state_owner_for_path(
         self,
@@ -434,128 +432,175 @@ class Syncer:
     # ---------- adoption ----------
 
     def _adopt_new_pair(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        if info.claude is not None and info.codex is None:
-            return self._adopt_from_claude(pair_id, info, state)
-        if info.codex is not None and info.claude is None:
-            return self._adopt_from_codex(pair_id, info, state)
-        # Both present without prior state: pick the more-recently-modified side.
-        if info.claude.mtime >= info.codex.mtime:
-            return self._adopt_from_claude(pair_id, info, state)
-        return self._adopt_from_codex(pair_id, info, state)
+        winner = self._pick_winner(info.agentic_tools.keys(), info)
+        return self._adopt_from_agentic_tool(pair_id, winner, info, state)
 
-    def _adopt_from_claude(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        side = info.claude
-        text = self._read_text(info.kind, side.path)
-        canonical = parse_claude_md(text, prior_canonical=None, kind=info.kind)
+    def _adopt_from_agentic_tool(
+        self,
+        pair_id: str,
+        source_tool: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+    ) -> bool:
+        """Parse from `source_tool`, inject pair_id if newly minted, then project
+        the canonical to every other participating tool."""
+        source_info = info.agentic_tools[source_tool]
+        source_spec = self.agentic_tools[source_tool]
+        source_io = source_spec.io[info.kind]
+        text = self._read_artifact_text(source_io, source_info.path)
+        canonical = source_io.parse(text, None)
         canonical["pair_id"] = pair_id
 
-        if not side.pair_id_present:
-            archive.archive_copy(self.state_dir, pair_id, "claude", side.path)
-            self._write_claude(info.kind, side.path, canonical, prior_text=text)
-
-        save_canonical(self.state_dir, pair_id, canonical)
-        codex_path = self._render_codex(info.kind, canonical, info.codex.path if info.codex else None,
-                                         claude_dir=side.path if info.kind == "skill" else None)
-
-        self._update_state(state, pair_id, info.kind, side.path, codex_path)
-        logging.info("Adopted from Claude: %s -> %s (pair_id=%s)", side.path, codex_path, pair_id)
-        return True
-
-    def _adopt_from_codex(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        side = info.codex
-        text = self._read_text(info.kind, side.path)
-        if info.kind == "agent":
-            canonical = parse_codex_agent_toml(text, prior_canonical=None)
-        else:
-            canonical = parse_codex_skill_md(text, prior_canonical=None)
-        canonical["pair_id"] = pair_id
-
-        if not side.pair_id_present:
-            archive.archive_copy(self.state_dir, pair_id, "codex", side.path)
-            if info.kind == "agent":
-                atomic_write_text(side.path, render_codex_agent_toml(canonical))
-            else:
-                atomic_write_text(side.path / "SKILL.md", render_codex_skill_md(canonical))
-
-        save_canonical(self.state_dir, pair_id, canonical)
-        claude_path = self._render_claude(info.kind, canonical,
-                                           info.claude.path if info.claude else None,
-                                           prior_text=None,
-                                           codex_dir=side.path if info.kind == "skill" else None)
-
-        self._update_state(state, pair_id, info.kind, claude_path, side.path)
-        logging.info("Adopted from Codex: %s -> %s (pair_id=%s)", side.path, claude_path, pair_id)
-        return True
-
-    # ---------- one-direction sync ----------
-
-    def _sync_claude_to_codex(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        prior_canonical = load_canonical(self.state_dir, pair_id)
-        text = self._read_text(info.kind, info.claude.path)
-        canonical = parse_claude_md(text, prior_canonical=prior_canonical, kind=info.kind)
-        canonical["pair_id"] = pair_id
-        save_canonical(self.state_dir, pair_id, canonical)
-
-        codex_path = self._render_codex(info.kind, canonical, info.codex.path,
-                                         claude_dir=info.claude.path if info.kind == "skill" else None)
-        self._update_state(state, pair_id, info.kind, info.claude.path, codex_path)
-        logging.info("Synced Claude->Codex: %s (pair_id=%s)", info.claude.path, pair_id)
-        return True
-
-    def _sync_codex_to_claude(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        prior_canonical = load_canonical(self.state_dir, pair_id)
-        text = self._read_text(info.kind, info.codex.path)
-        if info.kind == "agent":
-            canonical = parse_codex_agent_toml(text, prior_canonical=prior_canonical)
-        else:
-            canonical = parse_codex_skill_md(text, prior_canonical=prior_canonical)
-        canonical["pair_id"] = pair_id
-        save_canonical(self.state_dir, pair_id, canonical)
-
-        prior_claude_text = self._read_text(info.kind, info.claude.path)
-        claude_path = self._render_claude(info.kind, canonical, info.claude.path,
-                                           prior_text=prior_claude_text,
-                                           codex_dir=info.codex.path if info.kind == "skill" else None)
-        self._update_state(state, pair_id, info.kind, claude_path, info.codex.path)
-        logging.info("Synced Codex->Claude: %s (pair_id=%s)", info.codex.path, pair_id)
-        return True
-
-    def _resolve_conflict(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        if info.claude.mtime >= info.codex.mtime:
-            archive.archive_copy(self.state_dir, pair_id, "codex", info.codex.path)
-            logging.warning(
-                "Conflict resolved (Claude wins): pair_id=%s claude_mtime=%s codex_mtime=%s",
-                pair_id, info.claude.mtime, info.codex.mtime,
+        if not source_info.pair_id_present:
+            archive.archive_copy(self.state_dir, pair_id, source_tool, source_info.path)
+            self._write_artifact_inplace(
+                source_io, source_info.path, source_io.render(canonical, text)
             )
-            return self._sync_claude_to_codex(pair_id, info, state)
-        archive.archive_copy(self.state_dir, pair_id, "claude", info.claude.path)
-        logging.warning(
-            "Conflict resolved (Codex wins): pair_id=%s claude_mtime=%s codex_mtime=%s",
-            pair_id, info.claude.mtime, info.codex.mtime,
+
+        save_canonical(self.state_dir, pair_id, canonical)
+
+        paths: dict[str, Path] = {source_tool: source_info.path}
+        source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        for tool_name in self._participating_tools(info.kind):
+            if tool_name == source_tool:
+                continue
+            existing_target_info = info.agentic_tools.get(tool_name)
+            existing_target_path = (
+                existing_target_info.path if existing_target_info is not None else None
+            )
+            paths[tool_name] = self._render_to_agentic_tool(
+                self.agentic_tools[tool_name],
+                info.kind,
+                canonical,
+                existing_path=existing_target_path,
+                prior_text=None,
+                source_dir=source_dir,
+            )
+
+        self._update_state_n_way(state, pair_id, info.kind, paths)
+        logging.info(
+            "Adopted from %s: pair_id=%s paths=%s",
+            source_tool, pair_id, {k: str(v) for k, v in paths.items()},
         )
-        return self._sync_codex_to_claude(pair_id, info, state)
+        return True
+
+    # ---------- N-way sync ----------
+
+    def _sync_from_agentic_tool(
+        self,
+        pair_id: str,
+        source_tool: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+    ) -> bool:
+        """Project the source tool's bytes to every other present tool."""
+        prior_canonical = load_canonical(self.state_dir, pair_id)
+        source_info = info.agentic_tools[source_tool]
+        source_spec = self.agentic_tools[source_tool]
+        source_io = source_spec.io[info.kind]
+        text = self._read_artifact_text(source_io, source_info.path)
+        canonical = source_io.parse(text, prior_canonical)
+        canonical["pair_id"] = pair_id
+        save_canonical(self.state_dir, pair_id, canonical)
+
+        paths: dict[str, Path] = {source_tool: source_info.path}
+        source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        for tool_name in self._participating_tools(info.kind):
+            if tool_name == source_tool:
+                continue
+            target_info = info.agentic_tools.get(tool_name)
+            if target_info is None:
+                continue
+            target_spec = self.agentic_tools[tool_name]
+            target_io = target_spec.io[info.kind]
+            prior_text: str | None = None
+            try:
+                prior_text = self._read_artifact_text(target_io, target_info.path)
+            except Exception:
+                prior_text = None
+            paths[tool_name] = self._render_to_agentic_tool(
+                target_spec,
+                info.kind,
+                canonical,
+                existing_path=target_info.path,
+                prior_text=prior_text,
+                source_dir=source_dir,
+            )
+
+        self._update_state_n_way(state, pair_id, info.kind, paths)
+        logging.info("Synced from %s: pair_id=%s", source_tool, pair_id)
+        return True
+
+    def _resolve_conflict_n_way(
+        self,
+        pair_id: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+        changed_tools: list[str],
+    ) -> bool:
+        """Pick argmax(mtime) over changed tools; archive losers' bytes; project."""
+        winner = self._pick_winner(changed_tools, info)
+        for tool in changed_tools:
+            if tool == winner:
+                continue
+            archive.archive_copy(
+                self.state_dir, pair_id, tool, info.agentic_tools[tool].path
+            )
+        logging.warning(
+            "Conflict resolved (%s wins): pair_id=%s mtimes=%s",
+            winner,
+            pair_id,
+            {t: info.agentic_tools[t].mtime for t in changed_tools},
+        )
+        return self._sync_from_agentic_tool(pair_id, winner, info, state)
+
+    def _pick_winner(self, tools: "Iterable[str]", info: CustomizationArtifactInfo) -> str:
+        """argmax(mtime) over `tools`, with alphabetical tiebreak (e.g. claude < codex)."""
+        return sorted(
+            tools,
+            key=lambda t: (-info.agentic_tools[t].mtime, t),
+        )[0]
 
     # ---------- removal propagation ----------
 
-    def _propagate_claude_removal(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        if info.codex is not None and info.codex.path.exists():
-            archive.archive_move(self.state_dir, pair_id, "codex", info.codex.path)
-        del state[pair_id]
-        logging.info("Propagated Claude removal: pair_id=%s", pair_id)
-        return True
+    def _propagate_removal(
+        self,
+        pair_id: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+        missing_tools: list[str],
+        survivors: list[str],
+    ) -> bool:
+        """A participating tool removed the artifact: archive then delete each
+        survivor before dropping state.
 
-    def _propagate_codex_removal(self, pair_id: str, info: CustomizationArtifactInfo, state: dict[str, CustomizationArtifactState]) -> bool:
-        if info.claude is not None and info.claude.path.exists():
-            archive.archive_move(self.state_dir, pair_id, "claude", info.claude.path)
+        Abort if archiving any survivor fails — survivors stay on disk and the
+        state entry is preserved so the next poll retries.
+        """
+        for tool in survivors:
+            survivor_path = info.agentic_tools[tool].path
+            if not survivor_path.exists():
+                continue
+            try:
+                archive.archive_move(self.state_dir, pair_id, tool, survivor_path)
+            except Exception:
+                logging.exception(
+                    "Archive-then-remove aborted: pair_id=%s survivor=%s",
+                    pair_id, tool,
+                )
+                return False
         del state[pair_id]
-        logging.info("Propagated Codex removal: pair_id=%s", pair_id)
+        logging.info(
+            "Propagated removal: pair_id=%s missing=%s survivors=%s",
+            pair_id, missing_tools, survivors,
+        )
         return True
 
     def _propagate_orphan_state(self, pair_id: str, state: dict[str, CustomizationArtifactState]) -> bool:
-        """Pair_id is in state but neither side was discovered this poll.
+        """pair_id is in state but no participating tool saw it this poll.
 
-        Both sides removed: drop from state, no archive needed (nothing to
-        archive; user already removed both).
+        Every tool removed it: drop from state. Nothing to archive (the user
+        already removed every copy).
         """
         del state[pair_id]
         logging.info("Pair fully removed: pair_id=%s", pair_id)
@@ -563,72 +608,72 @@ class Syncer:
 
     # ---------- read / render helpers ----------
 
-    def _read_text(self, kind: str, path: Path) -> str:
-        if kind == "agent":
-            return path.read_text(encoding="utf-8")
-        return (path / "SKILL.md").read_text(encoding="utf-8")
-
-    def _write_claude(self, kind: str, path: Path, canonical: dict[str, Any],
-                      prior_text: str | None) -> None:
-        new_text = render_claude_md(canonical, prior_text=prior_text)
-        if kind == "agent":
-            atomic_write_text(path, new_text)
+    def _write_artifact_inplace(
+        self, io: CustomizationTypeIO, path: Path, text: str
+    ) -> None:
+        """Write `text` back to the artifact-metadata location at `path`."""
+        if io.storage == "single_file":
+            atomic_write_text(path, text)
         else:
-            atomic_write_text(path / "SKILL.md", new_text)
+            atomic_write_text(path / "SKILL.md", text)
 
-    def _render_claude(self, kind: str, canonical: dict[str, Any],
-                       existing_path: Path | None, *, prior_text: str | None,
-                       codex_dir: Path | None) -> Path:
+    def _render_to_agentic_tool(
+        self,
+        spec: AgenticToolSpec,
+        kind: str,
+        canonical: dict[str, Any],
+        *,
+        existing_path: Path | None,
+        prior_text: str | None,
+        source_dir: Path | None,
+    ) -> Path:
+        """Render `canonical` onto one target agentic tool.
+
+        `prior_text` lets renderers that preserve user-frontmatter order
+        (claude) re-use the existing on-disk bytes. `source_dir` is the
+        directory whose non-SKILL.md siblings must be staged forward (for
+        directory_skill storage).
+        """
+        io = spec.io[kind]
+        root = expand_path(self.config[spec.config_dir_keys[kind]])
         slug = target_slug(canonical["name"], kind)
-        if kind == "agent":
-            target = existing_path or (self.claude_agents_dir / f"{slug}.md")
+        if io.storage == "single_file":
+            target = existing_path or (root / f"{slug}{io.file_suffix}")
             self._assert_target_available(target, existing_path)
-            atomic_write_text(target, render_claude_md(canonical, prior_text=prior_text))
+            atomic_write_text(target, io.render(canonical, prior_text))
             return target
-        target_dir = existing_path or (self.claude_skills_dir / slug)
-        self._assert_target_available(target_dir, existing_path)
-        skill_md_text = render_claude_md(canonical, prior_text=prior_text)
-        if codex_dir is not None and target_dir != codex_dir:
-            stage_skill_dir(codex_dir, target_dir, skill_md_text)
-        else:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(target_dir / "SKILL.md", skill_md_text)
-        return target_dir
+        if io.storage == "directory_skill":
+            target_dir = existing_path or (root / slug)
+            self._assert_target_available(target_dir, existing_path)
+            skill_md_text = io.render(canonical, prior_text)
+            if source_dir is not None and target_dir != source_dir:
+                stage_skill_dir(source_dir, target_dir, skill_md_text)
+            else:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                atomic_write_text(target_dir / "SKILL.md", skill_md_text)
+            return target_dir
+        raise ValueError(f"Unknown storage shape: {io.storage}")
 
-    def _render_codex(self, kind: str, canonical: dict[str, Any],
-                      existing_path: Path | None, *, claude_dir: Path | None) -> Path:
-        slug = target_slug(canonical["name"], kind)
-        if kind == "agent":
-            target = existing_path or (self.codex_agents_dir / f"{slug}.toml")
-            self._assert_target_available(target, existing_path)
-            atomic_write_text(target, render_codex_agent_toml(canonical))
-            return target
-        target_dir = existing_path or (self.codex_skills_dir / slug)
-        self._assert_target_available(target_dir, existing_path)
-        skill_md_text = render_codex_skill_md(canonical)
-        if claude_dir is not None and target_dir != claude_dir:
-            stage_skill_dir(claude_dir, target_dir, skill_md_text)
-        else:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(target_dir / "SKILL.md", skill_md_text)
-        return target_dir
-
-    def _update_state(self, state: dict[str, CustomizationArtifactState], pair_id: str, kind: str,
-                       claude_path: Path, codex_path: Path) -> None:
-        claude_digest = sha256_file(claude_path) if kind == "agent" else sha256_tree(claude_path)
-        codex_digest = sha256_file(codex_path) if kind == "agent" else sha256_tree(codex_path)
+    def _update_state_n_way(
+        self,
+        state: dict[str, CustomizationArtifactState],
+        pair_id: str,
+        kind: str,
+        paths: dict[str, Path],
+    ) -> None:
         ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
         ps.kind = kind
-        ps.agentic_tools["claude"] = AgenticToolState(
-            path=str(claude_path),
-            last_seen=claude_digest,
-            last_written=claude_digest,
-        )
-        ps.agentic_tools["codex"] = AgenticToolState(
-            path=str(codex_path),
-            last_seen=codex_digest,
-            last_written=codex_digest,
-        )
+        for tool_name, path in paths.items():
+            spec = self.agentic_tools[tool_name]
+            io = spec.io[kind]
+            digest = (
+                sha256_file(path) if io.storage == "single_file" else sha256_tree(path)
+            )
+            ps.agentic_tools[tool_name] = AgenticToolState(
+                path=str(path),
+                last_seen=digest,
+                last_written=digest,
+            )
 
     def _assert_target_available(self, target: Path, existing_path: Path | None) -> None:
         if existing_path is not None and (

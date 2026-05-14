@@ -54,7 +54,7 @@ def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: py
         Path(syncer.codex_agents_dir) / "Alpha.toml",
         Path(syncer.codex_agents_dir) / "alpha.toml",
     ])
-    monkeypatch.setattr(syncer, "_planned_adoption_target", lambda info: next(targets))
+    monkeypatch.setattr(syncer, "_planned_adoption_targets", lambda info: [next(targets)])
 
     syncer._block_target_collisions(discovery, state={})
 
