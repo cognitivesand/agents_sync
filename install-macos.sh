@@ -95,6 +95,11 @@ claude_skills_dir = "~/.claude/skills"
 
 codex_agents_dir = "~/.codex/agents"
 codex_skills_dir = "~/.agents/skills"
+
+# Google Antigravity (skills only). Enabled by default once
+# ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
+# antigravity_skills_dir = "~/.gemini/antigravity/skills"
+# antigravity_enabled = false
 EOF
 fi
 
