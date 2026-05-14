@@ -39,6 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--claude-skills-dir", type=str)
     parser.add_argument("--codex-agents-dir", type=str)
     parser.add_argument("--codex-skills-dir", type=str)
+    parser.add_argument(
+        "--antigravity-skills-dir",
+        type=str,
+        help="Antigravity (Google) skills root. Defaults to ~/.gemini/antigravity/skills/.",
+    )
+    parser.add_argument(
+        "--antigravity-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle Antigravity participation in the sync (default: enabled).",
+    )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
     return parser

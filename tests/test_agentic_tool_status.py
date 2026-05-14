@@ -144,17 +144,22 @@ def test_steady_state_polls_emit_no_status_logs(
 
 # ---------- AC-7: all tools unavailable ----------
 
-def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer):
+def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     """US-11 AC-7: even with every tool unavailable, sync_once continues."""
     shutil.rmtree(syncer.claude_agents_dir)
     shutil.rmtree(syncer.claude_skills_dir)
     shutil.rmtree(syncer.codex_agents_dir)
     shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(tmp_path / "as")
 
     # No raise, zero changes.
     changed = syncer.sync_once()
     assert changed == 0
-    assert syncer._tool_status == {"claude": "unavailable", "codex": "unavailable"}
+    assert syncer._tool_status == {
+        "antigravity": "unavailable",
+        "claude": "unavailable",
+        "codex": "unavailable",
+    }
 
 
 # ---------- Removal propagation only from available tools ----------

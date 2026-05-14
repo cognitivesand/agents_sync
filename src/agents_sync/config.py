@@ -75,6 +75,12 @@ def platform_defaults(
         "claude_skills_dir": str(home_dir / ".claude" / "skills"),
         "codex_agents_dir": str(home_dir / ".codex" / "agents"),
         "codex_skills_dir": str(home_dir / ".agents" / "skills"),
+        # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
+        # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
+        # handles the per-OS separator). Set antigravity_enabled=False to skip
+        # registration entirely.
+        "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
+        "antigravity_enabled": True,
     }
 
 
@@ -112,6 +118,8 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(config, "claude_skills_dir", args.claude_skills_dir)
     maybe_set(config, "codex_agents_dir", args.codex_agents_dir)
     maybe_set(config, "codex_skills_dir", args.codex_skills_dir)
+    maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
+    maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
     maybe_set(config, "state_path", args.state_path)
     return config
 
@@ -121,6 +129,7 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "claude_skills_dir",
     "codex_agents_dir",
     "codex_skills_dir",
+    "antigravity_skills_dir",
 )
 
 

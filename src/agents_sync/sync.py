@@ -148,10 +148,13 @@ class Syncer:
     def _is_tool_enabled(self, spec: AgenticToolSpec) -> bool:
         """Whether a tool's config-side enable-flag is on.
 
-        Default True for tools that do not declare a disable key (claude, codex
-        in v0.4). Antigravity wires its `antigravity_enabled` key in Phase 3.2.
+        A tool without `disable_config_key` cannot be disabled — it can only
+        become `unavailable` by losing its root. Antigravity's
+        `antigravity_enabled = False` is the only opt-out in v0.4.
         """
-        return True
+        if spec.disable_config_key is None:
+            return True
+        return bool(self.config.get(spec.disable_config_key, True))
 
     def _probe_tool_roots(self, spec: AgenticToolSpec) -> tuple[str, tuple[str, str] | None]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""

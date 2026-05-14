@@ -11,11 +11,28 @@ from agents_sync.agentic_tool_spec import (
 from agents_sync.canonical import empty_canonical
 
 
-def test_default_registry_has_claude_and_codex():
+def test_default_registry_has_claude_codex_and_antigravity():
     registry = default_agentic_tools()
-    assert set(registry.keys()) == {"claude", "codex"}
+    assert set(registry.keys()) == {"claude", "codex", "antigravity"}
     for spec in registry.values():
         assert isinstance(spec, AgenticToolSpec)
+
+
+def test_antigravity_spec_is_skill_only_with_disable_key():
+    spec = default_agentic_tools()["antigravity"]
+    assert spec.supported_customization_types == frozenset({"skill"})
+    assert spec.config_dir_keys == {"skill": "antigravity_skills_dir"}
+    assert spec.disable_config_key == "antigravity_enabled"
+    io = spec.io["skill"]
+    assert io.storage == "directory_skill"
+    assert io.file_suffix == ""
+
+
+def test_claude_and_codex_have_no_disable_key():
+    """claude and codex are always enabled; only antigravity can be opted out."""
+    registry = default_agentic_tools()
+    assert registry["claude"].disable_config_key is None
+    assert registry["codex"].disable_config_key is None
 
 
 def test_claude_spec_supports_both_customization_types():
