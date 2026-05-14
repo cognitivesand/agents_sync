@@ -8,9 +8,6 @@ import shutil
 import uuid
 from pathlib import Path
 
-import pytest
-
-from agents_sync.config import ConfigError
 from agents_sync.cli import main
 from agents_sync.sync import Syncer
 
@@ -217,7 +214,12 @@ def test_dotfile_md_is_ignored_by_discovery(syncer: Syncer):
 
 # ---------------- v0.2.1 safety regressions ----------------
 
-def test_missing_runtime_root_aborts_without_propagating_deletions(syncer: Syncer):
+def test_missing_runtime_root_does_not_propagate_deletions(syncer: Syncer):
+    """v0.4 / US-11: a missing runtime root makes the tool `unavailable` but
+    does not exit and does not propagate removal (AC-4). The previous v0.2.1
+    behavior was to raise ConfigError on a missing root; the same safety
+    property (no destructive propagation) is now provided by status tracking.
+    """
     claude_md = Path(syncer.claude_agents_dir) / "foo.md"
     claude_md.write_text(_claude_md())
     syncer.sync_once()
@@ -225,8 +227,9 @@ def test_missing_runtime_root_aborts_without_propagating_deletions(syncer: Synce
 
     shutil.rmtree(syncer.codex_agents_dir)
 
-    with pytest.raises(ConfigError):
-        syncer.sync_once()
+    # No longer raises; codex transitions to `unavailable` and the daemon
+    # continues. Existing artifacts on disk and state remain intact.
+    syncer.sync_once()
 
     assert claude_md.exists()
     assert (syncer.state_dir / "state.json").read_text() == state_before
@@ -311,23 +314,8 @@ def test_foreign_artifact_slug_collision_with_managed_pair_is_not_adopted(syncer
     assert json.loads((syncer.state_dir / "state.json").read_text()) == state_before
 
 
-def test_cli_missing_root_returns_configuration_failure(tmp_path: Path):
-    state_dir = tmp_path / "state"
-    for sub in ("ca", "cs", "xa"):
-        (tmp_path / sub).mkdir()
-
-    exit_code = main([
-        "--state-path",
-        str(state_dir / "state.json"),
-        "--claude-agents-dir",
-        str(tmp_path / "ca"),
-        "--claude-skills-dir",
-        str(tmp_path / "cs"),
-        "--codex-agents-dir",
-        str(tmp_path / "xa"),
-        "--codex-skills-dir",
-        str(tmp_path / "missing-xs"),
-    ])
-
-    assert exit_code == 2
-    assert not state_dir.exists()
+# test_cli_missing_root_returns_configuration_failure was removed in v0.4:
+# US-11 deliberately reverses the v0.2.1 startup-fail-on-missing-root behavior.
+# A missing root now makes the agentic_tool `unavailable` and the daemon
+# continues; the same data-safety property (no destructive propagation) is
+# enforced by AC-4 (tested in test_agentic_tool_status.py).

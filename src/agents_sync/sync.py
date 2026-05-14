@@ -109,6 +109,95 @@ class Syncer:
         self.codex_skills_dir = expand_path(config["codex_skills_dir"])
         self.state_dir = expand_path(config["state_path"]).parent
         self._blocked_pair_ids: set[str] = set()
+        # Per-tool status per US-11: "available" | "unavailable" | "disabled".
+        # Empty until the first sync_once: that first poll's _refresh_tool_statuses
+        # emits the startup INFO line for every tool.
+        self._tool_status: dict[str, str] = {}
+
+    # ---------- per-tool status (US-11) ----------
+
+    def _refresh_tool_statuses(self) -> None:
+        """Compute each tool's `available` / `unavailable` / `disabled` status.
+
+        Status rules (US-11):
+          - `disabled` ⇒ tool is registered but its enable-flag in config is False.
+          - `unavailable` ⇒ tool is enabled but at least one of its
+            customization_type roots is missing or unreadable on this poll.
+          - `available` ⇒ tool is enabled and every root is reachable.
+
+        Transitions are logged once (AC-5). Steady-state polls are silent.
+        """
+        new_status: dict[str, str] = {}
+        reasons: dict[str, tuple[str, str]] = {}
+        for tool_name, spec in self.agentic_tools.items():
+            if not self._is_tool_enabled(spec):
+                new_status[tool_name] = "disabled"
+                continue
+            status, reason = self._probe_tool_roots(spec)
+            new_status[tool_name] = status
+            if reason is not None:
+                reasons[tool_name] = reason
+
+        for tool_name, status in new_status.items():
+            prev = self._tool_status.get(tool_name)
+            if prev == status:
+                continue
+            self._log_status_transition(tool_name, prev, status, reasons.get(tool_name))
+        self._tool_status = new_status
+
+    def _is_tool_enabled(self, spec: AgenticToolSpec) -> bool:
+        """Whether a tool's config-side enable-flag is on.
+
+        Default True for tools that do not declare a disable key (claude, codex
+        in v0.4). Antigravity wires its `antigravity_enabled` key in Phase 3.2.
+        """
+        return True
+
+    def _probe_tool_roots(self, spec: AgenticToolSpec) -> tuple[str, tuple[str, str] | None]:
+        """Return (status, reason_or_None) for one tool's on-disk reachability."""
+        for kind, config_key in spec.config_dir_keys.items():
+            root = expand_path(self.config[config_key])
+            if not root.exists():
+                return "unavailable", (str(root), "path does not exist")
+            try:
+                next(root.iterdir(), None)
+            except OSError as exc:
+                return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
+        return "available", None
+
+    def _log_status_transition(
+        self,
+        tool_name: str,
+        prev: str | None,
+        status: str,
+        reason: tuple[str, str] | None,
+    ) -> None:
+        if status == "disabled":
+            return  # US-11 AC-5 / US-10 AC-7: disabled tools are silent.
+        from_label = prev if prev is not None else "startup"
+        if status == "available":
+            logging.info("agentic_tool %s: %s -> available", tool_name, from_label)
+            return
+        # status == "unavailable"
+        root_str = reason[0] if reason else "?"
+        reason_str = reason[1] if reason else "?"
+        if prev is None:
+            logging.info(
+                "agentic_tool %s: startup -> unavailable (root=%s reason=%s)",
+                tool_name, root_str, reason_str,
+            )
+        else:
+            logging.warning(
+                "agentic_tool %s: %s -> unavailable (root=%s reason=%s)",
+                tool_name, prev, root_str, reason_str,
+            )
+
+    def _available_participating_tools(self, kind: str) -> list[str]:
+        """Participating tools whose status is currently `available`."""
+        return [
+            name for name in self._participating_tools(kind)
+            if self._tool_status.get(name) == "available"
+        ]
 
     # ---------- discovery ----------
 
@@ -116,13 +205,16 @@ class Syncer:
         """Walk every (agentic_tool, customization_type) cell in the registry.
 
         For each cell, enumerate on-disk artifacts under that root and dispatch
-        to _add_agentic_tool_artifact. The on-disk shape (single file vs.
-        directory + SKILL.md) is read from each cell's CustomizationTypeIO.
+        to _add_agentic_tool_artifact. Tools whose status is not `available`
+        are skipped entirely so unreadable / unmounted / disabled tools never
+        appear as removal signals (US-11 AC-4).
         """
         pairs: dict[str, CustomizationArtifactInfo] = {}
         blocked_pair_ids: set[str] = set()
 
         for tool_name, spec in self.agentic_tools.items():
+            if self._tool_status.get(tool_name) != "available":
+                continue
             for customization_type in sorted(spec.supported_customization_types):
                 io = spec.io[customization_type]
                 root = expand_path(self.config[spec.config_dir_keys[customization_type]])
@@ -258,6 +350,7 @@ class Syncer:
 
     def sync_once(self) -> int:
         validate_config(self.config)
+        self._refresh_tool_statuses()
         state = load_state(self.state_dir)
         discovery = self._discover(state)
         self._reconcile_new_groups(discovery, state)
@@ -271,11 +364,20 @@ class Syncer:
             except Exception:
                 logging.exception("Failed to sync pair: pair_id=%s", pair_id)
 
-        # Detect deleted pairs (in state but not in discovery).
+        # Detect deleted pairs (in state but not in discovery). Per US-11 AC-4,
+        # only `available` tools can be removal sources: a pair whose state
+        # entries are all for unavailable tools is preserved verbatim until at
+        # least one of its tools returns to `available`.
         for pair_id in list(state.keys()):
             if pair_id in discovery:
                 continue
             if pair_id in self._blocked_pair_ids:
+                continue
+            ps = state[pair_id]
+            if not any(
+                self._tool_status.get(t) == "available"
+                for t in ps.agentic_tools
+            ):
                 continue
             try:
                 if self._propagate_orphan_state(pair_id, state):
@@ -415,11 +517,12 @@ class Syncer:
         if ps is None:
             return self._adopt_new_pair(pair_id, info, state)
 
-        participating = self._participating_tools(info.kind)
-        present = [t for t in participating if t in info.agentic_tools]
-        # Tools that the state remembered but discovery did not surface this poll
+        # Only available tools can be removal-source signals or sync targets
+        # (US-11 AC-4: an unavailable tool's absence from `info` is not removal).
+        available = self._available_participating_tools(info.kind)
+        present = [t for t in available if t in info.agentic_tools]
         missing_from_state = [
-            t for t in participating
+            t for t in available
             if t in ps.agentic_tools and t not in info.agentic_tools
         ]
         if missing_from_state:
@@ -586,7 +689,7 @@ class Syncer:
 
         paths: dict[str, Path] = {source_tool: source_info.path}
         source_dir = source_info.path if source_io.storage == "directory_skill" else None
-        for tool_name in self._participating_tools(info.kind):
+        for tool_name in self._available_participating_tools(info.kind):
             if tool_name == source_tool:
                 continue
             existing_target_info = info.agentic_tools.get(tool_name)
@@ -630,7 +733,7 @@ class Syncer:
 
         paths: dict[str, Path] = {source_tool: source_info.path}
         source_dir = source_info.path if source_io.storage == "directory_skill" else None
-        for tool_name in self._participating_tools(info.kind):
+        for tool_name in self._available_participating_tools(info.kind):
             if tool_name == source_tool:
                 continue
             target_info = info.agentic_tools.get(tool_name)
@@ -696,11 +799,13 @@ class Syncer:
         missing_tools: list[str],
         survivors: list[str],
     ) -> bool:
-        """A participating tool removed the artifact: archive then delete each
-        survivor before dropping state.
+        """An available tool removed the artifact: archive then delete each
+        available survivor, then drop their state entries.
 
-        Abort if archiving any survivor fails — survivors stay on disk and the
-        state entry is preserved so the next poll retries.
+        State entries for `unavailable` tools are preserved (US-11 AC-4). If
+        every entry in the pair would be dropped, the pair_id itself is
+        dropped. Abort if archiving any survivor fails — survivors stay on
+        disk and the state entry is preserved so the next poll retries.
         """
         for tool in survivors:
             survivor_path = info.agentic_tools[tool].path
@@ -714,21 +819,42 @@ class Syncer:
                     pair_id, tool,
                 )
                 return False
-        del state[pair_id]
-        logging.info(
-            "Propagated removal: pair_id=%s missing=%s survivors=%s",
-            pair_id, missing_tools, survivors,
-        )
+        ps = state[pair_id]
+        for tool in list(missing_tools) + list(survivors):
+            ps.agentic_tools.pop(tool, None)
+        if not ps.agentic_tools:
+            del state[pair_id]
+            logging.info(
+                "Propagated removal (fully dropped): pair_id=%s missing=%s survivors=%s",
+                pair_id, missing_tools, survivors,
+            )
+        else:
+            logging.info(
+                "Propagated removal: pair_id=%s missing=%s survivors=%s "
+                "preserved_unavailable=%s",
+                pair_id, missing_tools, survivors, list(ps.agentic_tools.keys()),
+            )
         return True
 
     def _propagate_orphan_state(self, pair_id: str, state: dict[str, CustomizationArtifactState]) -> bool:
-        """pair_id is in state but no participating tool saw it this poll.
+        """pair_id is in state but no available tool surfaced it this poll.
 
-        Every tool removed it: drop from state. Nothing to archive (the user
-        already removed every copy).
+        Entries for `available` tools are dropped (those tools removed the
+        artifact). Entries for `unavailable` tools are preserved verbatim
+        (US-11 AC-4). When no entries remain, the pair_id itself is dropped.
         """
-        del state[pair_id]
-        logging.info("Pair fully removed: pair_id=%s", pair_id)
+        ps = state[pair_id]
+        for tool in list(ps.agentic_tools.keys()):
+            if self._tool_status.get(tool) == "available":
+                del ps.agentic_tools[tool]
+        if not ps.agentic_tools:
+            del state[pair_id]
+            logging.info("Pair fully removed: pair_id=%s", pair_id)
+        else:
+            logging.info(
+                "Pair partially removed: pair_id=%s preserved_unavailable=%s",
+                pair_id, list(ps.agentic_tools.keys()),
+            )
         return True
 
     # ---------- read / render helpers ----------

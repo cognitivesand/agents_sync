@@ -116,8 +116,30 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     return config
 
 
+REQUIRED_DIR_KEYS: tuple[str, ...] = (
+    "claude_agents_dir",
+    "claude_skills_dir",
+    "codex_agents_dir",
+    "codex_skills_dir",
+)
+
+
 def validate_config(config: dict[str, Any]) -> None:
-    """Fail closed before the daemon can interpret missing roots as deletions."""
+    """Structural validation only.
+
+    Per US-11 (graceful agentic_tool absence) and v0.4 plan §3, the
+    existence / readability / writability of each agentic_tool's root is a
+    *runtime* concern, not a startup concern: a missing root makes the tool
+    `unavailable` for that poll (Syncer logs the transition once and continues)
+    but does not abort the daemon. This rule is uniform across Claude, Codex,
+    and Antigravity.
+
+    This function still fails closed on:
+      - missing or non-numeric `poll_interval_seconds`;
+      - missing required directory keys (well-formed paths required);
+      - inability to create / write the `state_path` parent (state must
+        survive crashes).
+    """
     try:
         interval = float(config["poll_interval_seconds"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -125,23 +147,11 @@ def validate_config(config: dict[str, Any]) -> None:
     if interval <= 0:
         raise ConfigError("poll_interval_seconds must be positive")
 
-    for key in (
-        "claude_agents_dir",
-        "claude_skills_dir",
-        "codex_agents_dir",
-        "codex_skills_dir",
-    ):
-        root = expand_path(config[key])
-        if not root.exists():
-            raise ConfigError(f"{key} does not exist: {root}")
-        if not root.is_dir():
-            raise ConfigError(f"{key} is not a directory: {root}")
-        try:
-            next(root.iterdir(), None)
-        except OSError as exc:
-            raise ConfigError(f"{key} is not readable: {root}") from exc
-        if not os.access(root, os.W_OK):
-            raise ConfigError(f"{key} is not writable: {root}")
+    for key in REQUIRED_DIR_KEYS:
+        if key not in config:
+            raise ConfigError(f"missing required config key: {key}")
+        if not isinstance(config[key], (str, Path)):
+            raise ConfigError(f"{key} must be a path string")
 
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent
