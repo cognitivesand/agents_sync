@@ -53,44 +53,53 @@ class CustomizationArtifactInfo:
     agentic_tools: dict[str, AgenticToolInfo] = field(default_factory=dict)
 
 
+def _clear_stale_paths(*paths: Path) -> None:
+    """Remove leftover staging siblings (`.tmp` / `.old`) before atomic-swap."""
+    for path in paths:
+        if path.exists():
+            retry_fs(
+                lambda p=path: shutil.rmtree(p),
+                operation=f"rmtree {path}",
+            )
+
+
+def _rename_with_rollback(tmp: Path, target: Path, *, backup: Path) -> None:
+    """Replace `target` with `tmp`. If `target` already exists, move it aside to
+    `backup` first and restore it on failure; otherwise rename `tmp` directly."""
+    target_existed = target.exists()
+    if target_existed:
+        retry_fs(
+            lambda: target.rename(backup),
+            operation=f"rename {target} -> {backup}",
+        )
+    try:
+        retry_fs(
+            lambda: tmp.rename(target),
+            operation=f"rename {tmp} -> {target}",
+        )
+    except Exception:
+        if target_existed:
+            retry_fs(
+                lambda: backup.rename(target),
+                operation=f"rollback {backup} -> {target}",
+            )
+        raise
+    if target_existed:
+        retry_fs(
+            lambda: shutil.rmtree(backup),
+            operation=f"cleanup {backup}",
+        )
+
+
 def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
     """Stage a fresh copy of `source` as `target` and overwrite SKILL.md atomically."""
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
     old = target.with_name(f".{target.name}.old")
-    for stale in (tmp, old):
-        if stale.exists():
-            retry_fs(
-                lambda stale=stale: shutil.rmtree(stale),
-                operation=f"rmtree {stale}",
-            )
+    _clear_stale_paths(tmp, old)
     shutil.copytree(source, tmp, ignore=lambda _dir, names: ignored_tree_names(names))
     atomic_write_text(tmp / "SKILL.md", skill_md_content)
-    if target.exists():
-        retry_fs(
-            lambda: target.rename(old),
-            operation=f"rename {target} -> {old}",
-        )
-        try:
-            retry_fs(
-                lambda: tmp.rename(target),
-                operation=f"rename {tmp} -> {target}",
-            )
-        except Exception:
-            retry_fs(
-                lambda: old.rename(target),
-                operation=f"rollback {old} -> {target}",
-            )
-            raise
-        retry_fs(
-            lambda: shutil.rmtree(old),
-            operation=f"cleanup {old}",
-        )
-    else:
-        retry_fs(
-            lambda: tmp.rename(target),
-            operation=f"rename {tmp} -> {target}",
-        )
+    _rename_with_rollback(tmp, target, backup=old)
 
 
 class Syncer:
