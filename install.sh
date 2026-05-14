@@ -87,6 +87,14 @@ codex_skills_dir = "~/.codex/skills"
 EOF
 fi
 
+# Migrate any pre-v0.4-fix state. Idempotent and silent on fresh installs.
+# Pre-fix installs (codex_skills_dir=~/.agents/skills, -skill suffix on
+# counterparts) get a one-shot re-baseline: backup, suffix duplicates moved
+# aside, ~/.agents/skills migrated to ~/.codex/skills, pair_id frontmatter
+# stripped, state wiped. Everything is moved into a timestamped backup
+# under ${STATE_DIR}/backups/, never deleted outright.
+uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
+
 cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
 Description=Bidirectional sync of Claude Code agents and skills with Codex

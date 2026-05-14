@@ -104,6 +104,10 @@ codex_skills_dir = "~/.codex/skills"
 EOF
 fi
 
+# Migrate any pre-v0.4-fix state. Idempotent and silent on fresh installs.
+# See scripts/migrate_v0.4.py for the contract.
+uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
+
 cat > "${PLIST_FILE}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
