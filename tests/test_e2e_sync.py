@@ -75,7 +75,7 @@ def test_skill_aux_files_propagate_and_are_preserved(syncer: Syncer):
 
     syncer.sync_once()
 
-    codex_skill = Path(syncer.codex_skills_dir) / "skill-a-skill"
+    codex_skill = Path(syncer.codex_skills_dir) / "skill-a"
     assert codex_skill.is_dir()
     assert (codex_skill / "SKILL.md").exists()
     assert (codex_skill / "asset.txt").read_text() == "aux payload\n"
@@ -95,7 +95,7 @@ def test_dotfile_skill_dir_is_ignored_by_discovery(syncer: Syncer):
 
     syncer.sync_once()
 
-    assert {p.name for p in Path(syncer.codex_skills_dir).iterdir()} == {"real-skill"}
+    assert {p.name for p in Path(syncer.codex_skills_dir).iterdir()} == {"real"}
 
 
 # ---------------- pair_id validation ----------------
@@ -113,14 +113,14 @@ def test_invalid_pair_id_is_skipped_without_blocking_valid_pairs(syncer: Syncer)
     syncer.sync_once()
 
     assert "pair_id: ../escape" in (bad / "SKILL.md").read_text()
-    assert {p.name for p in Path(syncer.codex_skills_dir).iterdir()} == {"good-skill"}
+    assert {p.name for p in Path(syncer.codex_skills_dir).iterdir()} == {"good"}
     assert not (syncer.state_dir.parent / "escape.json").exists()
 
 
 def test_invalid_pair_id_on_managed_file_does_not_propagate_deletion(syncer: Syncer):
     claude_dir = _write_claude_skill(syncer)
     syncer.sync_once()
-    codex_dir = Path(syncer.codex_skills_dir) / "foo-skill"
+    codex_dir = Path(syncer.codex_skills_dir) / "foo"
     state_before = (syncer.state_dir / "state.json").read_text()
 
     md = claude_dir / "SKILL.md"

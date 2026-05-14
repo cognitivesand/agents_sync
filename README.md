@@ -50,7 +50,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 | What you edit | Claude Code | Codex | Antigravity |
 |:---|:---|:---|:---|
 | Agents | `~/.claude/agents/*.md` | — (uses a single `~/.codex/AGENTS.md`) | — (no per-agent format) |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` |
 
 **In plain terms:**
 
@@ -166,9 +166,9 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. As soon as `~/.gemini/antigravity/skills/` exists on disk, the daemon picks it up on the next poll and starts syncing skills three ways — there is no extra step. Until that directory exists, Antigravity is reported as `unavailable` in the daemon log; the other tools keep syncing normally.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs claude's and codex's skills into it. Antigravity itself picks up the directory on its next read.
 
-To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. The skills directory can also be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
+To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
 ---
 
@@ -350,7 +350,7 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 - First sight of any agent or skill file without a `pair_id` triggers adoption.
 - Adoption archives the original, injects a `pair_id`, and creates the counterpart on every other tool that supports that kind of customization.
 - Removing a synced agent or skill on any one tool archives every surviving tool's copy before removing it.
-- A missing or unreadable root for any tool marks that tool `unavailable` for the current poll. The daemon keeps running over the remaining `available` tools and never interprets the absence as "all files were deleted" — your library stays intact (US-11).
+- On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
 - This tool was developed with the support of Claude Code, Codex, and Google Antigravity.
@@ -365,6 +365,9 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 
 - Added Google Antigravity as a third agentic tool. Antigravity participates in skills only.
 - Codex is now skills-only too. v0.3 assumed Codex used per-agent `.toml` files under `~/.codex/agents/`, but the real Codex layout is a single global `~/.codex/AGENTS.md`. The `codex_agents_dir` config key and `--codex-agents-dir` CLI flag are removed; Codex's per-agent `codex_io` functions stay in the codebase for any future Codex release that adds a per-agent format.
+- The default `codex_skills_dir` is now `~/.codex/skills` (the path Codex's own `skill-installer` and `skill-creator` use). The v0.3-era `~/.agents/skills` default never matched a live Codex install.
+- Daemon-projected counterparts use the bare slugified name. The v0.3 `-skill` / `-agent` suffix is dropped — agents and skills live in distinct config-keyed roots, so kind disambiguation is unnecessary. A skill named `formatter` now lives at `<root>/formatter/SKILL.md` on every tool instead of `<root>/formatter-skill/SKILL.md`.
+- On startup the daemon creates each enabled tool's roots if they don't exist (`mkdir -p`). Mid-life loss of a root still flips a tool to `unavailable` per US-11.
 - Agents (per-agent files) are therefore Claude-only in v0.4. Adoption still mints and injects a `pair_id` so your Claude agents are ready to sync if another tool ever adopts a per-agent file format.
 - Generalised the sync algorithm from two named peers (`claude` / `codex`) to an N-tool registry. Adding another agentic tool is now an IO module + a config entry; the sync engine, conflict resolution, adoption, reconciliation, and removal-propagation paths are tool-agnostic.
 - Replaced the v0.2.1 "exit on missing root" startup behavior with per-tool status (`available` / `unavailable` / `disabled`). A missing root marks the tool unavailable for that poll and is logged once; the daemon continues to sync the remaining available tools. Removal-propagation never fires from an unavailable tool, so an uninstalled or unmounted tool never wipes your library.

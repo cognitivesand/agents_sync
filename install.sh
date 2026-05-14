@@ -78,7 +78,7 @@ claude_skills_dir = "~/.claude/skills"
 
 # Codex is skills-only in v0.4: it stores its global instructions in a single
 # ~/.codex/AGENTS.md (not per-agent files).
-codex_skills_dir = "~/.agents/skills"
+codex_skills_dir = "~/.codex/skills"
 
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.

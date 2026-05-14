@@ -73,7 +73,7 @@ def platform_defaults(
         "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
         "claude_agents_dir": str(home_dir / ".claude" / "agents"),
         "claude_skills_dir": str(home_dir / ".claude" / "skills"),
-        "codex_skills_dir": str(home_dir / ".agents" / "skills"),
+        "codex_skills_dir": str(home_dir / ".codex" / "skills"),
         # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
         # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
         # handles the per-OS separator). Set antigravity_enabled=False to skip

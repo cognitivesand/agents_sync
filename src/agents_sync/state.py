@@ -111,12 +111,16 @@ def slugify(value: str) -> str:
     return value
 
 
-def target_slug(value: str, kind: str) -> str:
-    slug = slugify(value)
-    suffix = "agent" if kind == "agent" else "skill"
-    if slug.endswith(f"-{suffix}") or slug.endswith(f"-{suffix}s"):
-        return slug
-    return f"{slug}-{suffix}"
+def target_slug(value: str) -> str:
+    """Return the filesystem-friendly form of an artifact `name`.
+
+    The slug is the basename a daemon-projected counterpart will use on every
+    agentic tool — sync is symmetric across tools, so an artifact named X
+    lives at <root>/X (skill) or <root>/X.<ext> (agent) regardless of which
+    tool currently holds the source. Agents and skills live in distinct
+    config-keyed roots, so no kind-suffix is needed to disambiguate them.
+    """
+    return slugify(value)
 
 
 def sha256_file(path: Path) -> str:

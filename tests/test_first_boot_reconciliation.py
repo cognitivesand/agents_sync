@@ -141,17 +141,15 @@ def test_intra_tool_slug_collision_still_blocks(syncer: Syncer):
     assert state == {} or state.get("customization_artifacts", {}) == {}
 
 
-def test_reconcile_skipped_when_one_side_already_has_pair_id(tmp_path: Path):
-    """If one tool's artifact carries a pair_id (e.g. partial state), it is
-    NOT in the all-new group and reconcile leaves it alone. The pair_id-bearing
-    entry adopts under that id; the no-id codex entry adopts as a separate
-    artifact under a freshly minted id (their target slugs on the other tool
-    don't collide because ``target_slug`` adds a ``-skill`` suffix to fresh
-    counterparts but the original dir keeps its bare name).
+def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
+    """When one side carries a pair_id and the other is a no-id duplicate at
+    the same bare slug, both targets collide on the opposite side. Current
+    behavior: both pair_ids are blocked and state stays empty.
 
-    Antigravity is disabled here so the test exercises the v0.3 N=2 scenario;
-    at N=3 the two new pair_ids would race for the same antigravity target
-    and be collision-blocked under §5.5's multi-managed-id rule.
+    The v0.4 plan §5.5 prescribes a "managed wins, new bytes archived" merge
+    for this case, but my Phase 1.6 commit deferred that implementation. This
+    test documents the present block-and-log behavior so we notice when the
+    deferred §5.5 mixed handler lands.
     """
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -183,5 +181,4 @@ def test_reconcile_skipped_when_one_side_already_has_pair_id(tmp_path: Path):
     syncer.sync_once()
 
     state = _list_state(syncer)
-    pair_ids = list(state.get("customization_artifacts", {}).keys())
-    assert "00000000-0000-4000-8000-000000000000" in pair_ids
+    assert state.get("customization_artifacts", {}) == {}

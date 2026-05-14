@@ -112,6 +112,33 @@ class Syncer:
         # Empty until the first sync_once: that first poll's _refresh_tool_statuses
         # emits the startup INFO line for every tool.
         self._tool_status: dict[str, str] = {}
+        # Best-effort: create each enabled tool's roots once at startup. This
+        # turns "fresh-install, dir-not-yet-materialised" into `available` on
+        # the first poll, instead of US-11 `unavailable` (which would silently
+        # strand the user's library). Mid-life loss of a root still flips the
+        # tool to `unavailable` per US-11 AC-2.
+        self._ensure_tool_roots()
+
+    def _ensure_tool_roots(self) -> None:
+        """mkdir -p every enabled tool's configured customization-type roots.
+
+        Best-effort: a failure here (permission denied, parent is a file) is
+        not fatal — `_refresh_tool_statuses` will observe the failure on the
+        first poll and mark the tool `unavailable` with the underlying OSError.
+        """
+        for spec in self.agentic_tools.values():
+            if not self._is_tool_enabled(spec):
+                continue
+            for config_key in spec.config_dir_keys.values():
+                root = expand_path(self.config[config_key])
+                try:
+                    root.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    logging.warning(
+                        "Could not pre-create %s root %s (%s: %s); "
+                        "next poll will mark this tool unavailable.",
+                        spec.name, root, type(exc).__name__, exc,
+                    )
 
     # ---------- per-tool status (US-11) ----------
 
@@ -444,7 +471,7 @@ class Syncer:
                     pair_id, tool_name, tool_info.path,
                 )
                 continue
-            slug = target_slug(canonical["name"], info.kind)
+            slug = target_slug(canonical["name"])
             groups.setdefault((info.kind, slug), []).append(pair_id)
             source_tool_by_pair[pair_id] = tool_name
 
@@ -681,7 +708,7 @@ class Syncer:
         source_io = self.agentic_tools[source_tool].io[info.kind]
         text = self._read_artifact_text(source_io, source_info.path)
         canonical = source_io.parse(text, None)
-        slug = target_slug(canonical["name"], info.kind)
+        slug = target_slug(canonical["name"])
         targets: list[Path] = []
         for tool_name in missing:
             spec = self.agentic_tools[tool_name]
@@ -953,7 +980,7 @@ class Syncer:
         """
         io = spec.io[kind]
         root = expand_path(self.config[spec.config_dir_keys[kind]])
-        slug = target_slug(canonical["name"], kind)
+        slug = target_slug(canonical["name"])
         if io.storage == "single_file":
             target = existing_path or (root / f"{slug}{io.file_suffix}")
             self._assert_target_available(target, existing_path)

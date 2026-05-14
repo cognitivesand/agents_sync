@@ -84,7 +84,7 @@ def test_unavailable_tool_does_not_propagate_removal(syncer: Syncer):
     """US-11 AC-4: removal-propagation never fires from an unavailable tool."""
     claude_dir = _write_claude_skill(syncer)
     syncer.sync_once()
-    codex_artifact = Path(syncer.codex_skills_dir) / "foo-skill"
+    codex_artifact = Path(syncer.codex_skills_dir) / "foo"
     assert codex_artifact.exists()
 
     shutil.rmtree(syncer.codex_skills_dir)
@@ -167,7 +167,7 @@ def test_removal_propagation_from_available_tool_still_works(syncer: Syncer):
     """Removing a skill on a tool whose status is `available` propagates normally."""
     claude_dir = _write_claude_skill(syncer)
     syncer.sync_once()
-    codex_artifact = Path(syncer.codex_skills_dir) / "foo-skill"
+    codex_artifact = Path(syncer.codex_skills_dir) / "foo"
     assert codex_artifact.exists()
 
     shutil.rmtree(claude_dir)
@@ -176,4 +176,4 @@ def test_removal_propagation_from_available_tool_still_works(syncer: Syncer):
     # Codex side archived + removed; state cleaned up.
     assert not codex_artifact.exists()
     archive_root = syncer.state_dir / "archive"
-    assert any(archive_root.rglob("foo-skill*"))
+    assert any(archive_root.rglob("foo*"))

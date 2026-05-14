@@ -19,10 +19,13 @@ def test_slugify_avoids_reserved_windows_basenames():
     assert slugify("LPT1") == "lpt1-item"
 
 
-def test_target_slug_adds_kind_for_explicit_generated_names():
-    assert target_slug("CI.yaml", "agent") == "ci-yaml-agent"
-    assert target_slug("formatter", "skill") == "formatter-skill"
-    assert target_slug("review-agent", "agent") == "review-agent"
+def test_target_slug_returns_bare_slugified_name():
+    """v0.4: target_slug drops the -skill / -agent suffix introduced in v0.3.
+    Counterparts use the bare slug because agents and skills live in
+    distinct config-keyed roots, so kind disambiguation is unnecessary."""
+    assert target_slug("CI.yaml") == "ci-yaml"
+    assert target_slug("formatter") == "formatter"
+    assert target_slug("review-agent") == "review-agent"
 
 
 def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
