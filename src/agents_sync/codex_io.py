@@ -102,7 +102,9 @@ def render_codex_agent_toml(canonical: dict[str, Any]) -> str:
     if description:
         lines.append(f"description = {toml_string(description)}")
 
-    sandbox = canonical.get("codex_only", {}).get("sandbox_mode") or infer_codex_sandbox(
+    sandbox = canonical.get("per_agentic_tool_only", {}).get("codex", {}).get(
+        "sandbox_mode"
+    ) or infer_codex_sandbox(
         canonical.get("tools", []),
         canonical.get("disallowed_tools", []),
     )
@@ -117,7 +119,9 @@ def render_codex_agent_toml(canonical: dict[str, Any]) -> str:
     if isinstance(effort, str) and effort in {"low", "medium", "high"}:
         lines.append(f"model_reasoning_effort = {toml_string(effort)}")
 
-    for key, value in sorted(canonical.get("codex_extra", {}).items()):
+    for key, value in sorted(
+        canonical.get("per_agentic_tool_extra", {}).get("codex", {}).items()
+    ):
         if isinstance(value, str):
             lines.append(f"{key} = {toml_string(value)}")
         elif isinstance(value, bool):
@@ -135,8 +139,8 @@ def render_codex_agent_toml(canonical: dict[str, Any]) -> str:
 def parse_codex_agent_toml(text: str, prior_canonical: dict[str, Any] | None = None) -> dict[str, Any]:
     """Parse a Codex agent .toml into a canonical dict.
 
-    If `prior_canonical` is given, claude_only / claude_extra and other
-    Claude-side state survive untouched.
+    If `prior_canonical` is given, per-agentic-tool state for other agentic tools
+    (e.g. claude) survives untouched.
     """
     from agents_sync.canonical import empty_canonical, new_pair_id
 
@@ -158,16 +162,20 @@ def parse_codex_agent_toml(text: str, prior_canonical: dict[str, Any] | None = N
     if "model_reasoning_effort" in data:
         canonical["effort"] = data["model_reasoning_effort"]
 
-    codex_only = dict(canonical.get("codex_only", {}))
+    per_agentic_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
+    codex_only = dict(per_agentic_tool_only.get("codex", {}))
     if "sandbox_mode" in data:
         codex_only["sandbox_mode"] = data["sandbox_mode"]
-    canonical["codex_only"] = codex_only
+    per_agentic_tool_only["codex"] = codex_only
+    canonical["per_agentic_tool_only"] = per_agentic_tool_only
 
-    canonical["codex_extra"] = {
+    per_agentic_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
+    per_agentic_tool_extra["codex"] = {
         key: value
         for key, value in data.items()
         if key not in KNOWN_CODEX_TOML_KEYS
     }
+    canonical["per_agentic_tool_extra"] = per_agentic_tool_extra
 
     if "pair_id" in data:
         canonical["pair_id"] = str(data["pair_id"])
@@ -229,11 +237,13 @@ def parse_codex_skill_md(text: str, prior_canonical: dict[str, Any] | None = Non
     if "description" in frontmatter_data:
         canonical["description"] = str(frontmatter_data["description"])
 
-    canonical["codex_extra"] = {
+    per_agentic_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
+    per_agentic_tool_extra["codex"] = {
         key: value
         for key, value in frontmatter_data.items()
         if key not in {"pair_id", "name", "description"}
     }
+    canonical["per_agentic_tool_extra"] = per_agentic_tool_extra
 
     if "pair_id" in frontmatter_data:
         canonical["pair_id"] = str(frontmatter_data["pair_id"])

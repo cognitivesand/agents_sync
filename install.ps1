@@ -57,8 +57,16 @@ state_path = "$tomlStatePath"
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
 
-codex_agents_dir = "~/.codex/agents"
-codex_skills_dir = "~/.agents/skills"
+# Codex is skills-only in v0.4: it stores its global instructions in a single
+# ~/.codex/AGENTS.md (not per-agent files).
+codex_skills_dir = "~/.codex/skills"
+
+# Google Antigravity (skills only). Enabled by default once
+# ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
+# On Antigravity v1.19.6 the directory is "global_skills" not "skills";
+# override antigravity_skills_dir if you are on that version.
+# antigravity_skills_dir = "~/.gemini/antigravity/skills"
+# antigravity_enabled = false
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($ConfigFile, $cfg, $utf8NoBom)

@@ -22,9 +22,15 @@ from agents_sync.state import ignored_tree_names
 
 
 def iso_timestamp(now: _dt.datetime | None = None) -> str:
-    """ISO 8601 UTC timestamp with `:` replaced by `-` for filesystem use."""
+    """ISO 8601 UTC timestamp with `:` replaced by `-` for filesystem use.
+
+    Microsecond precision prevents collisions when several archive entries
+    are written back-to-back for the same (pair_id, side) — e.g. an
+    adoption that archives pre-injection bytes followed immediately by a
+    conflict-loser archive in the same second.
+    """
     moment = now or _dt.datetime.now(tz=_dt.timezone.utc)
-    return moment.strftime("%Y-%m-%dT%H-%M-%SZ")
+    return moment.strftime("%Y-%m-%dT%H-%M-%S-%fZ")
 
 
 def archive_dir_for(state_dir: Path, pair_id: str, side: str) -> Path:

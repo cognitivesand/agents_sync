@@ -15,7 +15,7 @@ def test_linux_defaults_use_home_conventions():
 
     assert defaults["state_path"] == str(home / ".local" / "state" / "agents-sync" / "state.json")
     assert defaults["claude_agents_dir"] == str(home / ".claude" / "agents")
-    assert defaults["codex_skills_dir"] == str(home / ".agents" / "skills")
+    assert defaults["codex_skills_dir"] == str(home / ".codex" / "skills")
 
 
 def test_windows_defaults_prefer_appdata_and_localappdata():

@@ -1,0 +1,93 @@
+"""Smoke tests for the AgenticToolSpec registry."""
+from __future__ import annotations
+
+import textwrap
+
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    CustomizationTypeIO,
+    default_agentic_tools,
+)
+from agents_sync.canonical import empty_canonical
+
+
+def test_default_registry_has_claude_codex_and_antigravity():
+    registry = default_agentic_tools()
+    assert set(registry.keys()) == {"claude", "codex", "antigravity"}
+    for spec in registry.values():
+        assert isinstance(spec, AgenticToolSpec)
+
+
+def test_antigravity_spec_is_skill_only_with_disable_key():
+    spec = default_agentic_tools()["antigravity"]
+    assert spec.supported_customization_types == frozenset({"skill"})
+    assert spec.config_dir_keys == {"skill": "antigravity_skills_dir"}
+    assert spec.disable_config_key == "antigravity_enabled"
+    io = spec.io["skill"]
+    assert io.storage == "directory_skill"
+    assert io.file_suffix == ""
+
+
+def test_claude_and_codex_have_no_disable_key():
+    """claude and codex are always enabled; only antigravity can be opted out."""
+    registry = default_agentic_tools()
+    assert registry["claude"].disable_config_key is None
+    assert registry["codex"].disable_config_key is None
+
+
+def test_claude_spec_supports_both_customization_types():
+    spec = default_agentic_tools()["claude"]
+    assert spec.supported_customization_types == frozenset({"agent", "skill"})
+    assert spec.config_dir_keys == {
+        "agent": "claude_agents_dir",
+        "skill": "claude_skills_dir",
+    }
+    for ct in ("agent", "skill"):
+        io = spec.io[ct]
+        assert isinstance(io, CustomizationTypeIO)
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".md"
+    assert spec.io["skill"].storage == "directory_skill"
+
+
+def test_codex_spec_is_skill_only():
+    """Codex is skill-only in v0.4: its user-level instructions live in a
+    single ~/.codex/AGENTS.md (not per-agent files in a directory)."""
+    spec = default_agentic_tools()["codex"]
+    assert spec.supported_customization_types == frozenset({"skill"})
+    assert spec.config_dir_keys == {"skill": "codex_skills_dir"}
+    assert spec.io["skill"].storage == "directory_skill"
+
+
+def test_claude_agent_io_round_trips_through_registry():
+    text = textwrap.dedent(
+        """\
+        ---
+        pair_id: 11111111-2222-3333-4444-555555555555
+        name: demo-agent
+        description: registry-driven round trip
+        ---
+        body content
+        """
+    )
+    io = default_agentic_tools()["claude"].io["agent"]
+    canonical = io.parse(text, None)
+    assert canonical["name"] == "demo-agent"
+    assert io.extract_pair_id(text) == "11111111-2222-3333-4444-555555555555"
+    rendered = io.render(canonical, text)
+    canonical_again = io.parse(rendered, canonical)
+    assert canonical_again["name"] == canonical["name"]
+    assert canonical_again["body"] == canonical["body"]
+
+
+def test_codex_skill_io_dispatches_to_skill_md_renderer():
+    c = empty_canonical("skill")
+    c["pair_id"] = "00000000-0000-4000-8000-000000000001"
+    c["name"] = "demo-skill"
+    c["description"] = "registry-driven render"
+    c["body"] = "instructions go here"
+    io = default_agentic_tools()["codex"].io["skill"]
+    rendered = io.render(c, None)
+    assert "name: demo-skill" in rendered
+    assert "pair_id: 00000000-0000-4000-8000-000000000001" in rendered
+    assert io.extract_pair_id(rendered) == "00000000-0000-4000-8000-000000000001"

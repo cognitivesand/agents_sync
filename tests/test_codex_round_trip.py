@@ -18,7 +18,7 @@ def _agent_canonical() -> dict:
     c["body"] = "the body"
     c["model"] = "gpt-4"
     c["effort"] = "high"
-    c["codex_only"] = {"sandbox_mode": "read-only"}
+    c["per_agentic_tool_only"]["codex"] = {"sandbox_mode": "read-only"}
     return c
 
 
@@ -33,7 +33,7 @@ def test_codex_agent_render_then_parse_is_a_fixed_point():
     assert c2["body"] == c1["body"]
     assert c2["model"] == c1["model"]
     assert c2["effort"] == c1["effort"]
-    assert c2["codex_only"]["sandbox_mode"] == "read-only"
+    assert c2["per_agentic_tool_only"]["codex"]["sandbox_mode"] == "read-only"
 
 
 def test_codex_agent_render_is_byte_deterministic():
@@ -70,7 +70,7 @@ def test_codex_agent_parse_strips_legacy_review_metadata():
     assert c["body"] == "real body"
 
 
-def test_codex_agent_parse_preserves_unknown_fields_in_codex_extra():
+def test_codex_agent_parse_preserves_unknown_fields_in_per_agentic_tool_extra():
     text = (
         'pair_id = "abc"\n'
         'name = "x"\n'
@@ -79,7 +79,7 @@ def test_codex_agent_parse_preserves_unknown_fields_in_codex_extra():
         'unknown_codex_field = "value"\n'
     )
     c = parse_codex_agent_toml(text)
-    assert c["codex_extra"] == {"unknown_codex_field": "value"}
+    assert c["per_agentic_tool_extra"]["codex"] == {"unknown_codex_field": "value"}
 
 
 def test_codex_agent_parse_tolerates_utf8_bom():

@@ -76,10 +76,24 @@ state_path = "~/.local/state/agents-sync/state.json"
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
 
-codex_agents_dir = "~/.codex/agents"
-codex_skills_dir = "~/.agents/skills"
+# Codex is skills-only in v0.4: it stores its global instructions in a single
+# ~/.codex/AGENTS.md (not per-agent files).
+codex_skills_dir = "~/.codex/skills"
+
+# Google Antigravity (skills only). Enabled by default once
+# ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
+# antigravity_skills_dir = "~/.gemini/antigravity/skills"
+# antigravity_enabled = false
 EOF
 fi
+
+# Migrate any pre-v0.4-fix state. Idempotent and silent on fresh installs.
+# Pre-fix installs (codex_skills_dir=~/.agents/skills, -skill suffix on
+# counterparts) get a one-shot re-baseline: backup, suffix duplicates moved
+# aside, ~/.agents/skills migrated to ~/.codex/skills, pair_id frontmatter
+# stripped, state wiped. Everything is moved into a timestamped backup
+# under ${STATE_DIR}/backups/, never deleted outright.
+uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
 
 cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]

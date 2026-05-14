@@ -15,11 +15,11 @@
 
 ## 🎯 Purpose
 
-`agents_sync` is a bidirectional bridge between **Claude Code** and **Codex**.
+`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, and **Google Antigravity**.
 
-> It keeps your user level custom agents and skills in sync automatically, so you can build your AI workflow once and use it from both tools. Create or edit something in Claude Code, and it appears in Codex. Create or edit it in Codex, and it comes back to Claude Code.
+> Build your AI workflow once and use it from every tool you've installed. Create or edit a skill in Claude Code and it appears in Codex and Antigravity. Edit it in Antigravity and it comes back to Claude Code and Codex. Agents sync between Claude Code and Codex (Antigravity has no stable per-agent file format yet).
 
-The daemon runs quietly in the background, protects your content with archives, and keeps user level files connected even when they are renamed.
+The daemon runs quietly in the background, protects your content with archives, and keeps user-level files connected even when they are renamed. If one of the tools isn't installed, that tool is silently skipped — the others continue to sync.
 
 ---
 
@@ -45,17 +45,17 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes agents and skills you use with Claude Code and Codex at user level.
+`agents_sync` synchronizes user-level skills across Claude Code, Codex, and Google Antigravity. Agents are tracked on Claude Code only (the other tools have no per-agent file format).
 
-| What you edit | Where Claude Code stores it | Where Codex stores it |
-|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.agents/skills/*/SKILL.md` |
+| What you edit | Claude Code | Codex | Antigravity |
+|:---|:---|:---|:---|
+| Agents | `~/.claude/agents/*.md` | — (uses a single `~/.codex/AGENTS.md`) | — (no per-agent format) |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` |
 
 **In plain terms:**
 
-- Agents are reusable AI personas or workflows.
-- Skills are reusable instruction folders.
+- Skills are reusable instruction folders. All three tools use the same open `SKILL.md` spec, so skills sync three ways.
+- Agents are reusable AI personas. Only Claude Code keeps them as per-agent files; Codex collapses its global guidance into a single `AGENTS.md`. Until another tool adopts a per-agent file format, claude agents are tracked locally but have no projection target.
 
 ```mermaid
 flowchart LR
@@ -63,6 +63,7 @@ flowchart LR
         direction TB
         Claude["Claude Code<br/>agents + skills"]
         Codex["Codex<br/>agents + skills"]
+        Antigravity["Antigravity<br/>skills only"]
     end
 
     Sync["agents_sync<br/>watch + match + sync"]
@@ -71,6 +72,7 @@ flowchart LR
 
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
+    Antigravity <-->|changes| Sync
     Sync --> State
     Sync --> Archive
 
@@ -79,14 +81,14 @@ flowchart LR
     classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
     classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
 
-    class Claude,Codex side
+    class Claude,Codex,Antigravity side
     class Sync sync
     class State state
     class Archive archive
 
-    linkStyle 0,1 stroke:#2da44e,stroke-width:2px
-    linkStyle 2 stroke:#8250df,stroke-width:2px
-    linkStyle 3 stroke:#2da44e,stroke-width:2px
+    linkStyle 0,1,2 stroke:#2da44e,stroke-width:2px
+    linkStyle 3 stroke:#8250df,stroke-width:2px
+    linkStyle 4 stroke:#2da44e,stroke-width:2px
 ```
 
 ---
@@ -95,15 +97,16 @@ flowchart LR
 
 ## 🔁 Bidirectional Sync
 
-`agents_sync` treats Claude Code and Codex as equal peers, so you can edit either side directly and changes automatically propagate to the other.
+`agents_sync` treats every configured tool as an equal peer. Edit on any one tool and the change propagates to every other tool that supports the same kind of customization.
 
 | Action | Result |
 |:---|:---|
 | Create or edit a Claude Code agent | Codex receives the matching `.toml` file |
 | Create or edit a Codex agent | Claude Code receives the matching `.md` file |
-| Create or edit a Claude Code skill | Codex receives the matching skill folder |
-| Create or edit a Codex skill | Claude Code receives the matching skill folder |
-| Remove one side of a synced pair | The other side is archived, then removed |
+| Create or edit a skill on any tool | The other two tools receive the matching `SKILL.md` folder |
+| Two or more tools edit the same skill simultaneously | The most recently modified copy wins; the losers are archived |
+| Remove a synced agent or skill on any tool | The other tools' copies are archived, then removed |
+| A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
 
 ---
 
@@ -160,6 +163,12 @@ chmod +x install-macos.sh
 The macOS installer registers a per-user LaunchAgent. It starts at login and keeps the daemon running in the background.
 
 Verify it with [Check That It Is Running](#check-that-it-is-running).
+
+### Enabling Antigravity
+
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs claude's and codex's skills into it. Antigravity itself picks up the directory on its next read.
+
+To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
 ---
 
@@ -337,19 +346,33 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 
 ## 📝 Notes
 
-- The daemon polls both sides at a configurable interval.
-- First sight of a Claude `.md`, Claude skill `SKILL.md`, Codex `.toml`, or Codex skill folder without a `pair_id` triggers adoption.
-- Adoption archives the original, injects a `pair_id`, and creates the counterpart on the other side.
-- Removing one side of a pair archives the other side and drops the pair from state.
-- Missing or unreadable configured roots fail closed. A missing directory is never interpreted as "all files were deleted."
+- The daemon polls every configured tool at a configurable interval.
+- First sight of any agent or skill file without a `pair_id` triggers adoption.
+- Adoption archives the original, injects a `pair_id`, and creates the counterpart on every other tool that supports that kind of customization.
+- Removing a synced agent or skill on any one tool archives every surviving tool's copy before removing it.
+- On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
-- This tool was developed with the support of both Claude Code and Codex.
+- **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
+- This tool was developed with the support of Claude Code, Codex, and Google Antigravity.
 
 ---
 
 <a id="changelog"></a>
 
 ## 🗓️ Changelog
+
+### 0.4.0
+
+- Added Google Antigravity as a third agentic tool. Antigravity participates in skills only.
+- Codex is now skills-only too. v0.3 assumed Codex used per-agent `.toml` files under `~/.codex/agents/`, but the real Codex layout is a single global `~/.codex/AGENTS.md`. The `codex_agents_dir` config key and `--codex-agents-dir` CLI flag are removed; Codex's per-agent `codex_io` functions stay in the codebase for any future Codex release that adds a per-agent format.
+- The default `codex_skills_dir` is now `~/.codex/skills` (the path Codex's own `skill-installer` and `skill-creator` use). The v0.3-era `~/.agents/skills` default never matched a live Codex install.
+- Daemon-projected counterparts use the bare slugified name. The v0.3 `-skill` / `-agent` suffix is dropped — agents and skills live in distinct config-keyed roots, so kind disambiguation is unnecessary. A skill named `formatter` now lives at `<root>/formatter/SKILL.md` on every tool instead of `<root>/formatter-skill/SKILL.md`.
+- On startup the daemon creates each enabled tool's roots if they don't exist (`mkdir -p`). Mid-life loss of a root still flips a tool to `unavailable` per US-11.
+- Agents (per-agent files) are therefore Claude-only in v0.4. Adoption still mints and injects a `pair_id` so your Claude agents are ready to sync if another tool ever adopts a per-agent file format.
+- Generalised the sync algorithm from two named peers (`claude` / `codex`) to an N-tool registry. Adding another agentic tool is now an IO module + a config entry; the sync engine, conflict resolution, adoption, reconciliation, and removal-propagation paths are tool-agnostic.
+- Replaced the v0.2.1 "exit on missing root" startup behavior with per-tool status (`available` / `unavailable` / `disabled`). A missing root marks the tool unavailable for that poll and is logged once; the daemon continues to sync the remaining available tools. Removal-propagation never fires from an unavailable tool, so an uninstalled or unmounted tool never wipes your library.
+- Added first-boot reconciliation: when the same logical skill exists on multiple tools without a `pair_id`, the daemon merges them by most-recent mtime instead of failing on a slug collision.
+- Bumped `state.json` to `schema_version: 2` (per-tool dicts under `customization_artifacts`). Pre-1.0 cutover: existing state files are regenerated on first boot.
 
 ### 0.3.0
 
@@ -380,6 +403,8 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 - `docs/v0.2_implementation_plan.md` - v0.2 engineering plan.
 - `docs/v0.2.1_remediation_plan.md` - safety remediation plan.
 - `docs/v0.3_implementation_plan.md` - Windows support plan.
+- `docs/v0.4_implementation_plan.md` - Antigravity / N-tool sync plan.
+- `docs/agentic_tool_integration_protocol.md` - how to add another agentic tool.
 
 ---
 
