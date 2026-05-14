@@ -56,4 +56,4 @@ Log lines are structured. They include: the agentic_tool's `name`, the affected 
 
 This story replaces the v0.3 behaviour in which a missing root for any built-in agentic_tool caused the daemon to exit at startup. The safety property that motivated that behaviour (do not interpret a missing root as "all artifacts deleted") is now provided by AC-4 of this story without forcing the daemon to exit. See US-07 for the updated startup-failure semantics.
 
-Related requirements: NFR-01 (data preservation), NFR-04 (resilience under transient failure), and the new observability requirement introduced in v0.4.
+Related requirements: FR-04 (trusted removal source — load-bearing for AC-4), NFR-01 (data preservation), NFR-04 (resilience under transient failure), NFR-12 (log on transition only — AC-5), NFR-13 (structured error reporting — AC-1, AC-2, AC-6).

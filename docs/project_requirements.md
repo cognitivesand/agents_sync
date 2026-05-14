@@ -1,31 +1,37 @@
 # agents_sync — Project Requirements
 
-This document captures the system-level requirements for `agents_sync`. Each requirement is a single, verifiable "shall" statement, kept implementation-free.
+This document lists the system-level requirements for `agents_sync`. Each entry is one verifiable "shall" statement, free of implementation choices.
 
-User-visible behaviour is specified in `docs/stories/US-XX-*.md`. This document is **complementary**: it captures cross-cutting concerns and emergent properties that no single story owns — for example, the absence of loop degradation under sustained operation. Story acceptance criteria are not repeated here.
+User-visible behaviour is specified in `docs/stories/US-XX-*.md`. This document is **complementary**: it captures system-wide properties no single story owns — for example, the daemon's CPU usage staying flat when nothing is changing. It does not repeat the stories' acceptance criteria.
 
 Categories:
 
 - **FR-XX** — Functional requirements (cross-cutting functional properties)
 - **NFR-XX** — Non-functional requirements (system-wide qualities and constraints)
 
+Project-wide constraints (Python 3.12+, per-OS supervision mechanism, single user / single workstation) live in `docs/project_description.md` and are not restated here.
+
 ---
 
 ## Functional Requirements
 
 - **FR-01** (Loop suppression): The daemon **shall not** propagate a change that originated from its own prior write.
-- **FR-02** (Per-pair fault isolation): A failure to process any single managed pair **shall not** interrupt processing of other pairs.
-- **FR-03** (Change-type coverage): The daemon **shall** observe additions, modifications, and removals on each monitored side.
+- **FR-02** (Fault isolation): If processing fails for one customization_artifact on one agentic_tool, the daemon **shall** continue processing the other agentic_tools and the other customization_artifacts.
+- **FR-03** (Change-type coverage): The daemon **shall** observe additions, modifications, and removals on each participating agentic_tool.
+- **FR-04** (Trusted removal source): The daemon **shall** treat a customization_artifact as removed only when an `available` agentic_tool no longer has it. A missing artifact on an `unavailable` or `disabled` agentic_tool **shall not** trigger removal.
 
 ## Non-Functional Requirements
 
 - **NFR-01** (Data preservation): The daemon **shall not** cause loss of user-authored content under any operation.
-- **NFR-02** (Latency): A change on either side **shall** be observable on the other side within twice the configured polling interval.
-- **NFR-03** (Atomic visibility): External readers **shall never** observe a partial or half-written file produced by the daemon.
-- **NFR-04** (Self-healing): The daemon **shall** converge to a consistent state within one polling interval after any interruption of a sync operation.
+- **NFR-02** (Latency): A change on any participating agentic_tool **shall** be observable on every other participating agentic_tool within twice the configured polling interval.
+- **NFR-03** (Atomic visibility): External readers **shall** see either the prior or the new customization_artifact, never an intermediate state. This holds for both single-file and folder customization_types.
+- **NFR-04** (Self-healing): After a sync operation is interrupted, the daemon **shall** converge to a consistent state within one polling interval.
 - **NFR-05** (No loop degradation): With user inputs unchanged, repeated polling cycles **shall** produce no file writes, no canonical updates, and no archive entries.
-- **NFR-06** (Round-trip stability): Translating a managed item from one side to the other and back **shall** result in content identical to the starting state on the original side.
+- **NFR-06** (Round-trip stability): Propagating a customization_artifact from one agentic_tool to another and back **shall** preserve the original bytes on the source.
 - **NFR-07** (Bounded archive growth): Archive entries **shall** be created only when an operation would otherwise lose user-authored content.
-- **NFR-08** (Resource stability): Per-cycle CPU and memory usage of the daemon **shall not** grow with elapsed runtime in the absence of user-induced changes.
-- **NFR-09** (Scalability): Daemon cycle time **shall** grow at most linearly with the number of managed pairs.
+- **NFR-08** (Resource stability): When the user makes no changes, the daemon's per-cycle CPU and memory usage **shall not** drift upward over time.
+- **NFR-09** (Scalability): Daemon cycle time **shall** be at most linear in both the number of managed customization_artifacts and the number of participating agentic_tools.
 - **NFR-10** (Distinct exit codes): The daemon **shall** return distinct process exit codes for normal termination, configuration failure, and runtime failure.
+- **NFR-11** (Extensibility): Adding support for a new agentic_tool **shall** require only a new agentic_tool integration module (per `docs/agentic_tool_integration_protocol.md`) and a matching config entry. The sync engine, conflict resolution, adoption, reconciliation, and removal-propagation code **shall** be untouched.
+- **NFR-12** (Log on change, not per poll): The daemon **shall** log an agentic_tool's status only on transitions (startup counts as a transition), not on every poll.
+- **NFR-13** (Structured error reporting): Every failure the daemon reports **shall** be a structured log entry naming the customization_artifact_id (when applicable), the agentic_tool (when applicable), and the underlying cause.

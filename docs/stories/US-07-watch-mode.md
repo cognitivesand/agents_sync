@@ -45,4 +45,4 @@ The "at least two `available` agentic_tools" threshold in AC-5 reflects the obvi
 
 Configuration errors (AC-7) remain a fatal startup condition: these are bugs in the config file, not absences in the environment. Distinct exit codes (per NFR-10) let the service manager apply the right restart policy.
 
-Related requirements: FR-02, NFR-02, NFR-04, NFR-10.
+Related requirements: FR-02 (fault isolation), NFR-02 (latency), NFR-04 (self-healing), NFR-08 (resource stability over long runs), NFR-10 (distinct exit codes), NFR-12 (log on change, not per poll), NFR-13 (structured error reporting).

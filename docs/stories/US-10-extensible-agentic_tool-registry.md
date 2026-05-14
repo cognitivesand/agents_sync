@@ -45,4 +45,4 @@ Extensibility is the design property under test. AC-2 is the load-bearing accept
 
 This story addresses only the **structural** ability to register an agentic_tool. It does not address the runtime behaviour when a registered agentic_tool's root is missing or unreadable; that is US-11's responsibility.
 
-Related requirements: TBD (v0.4 introduces new requirements covering the agentic_tool registry; see updated `project_requirements.md`).
+Related requirements: NFR-11 (extensibility — load-bearing for AC-2), NFR-13 (structured error reporting — AC-5, AC-6, AC-8).

@@ -64,4 +64,4 @@ The set of "participating agentic_tools" is computed per poll, per customization
 
 When a new customization_type is introduced in a future version, the corresponding agentic_tool modules update their `supported_customization_types` declarations and provide the matching `CustomizationTypeIO` triple. No change to this story or its acceptance criteria is required.
 
-Related requirements: FR-01, NFR-02, NFR-03.
+Related requirements: FR-01 (loop suppression), NFR-02 (latency), NFR-03 (atomic visibility), NFR-06 (round-trip stability — underpins AC-4 lossless capture), NFR-13 (structured errors — AC-11, AC-12).

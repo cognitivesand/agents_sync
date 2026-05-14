@@ -65,4 +65,4 @@ This story is the only point at which the tool writes a `customization_artifact_
 
 There is no special "first-run mode": every poll runs the same discover → reconcile → process sequence. The N-agentic_tool reconciliation under AC-3 / AC-4 / AC-5 is what makes "first boot with pre-existing artifacts on every agentic_tool" converge cleanly to one managed customization_artifact per distinct logical artifact.
 
-Related requirements: FR-02, NFR-01.
+Related requirements: FR-02 (fault isolation across reconciliation groups), NFR-01 (data preservation during merge), NFR-07 (bounded archive growth — every loser's bytes archived once).

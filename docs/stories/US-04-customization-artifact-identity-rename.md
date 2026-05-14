@@ -34,4 +34,4 @@ Vocabulary used in this story is defined in the project glossary at `docs/projec
 
 The N-agentic_tool generalisation is structural: the same rename semantics apply regardless of how many agentic_tools participate. At v0.4 release, two agentic_tools support the `agent` customization_type and three support `skill`, but the algorithm does not depend on these counts.
 
-Related requirements: NFR-01.
+Related requirements: NFR-01 (data preservation through rename), NFR-06 (round-trip stability across the renamed counterpart).

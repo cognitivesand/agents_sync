@@ -25,4 +25,4 @@ The archive layout is partitioned by `customization_artifact_id` and `agentic_to
 
 The tool internally uses `.tmp` and `.old` staging directories during atomic swaps; these are exempt from the archive rule because they hold only intermediate, reproducible state, not user-authored bytes.
 
-Related requirements: NFR-01, NFR-07.
+Related requirements: NFR-01 (data preservation), NFR-07 (bounded archive growth), FR-04 (trusted removal source — archive-before-delete fires only on a real removal signal).

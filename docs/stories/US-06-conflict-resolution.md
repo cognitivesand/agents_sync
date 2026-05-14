@@ -44,4 +44,4 @@ AC-6 specifies an atomic-across-losers semantic: the daemon does not partially o
 
 For the special case where ≥ 2 agentic_tools carry **new** (no-`customization_artifact_id`) artifacts with the same reconciliation key — i.e. there is no managed customization_artifact yet to detect a conflict against — see US-03 AC-3, which applies the same mtime-wins-and-archive rule at adoption time.
 
-Related requirements: NFR-01.
+Related requirements: NFR-01 (no loser bytes lost), NFR-02 (conflicts must resolve within polling latency), FR-01 (the propagated winner does not re-trigger as a new change).

@@ -32,4 +32,4 @@ Concurrency safety is achieved instead by:
 2. **Self-healing polls** — any digest discrepancy is detected and resolved on the next cycle; a "lost update" race lasts at most one poll interval before reconciliation.
 3. **Idempotent operations** — the same canonical applied twice produces the same result; redundant work is harmless.
 
-Related requirements: NFR-03, NFR-04, NFR-05.
+Related requirements: NFR-01 (data preservation under crash and concurrent runs), NFR-03 (atomic visibility), NFR-04 (self-healing), NFR-05 (no loop degradation).
