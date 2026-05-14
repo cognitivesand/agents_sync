@@ -54,16 +54,6 @@ fi
 
 mkdir -p "${BIN_DIR}" "${STATE_DIR}" "${CONFIG_DIR}" "${SERVICE_DIR}"
 
-# Pre-create the agentic-tool roots from the seeded config so each tool is
-# `available` on first boot (US-11). A missing root would otherwise mark the
-# whole tool unavailable for the poll, even if its other root exists.
-mkdir -p \
-  "${HOME}/.claude/agents" \
-  "${HOME}/.claude/skills" \
-  "${HOME}/.codex/agents" \
-  "${HOME}/.agents/skills" \
-  "${HOME}/.gemini/antigravity/skills"
-
 cd "${PROJECT_DIR}"
 
 uv sync
