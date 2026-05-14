@@ -185,19 +185,19 @@ def test_unreadable_prior_text_logs_warning_and_continues(
     codex_dir = Path(syncer.codex_skills_dir) / "foo"
     assert (codex_dir / "SKILL.md").exists()
 
-    # Patch the read_artifact_text name as resolved inside agents_sync.sync
+    # Patch the read_artifact_text name as resolved inside agents_sync.adoption
     # only. agents_sync.discovery imports the same function under its own
     # name binding, so discovery's read of the codex artifact still succeeds;
     # only the prior_text read inside _sync_from_agentic_tool fails.
-    import agents_sync.sync as sync_mod
-    original_read = sync_mod.read_artifact_text
+    import agents_sync.adoption as adoption_mod
+    original_read = adoption_mod.read_artifact_text
 
     def patched_read(io, path: Path) -> str:
         if Path(path) == codex_dir:
             raise OSError("simulated prior-text read failure")
         return original_read(io, path)
 
-    monkeypatch.setattr(sync_mod, "read_artifact_text", patched_read)
+    monkeypatch.setattr(adoption_mod, "read_artifact_text", patched_read)
 
     claude_md = claude_dir / "SKILL.md"
     claude_md.write_text(claude_md.read_text().replace("v1", "v2"))
