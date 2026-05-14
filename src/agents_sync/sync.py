@@ -2,10 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import shutil
-import sys
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,13 +20,15 @@ from agents_sync.canonical import (
 )
 from agents_sync.config import expand_path
 from agents_sync.config import validate_config
-from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
+from agents_sync.rendering import (
+    path_collision_key,
+    render_to_agentic_tool,
+    update_state_n_way,
+    write_artifact_inplace,
+)
 from agents_sync.state import (
-    AgenticToolState,
     CustomizationArtifactState,
-    atomic_write_text,
-    ignored_tree_names,
     load_state,
     save_state,
     sha256_file,
@@ -51,55 +49,6 @@ class AgenticToolInfo:
 class CustomizationArtifactInfo:
     kind: str
     agentic_tools: dict[str, AgenticToolInfo] = field(default_factory=dict)
-
-
-def _clear_stale_paths(*paths: Path) -> None:
-    """Remove leftover staging siblings (`.tmp` / `.old`) before atomic-swap."""
-    for path in paths:
-        if path.exists():
-            retry_fs(
-                lambda p=path: shutil.rmtree(p),
-                operation=f"rmtree {path}",
-            )
-
-
-def _rename_with_rollback(tmp: Path, target: Path, *, backup: Path) -> None:
-    """Replace `target` with `tmp`. If `target` already exists, move it aside to
-    `backup` first and restore it on failure; otherwise rename `tmp` directly."""
-    target_existed = target.exists()
-    if target_existed:
-        retry_fs(
-            lambda: target.rename(backup),
-            operation=f"rename {target} -> {backup}",
-        )
-    try:
-        retry_fs(
-            lambda: tmp.rename(target),
-            operation=f"rename {tmp} -> {target}",
-        )
-    except Exception:
-        if target_existed:
-            retry_fs(
-                lambda: backup.rename(target),
-                operation=f"rollback {backup} -> {target}",
-            )
-        raise
-    if target_existed:
-        retry_fs(
-            lambda: shutil.rmtree(backup),
-            operation=f"cleanup {backup}",
-        )
-
-
-def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
-    """Stage a fresh copy of `source` as `target` and overwrite SKILL.md atomically."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.tmp")
-    old = target.with_name(f".{target.name}.old")
-    _clear_stale_paths(tmp, old)
-    shutil.copytree(source, tmp, ignore=lambda _dir, names: ignored_tree_names(names))
-    atomic_write_text(tmp / "SKILL.md", skill_md_content)
-    _rename_with_rollback(tmp, target, backup=old)
 
 
 class Syncer:
@@ -620,7 +569,8 @@ class Syncer:
         paths: dict[str, Path] = {}
         for tool_name in target_tools:
             target_spec = self.agentic_tools[tool_name]
-            paths[tool_name] = self._render_to_agentic_tool(
+            paths[tool_name] = render_to_agentic_tool(
+                self.config,
                 target_spec,
                 info.kind,
                 canonical,
@@ -628,7 +578,7 @@ class Syncer:
                 prior_text=None,
                 source_dir=source_dir,
             )
-        self._update_state_n_way(state, pair_id, info.kind, paths)
+        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
         logging.info(
             "Extended to newly available tools: pair_id=%s tools=%s",
             pair_id, target_tools,
@@ -661,7 +611,7 @@ class Syncer:
                 blocked.add(pair_id)
                 continue
             for target in planned_targets:
-                target_key = self._path_collision_key(target)
+                target_key = path_collision_key(target)
                 targets.setdefault(target_key, []).append(pair_id)
                 target_display.setdefault(target_key, target)
 
@@ -734,22 +684,12 @@ class Syncer:
         path: Path,
         state: dict[str, CustomizationArtifactState],
     ) -> str | None:
-        target_key = self._path_collision_key(path)
+        target_key = path_collision_key(path)
         for pair_id, pair_state in state.items():
             for tool_state in pair_state.agentic_tools.values():
-                if self._path_collision_key(Path(tool_state.path)) == target_key:
+                if path_collision_key(Path(tool_state.path)) == target_key:
                     return pair_id
         return None
-
-    def _path_collision_key(self, path: Path) -> str:
-        resolved = path.resolve()
-        normalized = unicodedata.normalize("NFC", str(resolved))
-        normcased = os.path.normcase(normalized)
-        if sys.platform in {"darwin", "win32"}:
-            return normcased.casefold()
-        elif os.name != "nt" and normcased != normalized:
-            return normcased
-        return normalized
 
     # ---------- adoption ----------
 
@@ -775,7 +715,7 @@ class Syncer:
 
         if not source_info.pair_id_present:
             archive.archive_copy(self.state_dir, pair_id, source_tool, source_info.path)
-            self._write_artifact_inplace(
+            write_artifact_inplace(
                 source_io, source_info.path, source_io.render(canonical, text)
             )
 
@@ -790,7 +730,8 @@ class Syncer:
             existing_target_path = (
                 existing_target_info.path if existing_target_info is not None else None
             )
-            paths[tool_name] = self._render_to_agentic_tool(
+            paths[tool_name] = render_to_agentic_tool(
+                self.config,
                 self.agentic_tools[tool_name],
                 info.kind,
                 canonical,
@@ -799,7 +740,7 @@ class Syncer:
                 source_dir=source_dir,
             )
 
-        self._update_state_n_way(state, pair_id, info.kind, paths)
+        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
         logging.info(
             "Adopted from %s: pair_id=%s paths=%s",
             source_tool, pair_id, {k: str(v) for k, v in paths.items()},
@@ -854,7 +795,8 @@ class Syncer:
                         target_info.path, pair_id, type(exc).__name__, exc,
                     )
                     prior_text = None
-            paths[tool_name] = self._render_to_agentic_tool(
+            paths[tool_name] = render_to_agentic_tool(
+                self.config,
                 target_spec,
                 info.kind,
                 canonical,
@@ -863,7 +805,7 @@ class Syncer:
                 source_dir=source_dir,
             )
 
-        self._update_state_n_way(state, pair_id, info.kind, paths)
+        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
         logging.info("Synced from %s: pair_id=%s", source_tool, pair_id)
         return True
 
@@ -965,79 +907,3 @@ class Syncer:
             )
         return True
 
-    # ---------- read / render helpers ----------
-
-    def _write_artifact_inplace(
-        self, io: CustomizationTypeIO, path: Path, text: str
-    ) -> None:
-        """Write `text` back to the artifact-metadata location at `path`."""
-        if io.storage == "single_file":
-            atomic_write_text(path, text)
-        else:
-            atomic_write_text(path / "SKILL.md", text)
-
-    def _render_to_agentic_tool(
-        self,
-        spec: AgenticToolSpec,
-        kind: str,
-        canonical: dict[str, Any],
-        *,
-        existing_path: Path | None,
-        prior_text: str | None,
-        source_dir: Path | None,
-    ) -> Path:
-        """Render `canonical` onto one target agentic tool.
-
-        `prior_text` lets renderers that preserve user-frontmatter order
-        (claude) re-use the existing on-disk bytes. `source_dir` is the
-        directory whose non-SKILL.md siblings must be staged forward (for
-        directory_skill storage).
-        """
-        io = spec.io[kind]
-        root = expand_path(self.config[spec.config_dir_keys[kind]])
-        slug = target_slug(canonical["name"])
-        if io.storage == "single_file":
-            target = existing_path or (root / f"{slug}{io.file_suffix}")
-            self._assert_target_available(target, existing_path)
-            atomic_write_text(target, io.render(canonical, prior_text))
-            return target
-        if io.storage == "directory_skill":
-            target_dir = existing_path or (root / slug)
-            self._assert_target_available(target_dir, existing_path)
-            skill_md_text = io.render(canonical, prior_text)
-            if source_dir is not None and target_dir != source_dir:
-                stage_skill_dir(source_dir, target_dir, skill_md_text)
-            else:
-                target_dir.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(target_dir / "SKILL.md", skill_md_text)
-            return target_dir
-        raise ValueError(f"Unknown storage shape: {io.storage}")
-
-    def _update_state_n_way(
-        self,
-        state: dict[str, CustomizationArtifactState],
-        pair_id: str,
-        kind: str,
-        paths: dict[str, Path],
-    ) -> None:
-        ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
-        ps.kind = kind
-        for tool_name, path in paths.items():
-            spec = self.agentic_tools[tool_name]
-            io = spec.io[kind]
-            digest = (
-                sha256_file(path) if io.storage == "single_file" else sha256_tree(path)
-            )
-            ps.agentic_tools[tool_name] = AgenticToolState(
-                path=str(path),
-                last_seen=digest,
-                last_written=digest,
-            )
-
-    def _assert_target_available(self, target: Path, existing_path: Path | None) -> None:
-        if existing_path is not None and (
-            self._path_collision_key(target) == self._path_collision_key(existing_path)
-        ):
-            return
-        if target.exists():
-            raise FileExistsError(f"Refusing to overwrite unowned target path: {target}")

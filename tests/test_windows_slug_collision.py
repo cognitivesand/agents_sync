@@ -29,7 +29,7 @@ def test_target_slug_returns_bare_slugified_name():
 
 
 def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("agents_sync.sync.os.path.normcase", lambda value: value.lower())
+    monkeypatch.setattr("agents_sync.rendering.os.path.normcase", lambda value: value.lower())
     codex_path = Path(syncer.codex_skills_dir) / "Alpha"
     state = {
         "pair-1": CustomizationArtifactState(
@@ -48,7 +48,7 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
 
 
 def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("agents_sync.sync.os.path.normcase", lambda value: value.lower())
+    monkeypatch.setattr("agents_sync.rendering.os.path.normcase", lambda value: value.lower())
     discovery = {
         "pair-a": CustomizationArtifactInfo(kind="skill"),
         "pair-b": CustomizationArtifactInfo(kind="skill"),
