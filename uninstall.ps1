@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $TaskName = "agents-sync"
 $LauncherPath = Join-Path $env:LOCALAPPDATA "agents-sync\bin\agents-sync.cmd"
+$HiddenLauncherPath = Join-Path $env:LOCALAPPDATA "agents-sync\bin\agents-sync-hidden.vbs"
 $ConfigDir = Join-Path $env:APPDATA "agents-sync"
 $StateDir = Join-Path $env:LOCALAPPDATA "agents-sync"
 
@@ -44,6 +45,7 @@ function Remove-DataIfRequested([switch]$DoCleanup, [string]$ConfigRoot, [string
 
 Unregister-AgentsSyncTask -Name $TaskName
 Remove-Launcher -LauncherFile $LauncherPath
+Remove-Launcher -LauncherFile $HiddenLauncherPath
 Remove-DataIfRequested -DoCleanup:$CleanupData -ConfigRoot $ConfigDir -StateRoot $StateDir
 
 Write-Host "Uninstalled agents-sync task and launcher."

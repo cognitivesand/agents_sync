@@ -10,10 +10,13 @@ $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvExe = Join-Path $ProjectDir ".venv\Scripts\agents-sync.exe"
 $LauncherDir = Join-Path $env:LOCALAPPDATA "agents-sync\bin"
 $LauncherPath = Join-Path $LauncherDir "agents-sync.cmd"
+$HiddenLauncherPath = Join-Path $LauncherDir "agents-sync-hidden.vbs"
 $ConfigDir = Join-Path $env:APPDATA "agents-sync"
 $ConfigPath = Join-Path $ConfigDir "config.toml"
 $StateDir = Join-Path $env:LOCALAPPDATA "agents-sync\state"
 $StatePath = Join-Path $StateDir "state.json"
+$LogDir = Join-Path $env:LOCALAPPDATA "agents-sync\logs"
+$LogPath = Join-Path $LogDir "agents-sync.log"
 $TaskName = "agents-sync"
 
 function Assert-Command([string]$Name, [string]$InstallHint) {
@@ -24,6 +27,10 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
 
 function Convert-ToTomlPath([string]$RawPath) {
   return $RawPath.Replace("\", "\\")
+}
+
+function Convert-ToVbsLiteral([string]$RawValue) {
+  return '"' + $RawValue.Replace('"', '""') + '"'
 }
 
 function Sync-Venv([string]$ProjectRoot) {
@@ -40,6 +47,74 @@ function Install-Launcher([string]$LauncherFile, [string]$VenvEntrypoint) {
   $content = @"
 @echo off
 "$VenvEntrypoint" %*
+"@
+  Set-Content -Path $LauncherFile -Value $content -Encoding Ascii
+}
+
+function Install-HiddenLauncher([string]$LauncherFile, [string]$VenvEntrypoint, [string]$CfgPath, [string]$LogFile) {
+  New-Item -ItemType Directory -Path (Split-Path -Parent $LauncherFile) -Force | Out-Null
+  New-Item -ItemType Directory -Path (Split-Path -Parent $LogFile) -Force | Out-Null
+
+  $entrypointLiteral = Convert-ToVbsLiteral $VenvEntrypoint
+  $configLiteral = Convert-ToVbsLiteral $CfgPath
+  $logLiteral = Convert-ToVbsLiteral $LogFile
+  $content = @"
+Option Explicit
+
+Dim shell
+Dim entrypoint
+Dim configPath
+Dim logFile
+Dim command
+
+Set shell = CreateObject("WScript.Shell")
+entrypoint = $entrypointLiteral
+configPath = $configLiteral
+logFile = $logLiteral
+
+If IsAlreadyRunning(entrypoint, configPath) Then
+  WScript.Quit 0
+End If
+
+command = QuoteCmdArg(shell.ExpandEnvironmentStrings("%COMSPEC%")) & " /d /c call " & QuoteCmdArg(entrypoint) & " --config " & QuoteCmdArg(configPath) & " >> " & QuoteCmdArg(logFile) & " 2>&1"
+WScript.Quit shell.Run(command, 0, True)
+
+Function QuoteCmdArg(value)
+  QuoteCmdArg = Chr(34) & Replace(value, Chr(34), Chr(34) & Chr(34)) & Chr(34)
+End Function
+
+Function IsAlreadyRunning(entrypointValue, configPathValue)
+  On Error Resume Next
+
+  Dim wmi
+  Dim processes
+  Dim process
+  Dim commandLine
+
+  IsAlreadyRunning = False
+  Set wmi = GetObject("winmgmts:\\.\root\cimv2")
+  If Err.Number <> 0 Then
+    Err.Clear
+    Exit Function
+  End If
+
+  Set processes = wmi.ExecQuery("SELECT CommandLine FROM Win32_Process WHERE Name = 'agents-sync.exe' OR Name = 'python.exe'")
+  If Err.Number <> 0 Then
+    Err.Clear
+    Exit Function
+  End If
+
+  For Each process In processes
+    commandLine = ""
+    If Not IsNull(process.CommandLine) Then
+      commandLine = process.CommandLine
+    End If
+    If InStr(1, commandLine, entrypointValue, vbTextCompare) > 0 And InStr(1, commandLine, configPathValue, vbTextCompare) > 0 Then
+      IsAlreadyRunning = True
+      Exit Function
+    End If
+  Next
+End Function
 "@
   Set-Content -Path $LauncherFile -Value $content -Encoding Ascii
 }
@@ -73,14 +148,19 @@ codex_skills_dir = "~/.codex/skills"
   }
 }
 
-function Register-AgentsSyncTask([string]$Name, [string]$LauncherFile, [string]$CfgPath) {
-  $action = New-ScheduledTaskAction -Execute $LauncherFile -Argument "--config `"$CfgPath`""
+function Register-AgentsSyncTask([string]$Name, [string]$HiddenLauncherFile) {
+  $wscript = Join-Path $env:WINDIR "System32\wscript.exe"
+  if (-not (Test-Path $wscript)) {
+    $wscript = "wscript.exe"
+  }
+  $action = New-ScheduledTaskAction -Execute $wscript -Argument "//B //Nologo `"$HiddenLauncherFile`""
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
   $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
   $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 999 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
+    -MultipleInstances IgnoreNew `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
@@ -108,9 +188,12 @@ if (-not (Test-Path $VenvExe)) {
 
 Install-Launcher -LauncherFile $LauncherPath -VenvEntrypoint $VenvExe
 Ensure-Config -ConfigFile $ConfigPath -StateFile $StatePath
-Register-AgentsSyncTask -Name $TaskName -LauncherFile $LauncherPath -CfgPath $ConfigPath
+Install-HiddenLauncher -LauncherFile $HiddenLauncherPath -VenvEntrypoint $VenvExe -CfgPath $ConfigPath -LogFile $LogPath
+Register-AgentsSyncTask -Name $TaskName -HiddenLauncherFile $HiddenLauncherPath
 
 Write-Host "Installed $AppName"
-Write-Host "Launcher: $LauncherPath"
-Write-Host "Config:   $ConfigPath"
-Write-Host "Task:     $TaskName"
+Write-Host "Launcher:        $LauncherPath"
+Write-Host "Hidden launcher: $HiddenLauncherPath"
+Write-Host "Config:          $ConfigPath"
+Write-Host "Log:             $LogPath"
+Write-Host "Task:            $TaskName"
