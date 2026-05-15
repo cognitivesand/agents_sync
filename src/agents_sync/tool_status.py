@@ -103,8 +103,8 @@ class ToolStatusTracker:
         """Whether a tool's config-side enable-flag is on.
 
         A tool without ``disable_config_key`` cannot be disabled — it can only
-        become ``unavailable`` by losing its root. Antigravity's
-        ``antigravity_enabled = False`` is the only opt-out in v0.4.
+        become ``unavailable`` by losing its root. Optional tools such as
+        Antigravity and opencode use explicit enable flags.
         """
         if spec.disable_config_key is None:
             return True

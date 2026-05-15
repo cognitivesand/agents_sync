@@ -141,7 +141,8 @@ def render_to_agentic_tool(
     """
     io = spec.io[kind]
     root = expand_path(config[spec.config_dir_keys[kind]])
-    slug = target_slug(canonical["name"])
+    slugger = io.slugify_name or target_slug
+    slug = slugger(canonical["name"])
     if io.storage == "single_file":
         target = existing_path or (root / f"{slug}{io.file_suffix}")
         assert_target_available(target, existing_path)

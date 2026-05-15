@@ -1,13 +1,12 @@
 # agents_sync — Architecture
 
 This document describes the architecture of `agents_sync` as it stands at
-v0.4, organised around the layers of *Clean Architecture* (Martin, 2017).
+v0.4.1, organised around the layers of *Clean Architecture* (Martin, 2017).
 It is intended to be useful as both a reader's map of the code and a
 governance artefact: any future change should leave this document either
 true or amended.
 
-- **Status**: current as of v0.4 (`feat/v0.4-antigravity-skills`,
-  commit `653eb4b` at the time of writing).
+- **Status**: current as of v0.4.1.
 - **Sources of truth**: the code under `src/agents_sync/`,
   `docs/project_description.md`, `docs/project_requirements.md`, and the
   user stories under `docs/stories/`.
@@ -48,7 +47,7 @@ true, not aspirationally true.
 | Adding a new agentic_tool is **one new module + one config block** | description goal 5, NFR-11, US-10 AC-2 | A frozen-dataclass port (`AgenticToolSpec` / `CustomizationTypeIO`) at the boundary of the use cases; adapters live one layer outside. The sync engine never references a concrete tool name. |
 
 Uncle Bob's "stable abstractions" rule applies directly: the names
-`claude`, `codex`, `antigravity` (and one day `opencode`) appear in
+`claude`, `codex`, `antigravity`, and `opencode` appear in
 adapter modules and in user-provided config keys — **and nowhere else**.
 The use cases see only `agentic_tools.values()`.
 
@@ -141,8 +140,9 @@ implementing the `CustomizationTypeIO` triple `(parse, render,
 extract_pair_id)` plus storage shape:
 
 - `claude_io.py` — `~/.claude/agents/*.md` and `~/.claude/skills/<name>/SKILL.md`.
-- `codex_io.py` — `~/.codex/skills/<name>/SKILL.md` (skills only in v0.4).
+- `codex_io.py` — `~/.codex/agents/*.toml` and `~/.codex/skills/<name>/SKILL.md`.
 - `antigravity_io.py` — `~/.gemini/antigravity/skills/<name>/SKILL.md`.
+- `opencode_io.py` — `~/.config/opencode/agents/*.md` and `~/.config/opencode/skills/<name>/SKILL.md`.
 
 **Tool-agnostic gateways** that hide platform / filesystem concerns
 from the use cases:
@@ -213,7 +213,7 @@ Three concrete invariants the codebase upholds today:
 
 The import graph (verified by `grep -RE "^(from|import) agents_sync" src/`)
 forms a DAG with the seven layer-2 / layer-3 modules at the centre, the
-three adapter modules on the rim, and the four framework modules on the
+four adapter modules on the rim, and the four framework modules on the
 outside.
 
 ---
@@ -227,10 +227,11 @@ outside.
 | `canonical.py` | 72 | 1 / 3 | Canonical schema + JSON I/O (D-1) | `state`, `identity` |
 | `state.py` (dataclasses + slug) | ~110 of 221 | 1 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug` | `identity` (validation), `filesystem_windows_retry` (I/O half) |
 | `state.py` (load/save/digest/atomic_write) | ~110 of 221 | 3 | State JSON gateway | `identity`, `filesystem_windows_retry` |
-| `agentic_tool_spec.py` | 180 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports the three IO adapters lazily |
+| `agentic_tool_spec.py` | 180 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports the four IO adapters lazily |
 | `claude_io.py` | 215 | 3 | Claude `.md` + `SKILL.md` parser/renderer | `canonical` |
-| `codex_io.py` | 253 | 3 | Codex `SKILL.md` (v0.4) + Codex TOML (retained) | `canonical` |
+| `codex_io.py` | 253 | 3 | Codex `.toml` agents + `SKILL.md` skills | `canonical` |
 | `antigravity_io.py` | 180 | 3 | Antigravity `SKILL.md` parser/renderer | `canonical` |
+| `opencode_io.py` | 310 | 3 | opencode `.md` agents + `SKILL.md` skills | `canonical`, `claude_io` |
 | `archive.py` | 72 | 3 | Archive-copy / archive-move gateway | `filesystem_windows_retry`, `identity`, `state` |
 | `rendering.py` | 185 | 3 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
 | `discovery.py` | 313 | 2 | Per-poll discovery + collision blocking | `agentic_tool_spec`, `canonical`, `config`, `identity`, `rendering`, `state`, `sync_types`, `tool_status` |
@@ -510,34 +511,31 @@ violation.
 
 ### D-3 — The registry is a hand-rolled factory, not a discovered set
 
-`agentic_tool_spec.default_agentic_tools` calls three concrete
-`_build_*_spec` functions that lazily import the three IO modules.
+`agentic_tool_spec.default_agentic_tools` calls four concrete
+`_build_*_spec` functions that lazily import the four IO modules.
 US-10's intended end-state is a `pkgutil.iter_modules` walk under
 `src/agents_sync/agentic_tools/` that picks up every module exporting an
 `AGENTIC_TOOL` constant, with structured fail-closed errors per AC-5,
-AC-6, AC-8. Refactor: move the three IO modules under
+AC-6, AC-8. Refactor: move the IO modules under
 `agentic_tools/<name>.py`, have each export its `AGENTIC_TOOL`, replace
-`default_agentic_tools` with a discovery loop. Touched on by the v0.5
-opencode work (cf. `docs/opencode_integration_research.md` §8).
+`default_agentic_tools` with a discovery loop.
 
 ### D-4 — Codex's two IO modes coexist
 
-`codex_io.py` contains both the v0.4-active `parse_codex_skill_md` /
-`render_codex_skill_md` path **and** the dormant
-`parse_codex_agent_toml` / `render_codex_agent_toml` path retained "for
-any future Codex release that adds a per-agent file format" (cf.
-`_build_codex_spec` docstring). The dormant code is unreachable through
-the registry. YAGNI says delete; product judgement says keep. Document
-the trade in the module docstring and revisit if Codex ships a per-agent
-format.
+`codex_io.py` contains both the `parse_codex_skill_md` /
+`render_codex_skill_md` path and the `parse_codex_agent_toml` /
+`render_codex_agent_toml` path. Both are active in v0.4.1. The remaining
+tradeoff is that TOML rendering is deterministic but does not preserve
+comments or original ordering the way the YAML renderers can.
 
-### D-5 — `Syncer.__init__` still touches three Claude/Codex-specific config keys
+### D-5 — Built-in defaults remain centralised in `config.py`
 
-`sync.Syncer.__init__` reads `claude_agents_dir`, `claude_skills_dir`,
-and `codex_skills_dir` into instance attributes. None of those
-attributes is used after assignment — `discovery` reads paths through
-`config[config_dir_keys[...]]` instead. Dead code that names concrete
-tools inside Layer 2. Delete the three assignments.
+The sync use cases now resolve roots through `AgenticToolSpec.config_dir_keys`
+and the generic `Syncer.tool_root()` helper. Built-in platform defaults,
+installer samples, and CLI flags are still centralised in `config.py` and
+the installers. That is acceptable for shipped built-ins, but a future
+third-party plugin story would need config defaults to move closer to the
+adapter metadata.
 
 ### D-6 — No static check for I-3 (no-destructive-write-without-archive)
 
@@ -549,23 +547,24 @@ covered transitively by integration tests. A grep-style guard test
 
 ## 12. Worked example: adding a new agentic_tool
 
-This is the v0.5 opencode integration, stated against the architecture:
+This is the expected path for the next built-in agentic_tool, stated against
+the current v0.4.1 architecture:
 
 | Step | File | Layer | Why |
 |---|---|---|---|
-| 1 | `src/agents_sync/agentic_tools/opencode.py` (new) | 3 | One adapter module. Exports `AGENTIC_TOOL: AgenticToolSpec`. Implements `parse`, `render`, `extract_pair_id` for both `agent` and `skill` `customization_type`s. |
-| 2 | `src/agents_sync/agentic_tool_spec.py` | 3 (port) | Add `_build_opencode_spec` and include it in `default_agentic_tools` — *or* deliver D-3 first and then nothing changes here. |
-| 3 | `src/agents_sync/config.py` | 4 | Add `opencode_agents_dir` and `opencode_skills_dir` to `platform_defaults`, append to `REQUIRED_DIR_KEYS`. |
-| 4 | `src/agents_sync/cli.py` | 4 | Add the two new `--opencode-*-dir` flags. |
-| 5 | `tests/agentic_tools/test_opencode.py` (new) | tests | Round-trip, BOM, CRLF, unknown-field passthrough, no leak of Claude/Codex-only fields. |
-| 6 | `tests/test_e2e_sync_opencode.py` (new) | tests | The US-01 / US-03 / US-06 / US-11 matrix with opencode in the participating set. |
+| 1 | `src/agents_sync/<tool>_io.py` (new) | 3 | One adapter module implementing `parse`, `render`, `extract_pair_id`, and any tool-specific slugging needed by `CustomizationTypeIO`. |
+| 2 | `src/agents_sync/agentic_tool_spec.py` | 3 (port) | Add `_build_<tool>_spec` and include it in `default_agentic_tools` — or deliver D-3 first and then nothing changes here. |
+| 3 | `src/agents_sync/config.py` | 4 | Add the tool's default roots and enable flag, if it is optional. |
+| 4 | `src/agents_sync/cli.py` | 4 | Add explicit override flags for the tool's roots and enable flag. |
+| 5 | `tests/test_<tool>_io.py` (new) | tests | Round-trip, BOM/line-ending tolerance, unknown-field passthrough, and no leak of foreign fields. |
+| 6 | `tests/test_<tool>_matrix.py` (new or extended) | tests | The US-01 / US-03 / US-06 / US-11 matrix with the new tool in the participating set. |
 | 7 | `README.md`, `docs/architecture.md` | docs | One-line entry in the "Module map" table; one-row entry in the README "What It Syncs" table. |
 
-**No edits** to `sync.py`, `adoption.py`, `discovery.py`, `tool_status.py`,
-`canonical.py`, `rendering.py`, `archive.py`, `state.py`, `identity.py`,
-`sync_types.py`, `daemon.py`. If any of those needs to change to make
-opencode work, the design has failed US-10 AC-2 — fix the port instead
-of working around it.
+**No tool-specific edits** to `sync.py`, `adoption.py`, `discovery.py`,
+`tool_status.py`, `canonical.py`, `rendering.py`, `archive.py`, `state.py`,
+`identity.py`, `sync_types.py`, or `daemon.py`. If a new tool needs a new
+storage concern, add it to the port (`CustomizationTypeIO`) as a generic
+capability rather than branching on the tool name inside the use cases.
 
 ---
 
@@ -600,8 +599,9 @@ often:
 - Martin, Robert C. *Clean Architecture: A Craftsman's Guide to Software
   Structure and Design*. Prentice Hall, 2017.
 - `docs/project_description.md` — purpose, scope, goals, glossary.
-- `docs/project_requirements.md` — FR-01..04, NFR-01..13.
+- `docs/project_requirements.md` — FR-01..06, NFR-01..14.
 - `docs/agentic_tool_integration_protocol.md` — the port contract.
 - `docs/stories/US-*.md` — user-visible behaviour.
-- `docs/v0.4_implementation_plan.md` — current-version engineering plan.
-- `docs/opencode_integration_research.md` — proposed v0.5 adapter.
+- `docs/v0.4_implementation_plan.md` — Antigravity / N-tool engineering plan.
+- `docs/v0.4.1_implementation_plan.md` — opencode and Codex custom-agent follow-up plan.
+- `docs/opencode_integration_research.md` — opencode adapter research.

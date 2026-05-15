@@ -27,7 +27,10 @@ if os.name == "nt":
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Continuous bidirectional sync of Claude Code agents and skills with Codex.",
+        description=(
+            "Continuous sync of Claude Code, Codex, Antigravity, "
+            "and opencode customizations."
+        ),
     )
     parser.add_argument(
         "--config",
@@ -37,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interval", type=float, help="Polling interval in seconds.")
     parser.add_argument("--claude-agents-dir", type=str)
     parser.add_argument("--claude-skills-dir", type=str)
+    parser.add_argument("--codex-agents-dir", type=str)
     parser.add_argument("--codex-skills-dir", type=str)
     parser.add_argument(
         "--antigravity-skills-dir",
@@ -48,6 +52,22 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Toggle Antigravity participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--opencode-agents-dir",
+        type=str,
+        help="opencode agents root. Defaults to ~/.config/opencode/agents on POSIX and APPDATA\\opencode\\agents on Windows.",
+    )
+    parser.add_argument(
+        "--opencode-skills-dir",
+        type=str,
+        help="opencode skills root. Defaults to ~/.config/opencode/skills on POSIX and APPDATA\\opencode\\skills on Windows.",
+    )
+    parser.add_argument(
+        "--opencode-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle opencode participation in the sync (default: enabled).",
     )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")

@@ -18,7 +18,12 @@ def _agent_canonical() -> dict:
     c["body"] = "the body"
     c["model"] = "gpt-4"
     c["effort"] = "high"
-    c["per_agentic_tool_only"]["codex"] = {"sandbox_mode": "read-only"}
+    c["per_agentic_tool_only"]["codex"] = {
+        "sandbox_mode": "read-only",
+        "nickname_candidates": ["Atlas", "Delta"],
+        "mcp_servers": {"docs": {"url": "https://developers.openai.com/mcp"}},
+        "skills": {"config": [{"path": "/tmp/SKILL.md", "enabled": False}]},
+    }
     return c
 
 
@@ -34,11 +39,45 @@ def test_codex_agent_render_then_parse_is_a_fixed_point():
     assert c2["model"] == c1["model"]
     assert c2["effort"] == c1["effort"]
     assert c2["per_agentic_tool_only"]["codex"]["sandbox_mode"] == "read-only"
+    assert c2["per_agentic_tool_only"]["codex"]["nickname_candidates"] == [
+        "Atlas",
+        "Delta",
+    ]
+    assert c2["per_agentic_tool_only"]["codex"]["mcp_servers"]["docs"]["url"] == (
+        "https://developers.openai.com/mcp"
+    )
+    assert (
+        c2["per_agentic_tool_only"]["codex"]["skills"]["config"][0]["enabled"]
+        is False
+    )
 
 
 def test_codex_agent_render_is_byte_deterministic():
     c = _agent_canonical()
     assert render_codex_agent_toml(c) == render_codex_agent_toml(c)
+
+
+def test_codex_agent_render_emits_current_nested_config_fields():
+    rendered = render_codex_agent_toml(_agent_canonical())
+    assert 'nickname_candidates = ["Atlas", "Delta"]' in rendered
+    assert "[mcp_servers.docs]" in rendered
+    assert 'url = "https://developers.openai.com/mcp"' in rendered
+    assert "[[skills.config]]" in rendered
+    assert 'path = "/tmp/SKILL.md"' in rendered
+    assert "enabled = false" in rendered
+
+
+def test_codex_agent_parse_drops_removed_codex_only_fields():
+    prior = _agent_canonical()
+    text = (
+        'pair_id = "abc-123"\n'
+        'name = "codexer"\n'
+        'developer_instructions = "body"\n'
+    )
+
+    parsed = parse_codex_agent_toml(text, prior)
+
+    assert parsed["per_agentic_tool_only"]["codex"] == {}
 
 
 def test_codex_skill_render_then_parse_is_a_fixed_point():

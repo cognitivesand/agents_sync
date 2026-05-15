@@ -19,6 +19,8 @@ Project-wide constraints (Python 3.12+, per-OS supervision mechanism, single use
 - **FR-02** (Fault isolation): If processing fails for one customization_artifact on one agentic_tool, the daemon **shall** continue processing the other agentic_tools and the other customization_artifacts.
 - **FR-03** (Change-type coverage): The daemon **shall** observe additions, modifications, and removals on each participating agentic_tool.
 - **FR-04** (Trusted removal source): The daemon **shall** treat a customization_artifact as removed only when an `available` agentic_tool no longer has it. A missing artifact on an `unavailable` or `disabled` agentic_tool **shall not** trigger removal.
+- **FR-05** (v0.4.1 agent matrix): The daemon **shall** sync user-level `agent` artifacts across Claude Code, Codex, and opencode when those tools are available.
+- **FR-06** (v0.4.1 skill matrix): The daemon **shall** sync user-level `skill` artifacts across Claude Code, Codex, Google Antigravity, and opencode when those tools are available.
 
 ## Non-Functional Requirements
 
@@ -35,3 +37,4 @@ Project-wide constraints (Python 3.12+, per-OS supervision mechanism, single use
 - **NFR-11** (Extensibility): Adding support for a new agentic_tool **shall** require only a new agentic_tool integration module (per `docs/agentic_tool_integration_protocol.md`) and a matching config entry. The sync engine, conflict resolution, adoption, reconciliation, and removal-propagation code **shall** be untouched.
 - **NFR-12** (Log on change, not per poll): The daemon **shall** log an agentic_tool's status only on transitions (startup counts as a transition), not on every poll.
 - **NFR-13** (Structured error reporting): Every failure the daemon reports **shall** be a structured log entry naming the customization_artifact_id (when applicable), the agentic_tool (when applicable), and the underlying cause.
+- **NFR-14** (Clean code maintainability): Production code **shall** follow Robert C. Martin's Clean Code principles: intention-revealing names, small cohesive functions, minimal duplication, explicit boundaries, and simple designs that remain easy to test and change.

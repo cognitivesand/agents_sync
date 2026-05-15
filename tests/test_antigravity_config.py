@@ -62,6 +62,20 @@ def test_cli_parser_default_leaves_antigravity_settings_unset():
     assert args.antigravity_enabled is None
 
 
+def test_cli_parser_accepts_opencode_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--opencode-agents-dir",
+        "/agents",
+        "--opencode-skills-dir",
+        "/skills",
+        "--no-opencode-enabled",
+    ])
+    assert args.opencode_agents_dir == "/agents"
+    assert args.opencode_skills_dir == "/skills"
+    assert args.opencode_enabled is False
+
+
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:
@@ -70,9 +84,13 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
         interval=None,
         claude_agents_dir=None,
         claude_skills_dir=None,
+        codex_agents_dir=None,
         codex_skills_dir=None,
         antigravity_skills_dir=None,
         antigravity_enabled=None,
+        opencode_agents_dir=None,
+        opencode_skills_dir=None,
+        opencode_enabled=None,
         state_path=None,
         verbose=False,
     )
@@ -80,10 +98,35 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
     return argparse.Namespace(**base)
 
 
+def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[str, str | float | bool]:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
+        (tmp_path / sub).mkdir()
+    ag_root = tmp_path / "as"
+    ag_root.mkdir(exist_ok=True)
+    return {
+        "poll_interval_seconds": 1.0,
+        "state_path": str(state_dir / "state.json"),
+        "claude_agents_dir": str(tmp_path / "ca"),
+        "claude_skills_dir": str(tmp_path / "cs"),
+        "codex_agents_dir": str(tmp_path / "xa"),
+        "codex_skills_dir": str(tmp_path / "xs"),
+        "antigravity_skills_dir": str(ag_root),
+        "antigravity_enabled": antigravity_enabled,
+        "opencode_agents_dir": str(tmp_path / "oa"),
+        "opencode_skills_dir": str(tmp_path / "os"),
+        "opencode_enabled": True,
+    }
+
+
 def test_merged_config_falls_back_to_default_antigravity_dir():
     config = merged_config(_minimal_args())
     assert "antigravity_skills_dir" in config
     assert config["antigravity_enabled"] is True
+    assert "opencode_agents_dir" in config
+    assert "opencode_skills_dir" in config
+    assert config["opencode_enabled"] is True
 
 
 def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
@@ -131,19 +174,7 @@ def test_explicit_disable_with_existing_dir_is_disabled_and_silent(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ):
     """Plan §3 deliverable: antigravity_enabled=false ⇒ disabled, no log lines."""
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    for sub in ("ca", "cs", "xs", "as"):
-        (tmp_path / sub).mkdir()
-    config = {
-        "poll_interval_seconds": 1.0,
-        "state_path": str(state_dir / "state.json"),
-        "claude_agents_dir": str(tmp_path / "ca"),
-        "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_skills_dir": str(tmp_path / "xs"),
-        "antigravity_skills_dir": str(tmp_path / "as"),
-        "antigravity_enabled": False,
-    }
+    config = _test_config(tmp_path, antigravity_enabled=False)
     syncer = Syncer(config)
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
@@ -158,22 +189,10 @@ def test_explicit_disable_with_existing_dir_is_disabled_and_silent(
 
 def test_explicit_override_path_is_honored(tmp_path: Path):
     """Plan §3 deliverable: a non-default antigravity_skills_dir is used as-is."""
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    for sub in ("ca", "cs", "xs"):
-        (tmp_path / sub).mkdir()
+    config = _test_config(tmp_path)
     custom_root = tmp_path / "custom-antigravity-root"
     custom_root.mkdir()
-
-    config = {
-        "poll_interval_seconds": 1.0,
-        "state_path": str(state_dir / "state.json"),
-        "claude_agents_dir": str(tmp_path / "ca"),
-        "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_skills_dir": str(tmp_path / "xs"),
-        "antigravity_skills_dir": str(custom_root),
-        "antigravity_enabled": True,
-    }
+    config["antigravity_skills_dir"] = str(custom_root)
     syncer = Syncer(config)
     syncer.sync_once()
     assert syncer.tool_status.snapshot()["antigravity"] == "available"
@@ -186,10 +205,7 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
     antigravity_skills_dir does not appear in any sync activity when the
     enable-flag is off.
     """
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    for sub in ("ca", "cs", "xs", "as"):
-        (tmp_path / sub).mkdir()
+    config = _test_config(tmp_path, antigravity_enabled=False)
     # Put a skill on the antigravity side that would otherwise adopt.
     ag_skill = tmp_path / "as" / "preexisting"
     ag_skill.mkdir()
@@ -197,20 +213,11 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
         "---\nname: preexisting\ndescription: should-be-ignored\n---\nbody\n"
     )
 
-    config = {
-        "poll_interval_seconds": 1.0,
-        "state_path": str(state_dir / "state.json"),
-        "claude_agents_dir": str(tmp_path / "ca"),
-        "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_skills_dir": str(tmp_path / "xs"),
-        "antigravity_skills_dir": str(tmp_path / "as"),
-        "antigravity_enabled": False,
-    }
     syncer = Syncer(config)
     changed = syncer.sync_once()
     assert changed == 0
     # No projection landed on claude_skills_dir; antigravity bytes intact.
-    assert list(Path(syncer.claude_skills_dir).iterdir()) == []
+    assert list(syncer.tool_root("claude", "skill").iterdir()) == []
     assert (ag_skill / "SKILL.md").exists()
 
 
@@ -218,19 +225,7 @@ def test_disabled_then_enabled_picks_up_new_artifacts(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ):
     """Re-enabling antigravity transitions the status and resumes discovery."""
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    for sub in ("ca", "cs", "xs", "as"):
-        (tmp_path / sub).mkdir()
-    base_config = {
-        "poll_interval_seconds": 1.0,
-        "state_path": str(state_dir / "state.json"),
-        "claude_agents_dir": str(tmp_path / "ca"),
-        "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_skills_dir": str(tmp_path / "xs"),
-        "antigravity_skills_dir": str(tmp_path / "as"),
-        "antigravity_enabled": False,
-    }
+    base_config = _test_config(tmp_path, antigravity_enabled=False)
     syncer_disabled = Syncer(dict(base_config))
     syncer_disabled.sync_once()
     assert syncer_disabled.tool_status.snapshot()["antigravity"] == "disabled"

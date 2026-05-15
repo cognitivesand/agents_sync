@@ -1,0 +1,375 @@
+"""opencode .md and SKILL.md parse / render.
+
+opencode agents are Markdown files with YAML frontmatter. Their stable user
+identity is the filename stem, so parser callers should pass ``artifact_path``
+when available. opencode skills use the open SKILL.md folder format.
+"""
+from __future__ import annotations
+
+import io as _io
+import re
+from collections.abc import Collection
+from pathlib import Path
+from typing import Any
+
+from agents_sync.canonical import empty_canonical, new_pair_id
+from agents_sync.claude_io import (
+    FRONTMATTER_RE,
+    _make_yaml,
+    _normalize_markdown_text,
+    _strip_bom_prefix,
+    _yaml_load,
+    extract_pair_id_from_md,
+)
+
+
+KNOWN_OPENCODE_AGENT_FIELDS = frozenset({
+    "pair_id",
+    "description",
+    "mode",
+    "model",
+    "temperature",
+    "top_p",
+    "steps",
+    "maxSteps",
+    "permission",
+    "tools",
+    "color",
+    "hidden",
+    "disable",
+    "options",
+})
+
+KNOWN_OPENCODE_SKILL_FIELDS = frozenset({
+    "pair_id",
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+})
+
+OPTIONAL_OPENCODE_AGENT_FIELDS: tuple[str, ...] = (
+    "mode",
+    "temperature",
+    "top_p",
+    "steps",
+    "permission",
+    "color",
+    "hidden",
+    "disable",
+    "options",
+)
+
+OPTIONAL_OPENCODE_SKILL_FIELDS: tuple[str, ...] = (
+    "license",
+    "compatibility",
+    "metadata",
+)
+
+FOREIGN_AGENT_FIELDS = frozenset({
+    "name",
+    "effort",
+    "tools",
+    "disallowedTools",
+    "permissionMode",
+    "hooks",
+    "mcpServers",
+    "sandbox_mode",
+    "developer_instructions",
+    "nickname_candidates",
+    "mcp_servers",
+})
+
+FOREIGN_SKILL_FIELDS = frozenset({
+    "model",
+    "effort",
+    "tools",
+    "disallowedTools",
+    "permissionMode",
+    "hooks",
+    "mcpServers",
+    "sandbox_mode",
+    "developer_instructions",
+    "nickname_candidates",
+    "mcp_servers",
+})
+
+
+def _yaml_dump(data: Any) -> str:
+    buf = _io.StringIO()
+    _make_yaml().dump(data, buf)
+    return buf.getvalue()
+
+
+def _split_frontmatter(text: str, label: str) -> tuple[dict[str, Any], str]:
+    text = _normalize_markdown_text(text)
+    match = FRONTMATTER_RE.match(text)
+    if match is None:
+        return {}, _strip_bom_prefix(text.strip())
+
+    raw_frontmatter, body_raw = match.groups()
+    loaded = _yaml_load(raw_frontmatter)
+    if loaded is None:
+        frontmatter_data: dict[str, Any] = {}
+    elif not isinstance(loaded, dict):
+        raise ValueError(f"{label} frontmatter must be a YAML mapping")
+    else:
+        frontmatter_data = dict(loaded)
+    return frontmatter_data, _strip_bom_prefix(body_raw.strip())
+
+
+def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
+    yml = _make_yaml()
+    prior_text = _normalize_markdown_text(prior_text) if prior_text is not None else None
+    prior_match = FRONTMATTER_RE.match(prior_text) if prior_text is not None else None
+    if prior_match is None:
+        return yml.load("{}\n")
+    raw, _ = prior_match.groups()
+    loaded = _yaml_load(raw)
+    return loaded if isinstance(loaded, dict) else yml.load("{}\n")
+
+
+def _render_markdown(frontmatter: dict[str, Any], body: str) -> str:
+    rendered_fm = _yaml_dump(frontmatter).rstrip("\n")
+    if body:
+        return f"---\n{rendered_fm}\n---\n{body}\n"
+    return f"---\n{rendered_fm}\n---\n"
+
+
+def _normalise_deprecated_tools(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    permission: dict[str, str] = {}
+    for key, enabled in value.items():
+        permission[str(key)] = "allow" if bool(enabled) else "deny"
+    return permission
+
+
+def _split_model_provider(model: Any) -> tuple[str | None, str | None]:
+    if not isinstance(model, str) or not model:
+        return None, None
+    provider, sep, model_id = model.partition("/")
+    if sep and provider and model_id:
+        return provider, model_id
+    return None, model
+
+
+def _join_model_provider(model: Any, provider: Any) -> str | None:
+    if not isinstance(model, str) or not model:
+        return None
+    if "/" in model:
+        return model
+    if isinstance(provider, str) and provider:
+        return f"{provider}/{model}"
+    return model
+
+
+def _frontmatter_subset(
+    frontmatter: dict[str, Any],
+    field_names: Collection[str],
+) -> dict[str, Any]:
+    return {
+        field_name: frontmatter[field_name]
+        for field_name in field_names
+        if field_name in frontmatter
+    }
+
+
+def _unknown_frontmatter_fields(
+    frontmatter: dict[str, Any],
+    *,
+    known_fields: Collection[str],
+    foreign_fields: Collection[str] = frozenset(),
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in frontmatter.items()
+        if key not in known_fields and key not in foreign_fields
+    }
+
+
+def opencode_skill_slug(value: str) -> str:
+    """Return an opencode-compatible skill slug.
+
+    opencode skills require lowercase kebab-case names. This stricter slugger
+    is used only for the opencode skill path and rendered SKILL.md name.
+    """
+    slug = value.strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if not slug:
+        slug = "converted"
+    return slug[:64].rstrip("-") or "converted"
+
+
+# ---------- agent ----------
+
+def parse_opencode_agent_md(
+    text: str,
+    prior_canonical: dict[str, Any] | None = None,
+    *,
+    artifact_path: Path | None = None,
+) -> dict[str, Any]:
+    frontmatter_data, body = _split_frontmatter(text, "opencode agent")
+    canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
+    canonical["body"] = body
+
+    if artifact_path is not None:
+        canonical["name"] = artifact_path.stem
+    elif not canonical.get("name"):
+        canonical["name"] = str(frontmatter_data.get("name", ""))
+
+    if "description" in frontmatter_data:
+        canonical["description"] = str(frontmatter_data["description"])
+
+    opencode_only = _frontmatter_subset(
+        frontmatter_data,
+        OPTIONAL_OPENCODE_AGENT_FIELDS,
+    )
+    if "maxSteps" in frontmatter_data and "steps" not in opencode_only:
+        opencode_only["steps"] = frontmatter_data["maxSteps"]
+    if "permission" not in opencode_only and "tools" in frontmatter_data:
+        normalised = _normalise_deprecated_tools(frontmatter_data["tools"])
+        if normalised is not None:
+            opencode_only["permission"] = normalised
+
+    provider, model_id = _split_model_provider(frontmatter_data.get("model"))
+    if model_id is not None:
+        canonical["model"] = model_id
+    if provider is not None:
+        opencode_only["model_provider"] = provider
+
+    per_only = dict(canonical.get("per_agentic_tool_only") or {})
+    per_only["opencode"] = opencode_only
+    canonical["per_agentic_tool_only"] = per_only
+
+    per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
+    per_extra["opencode"] = _unknown_frontmatter_fields(
+        frontmatter_data,
+        known_fields=KNOWN_OPENCODE_AGENT_FIELDS,
+        foreign_fields=FOREIGN_AGENT_FIELDS,
+    )
+    canonical["per_agentic_tool_extra"] = per_extra
+
+    if "pair_id" in frontmatter_data:
+        canonical["pair_id"] = str(frontmatter_data["pair_id"])
+    elif prior_canonical is None:
+        canonical["pair_id"] = new_pair_id()
+
+    return canonical
+
+
+def render_opencode_agent_md(
+    canonical: dict[str, Any],
+    prior_text: str | None = None,
+) -> str:
+    frontmatter = _frontmatter_for_render(prior_text)
+    for key in FOREIGN_AGENT_FIELDS:
+        frontmatter.pop(key, None)
+
+    frontmatter["pair_id"] = canonical["pair_id"]
+    if canonical.get("description"):
+        frontmatter["description"] = canonical["description"]
+    else:
+        frontmatter.pop("description", None)
+
+    opencode_only = canonical.get("per_agentic_tool_only", {}).get("opencode", {})
+    model = _join_model_provider(canonical.get("model"), opencode_only.get("model_provider"))
+    if model is not None:
+        frontmatter["model"] = model
+    else:
+        frontmatter.pop("model", None)
+
+    frontmatter.pop("maxSteps", None)
+    for field_name in OPTIONAL_OPENCODE_AGENT_FIELDS:
+        if field_name in opencode_only:
+            frontmatter[field_name] = opencode_only[field_name]
+        else:
+            frontmatter.pop(field_name, None)
+
+    for key, value in canonical.get("per_agentic_tool_extra", {}).get("opencode", {}).items():
+        if key not in FOREIGN_AGENT_FIELDS:
+            frontmatter[key] = value
+
+    return _render_markdown(frontmatter, canonical.get("body", ""))
+
+
+# ---------- skill ----------
+
+def parse_opencode_skill_md(
+    text: str,
+    prior_canonical: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    frontmatter_data, body = _split_frontmatter(text, "opencode SKILL.md")
+    canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
+    canonical["body"] = body
+
+    if "name" in frontmatter_data:
+        canonical["name"] = str(frontmatter_data["name"])
+    if "description" in frontmatter_data:
+        canonical["description"] = str(frontmatter_data["description"])
+
+    opencode_only = _frontmatter_subset(
+        frontmatter_data,
+        OPTIONAL_OPENCODE_SKILL_FIELDS,
+    )
+    per_only = dict(canonical.get("per_agentic_tool_only") or {})
+    per_only["opencode"] = opencode_only
+    canonical["per_agentic_tool_only"] = per_only
+
+    per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
+    per_extra["opencode"] = _unknown_frontmatter_fields(
+        frontmatter_data,
+        known_fields=KNOWN_OPENCODE_SKILL_FIELDS,
+        foreign_fields=FOREIGN_SKILL_FIELDS,
+    )
+    canonical["per_agentic_tool_extra"] = per_extra
+
+    if "pair_id" in frontmatter_data:
+        canonical["pair_id"] = str(frontmatter_data["pair_id"])
+    elif prior_canonical is None:
+        canonical["pair_id"] = new_pair_id()
+
+    return canonical
+
+
+def render_opencode_skill_md(
+    canonical: dict[str, Any],
+    prior_text: str | None = None,
+) -> str:
+    frontmatter = _frontmatter_for_render(prior_text)
+    for key in FOREIGN_SKILL_FIELDS:
+        frontmatter.pop(key, None)
+
+    frontmatter["pair_id"] = canonical["pair_id"]
+    frontmatter["name"] = opencode_skill_slug(canonical["name"])
+    if canonical.get("description"):
+        frontmatter["description"] = canonical["description"]
+    else:
+        frontmatter.pop("description", None)
+
+    opencode_only = canonical.get("per_agentic_tool_only", {}).get("opencode", {})
+    for field_name in OPTIONAL_OPENCODE_SKILL_FIELDS:
+        if field_name in opencode_only:
+            frontmatter[field_name] = opencode_only[field_name]
+        else:
+            frontmatter.pop(field_name, None)
+
+    for key, value in canonical.get("per_agentic_tool_extra", {}).get("opencode", {}).items():
+        if key not in FOREIGN_SKILL_FIELDS:
+            frontmatter[key] = value
+
+    return _render_markdown(frontmatter, canonical.get("body", ""))
+
+
+__all__ = [
+    "KNOWN_OPENCODE_AGENT_FIELDS",
+    "KNOWN_OPENCODE_SKILL_FIELDS",
+    "extract_pair_id_from_md",
+    "opencode_skill_slug",
+    "parse_opencode_agent_md",
+    "parse_opencode_skill_md",
+    "render_opencode_agent_md",
+    "render_opencode_skill_md",
+]

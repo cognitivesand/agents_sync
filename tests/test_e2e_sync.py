@@ -21,7 +21,7 @@ def _skill_md(name: str = "foo", description: str = "x", body: str = "body") -> 
 
 
 def _write_claude_skill(syncer: Syncer, name: str = "foo", **kwargs: str) -> Path:
-    skill_dir = Path(syncer.claude_skills_dir) / name
+    skill_dir = syncer.tool_root("claude", "skill") / name
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(_skill_md(name, **kwargs))
     return skill_dir
@@ -66,7 +66,7 @@ def test_routine_retranslation_does_not_grow_archive(syncer: Syncer):
 # ---------------- skill folders ----------------
 
 def test_skill_aux_files_propagate_and_are_preserved(syncer: Syncer):
-    skill_dir = Path(syncer.claude_skills_dir) / "skill-a"
+    skill_dir = syncer.tool_root("claude", "skill") / "skill-a"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
         "---\nname: skill-a\ndescription: x\n---\nbody\n"
@@ -75,7 +75,7 @@ def test_skill_aux_files_propagate_and_are_preserved(syncer: Syncer):
 
     syncer.sync_once()
 
-    codex_skill = Path(syncer.codex_skills_dir) / "skill-a"
+    codex_skill = syncer.tool_root("codex", "skill") / "skill-a"
     assert codex_skill.is_dir()
     assert (codex_skill / "SKILL.md").exists()
     assert (codex_skill / "asset.txt").read_text() == "aux payload\n"
@@ -85,42 +85,42 @@ def test_skill_aux_files_propagate_and_are_preserved(syncer: Syncer):
 
 def test_dotfile_skill_dir_is_ignored_by_discovery(syncer: Syncer):
     """`Path.glob('*/SKILL.md')` matches dotfile dirs; discovery must filter."""
-    hidden = Path(syncer.claude_skills_dir) / ".hidden"
+    hidden = syncer.tool_root("claude", "skill") / ".hidden"
     hidden.mkdir()
     (hidden / "SKILL.md").write_text(_skill_md("hidden", body="should be ignored"))
 
-    real = Path(syncer.claude_skills_dir) / "real"
+    real = syncer.tool_root("claude", "skill") / "real"
     real.mkdir()
     (real / "SKILL.md").write_text(_skill_md("real"))
 
     syncer.sync_once()
 
-    assert {p.name for p in Path(syncer.codex_skills_dir).iterdir()} == {"real"}
+    assert {p.name for p in syncer.tool_root("codex", "skill").iterdir()} == {"real"}
 
 
 # ---------------- pair_id validation ----------------
 
 def test_invalid_pair_id_is_skipped_without_blocking_valid_pairs(syncer: Syncer):
-    bad = Path(syncer.claude_skills_dir) / "bad"
+    bad = syncer.tool_root("claude", "skill") / "bad"
     bad.mkdir()
     (bad / "SKILL.md").write_text(
         "---\npair_id: ../escape\nname: bad\n---\nbody\n"
     )
-    good = Path(syncer.claude_skills_dir) / "good"
+    good = syncer.tool_root("claude", "skill") / "good"
     good.mkdir()
     (good / "SKILL.md").write_text(_skill_md("good"))
 
     syncer.sync_once()
 
     assert "pair_id: ../escape" in (bad / "SKILL.md").read_text()
-    assert {p.name for p in Path(syncer.codex_skills_dir).iterdir()} == {"good"}
+    assert {p.name for p in syncer.tool_root("codex", "skill").iterdir()} == {"good"}
     assert not (syncer.state_dir.parent / "escape.json").exists()
 
 
 def test_invalid_pair_id_on_managed_file_does_not_propagate_deletion(syncer: Syncer):
     claude_dir = _write_claude_skill(syncer)
     syncer.sync_once()
-    codex_dir = Path(syncer.codex_skills_dir) / "foo"
+    codex_dir = syncer.tool_root("codex", "skill") / "foo"
     state_before = (syncer.state_dir / "state.json").read_text()
 
     md = claude_dir / "SKILL.md"
@@ -136,8 +136,8 @@ def test_invalid_pair_id_on_managed_file_does_not_propagate_deletion(syncer: Syn
 
 def test_duplicate_pair_id_on_same_side_is_left_untouched(syncer: Syncer):
     pair_id = str(uuid.uuid4())
-    first = Path(syncer.claude_skills_dir) / "first"
-    second = Path(syncer.claude_skills_dir) / "second"
+    first = syncer.tool_root("claude", "skill") / "first"
+    second = syncer.tool_root("claude", "skill") / "second"
     first.mkdir()
     second.mkdir()
     first_text = f"---\npair_id: {pair_id}\nname: first\n---\nfirst\n"
@@ -150,14 +150,14 @@ def test_duplicate_pair_id_on_same_side_is_left_untouched(syncer: Syncer):
     assert changed == 0
     assert (first / "SKILL.md").read_text() == first_text
     assert (second / "SKILL.md").read_text() == second_text
-    assert list(Path(syncer.codex_skills_dir).iterdir()) == []
+    assert list(syncer.tool_root("codex", "skill").iterdir()) == []
 
 
 # ---------------- target-slug collisions ----------------
 
 def test_two_foreign_artifacts_with_same_slug_are_not_adopted(syncer: Syncer):
-    first = Path(syncer.claude_skills_dir) / "first"
-    second = Path(syncer.claude_skills_dir) / "second"
+    first = syncer.tool_root("claude", "skill") / "first"
+    second = syncer.tool_root("claude", "skill") / "second"
     first.mkdir()
     second.mkdir()
     (first / "SKILL.md").write_text(_skill_md("same"))
@@ -168,7 +168,7 @@ def test_two_foreign_artifacts_with_same_slug_are_not_adopted(syncer: Syncer):
     assert changed == 0
     assert "pair_id:" not in (first / "SKILL.md").read_text()
     assert "pair_id:" not in (second / "SKILL.md").read_text()
-    assert list(Path(syncer.codex_skills_dir).iterdir()) == []
+    assert list(syncer.tool_root("codex", "skill").iterdir()) == []
 
 
 # ---------------- prior-text read failures (CQ-04) ----------------
@@ -182,7 +182,7 @@ def test_unreadable_prior_text_logs_warning_and_continues(
     claude_dir = _write_claude_skill(syncer, body="v1")
     syncer.sync_once()
 
-    codex_dir = Path(syncer.codex_skills_dir) / "foo"
+    codex_dir = syncer.tool_root("codex", "skill") / "foo"
     assert (codex_dir / "SKILL.md").exists()
 
     # Patch the read_artifact_text name as resolved inside agents_sync.adoption
@@ -214,13 +214,13 @@ def test_unreadable_prior_text_logs_warning_and_continues(
 
 
 def test_foreign_artifact_slug_collision_with_managed_pair_is_not_adopted(syncer: Syncer):
-    managed = Path(syncer.claude_skills_dir) / "managed"
+    managed = syncer.tool_root("claude", "skill") / "managed"
     managed.mkdir()
     (managed / "SKILL.md").write_text(_skill_md("same"))
     assert syncer.sync_once() == 1
     state_before = json.loads((syncer.state_dir / "state.json").read_text())
 
-    foreign = Path(syncer.claude_skills_dir) / "foreign"
+    foreign = syncer.tool_root("claude", "skill") / "foreign"
     foreign.mkdir()
     (foreign / "SKILL.md").write_text(_skill_md("same", body="foreign"))
 

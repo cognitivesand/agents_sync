@@ -85,7 +85,7 @@ def _archive_files(syncer: Syncer, pair_id: str, tool_name: str) -> list[Path]:
 # ---------- 3-way no-op ----------
 
 def test_three_way_noop_poll(syncer: Syncer):
-    _write_skill(Path(syncer.claude_skills_dir), "demo")
+    _write_skill(syncer.tool_root("claude", "skill"), "demo")
     syncer.sync_once()
     changed = syncer.sync_once()
     assert changed == 0
@@ -94,10 +94,10 @@ def test_three_way_noop_poll(syncer: Syncer):
 # ---------- 3-way edit propagation ----------
 
 def test_claude_skill_edit_propagates_to_codex_and_antigravity(syncer: Syncer):
-    claude_dir = _write_skill(Path(syncer.claude_skills_dir), "fmt", description="original")
+    claude_dir = _write_skill(syncer.tool_root("claude", "skill"), "fmt", description="original")
     syncer.sync_once()
     _, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity"}
+    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
 
     _replace_in_skill_md(claude_dir, "original", "EDITED")
     syncer.sync_once()
@@ -109,7 +109,7 @@ def test_claude_skill_edit_propagates_to_codex_and_antigravity(syncer: Syncer):
 
 
 def test_codex_skill_edit_propagates_to_claude_and_antigravity(syncer: Syncer):
-    _write_skill(Path(syncer.claude_skills_dir), "fmt", description="original")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt", description="original")
     syncer.sync_once()
     _, entry = _the_only_pair(syncer)
     codex_dir = Path(entry["agentic_tools"]["codex"]["path"])
@@ -124,7 +124,7 @@ def test_codex_skill_edit_propagates_to_claude_and_antigravity(syncer: Syncer):
 
 
 def test_antigravity_skill_edit_propagates_to_claude_and_codex(syncer: Syncer):
-    _write_skill(Path(syncer.claude_skills_dir), "fmt", description="original")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt", description="original")
     syncer.sync_once()
     _, entry = _the_only_pair(syncer)
     antigravity_dir = Path(entry["agentic_tools"]["antigravity"]["path"])
@@ -143,7 +143,7 @@ def test_antigravity_skill_edit_propagates_to_claude_and_codex(syncer: Syncer):
 def test_two_tools_newer_than_third_winner_overwrites_third(syncer: Syncer):
     """Claude + Codex both edited newer than Antigravity ⇒ Antigravity loses to
     the winner picked from {claude, codex} (alphabetical tiebreak: claude)."""
-    _write_skill(Path(syncer.claude_skills_dir), "fmt", description="original")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt", description="original")
     syncer.sync_once()
     _, entry = _the_only_pair(syncer)
     claude_dir = Path(entry["agentic_tools"]["claude"]["path"])
@@ -170,7 +170,7 @@ def test_two_tools_newer_than_third_winner_overwrites_third(syncer: Syncer):
 
 def test_three_way_conflict_picks_argmax_mtime_archives_losers(syncer: Syncer):
     """All three tools edit; the latest mtime wins; the other two are archived."""
-    _write_skill(Path(syncer.claude_skills_dir), "fmt", description="original")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt", description="original")
     syncer.sync_once()
     pair_id, entry = _the_only_pair(syncer)
     claude_dir = Path(entry["agentic_tools"]["claude"]["path"])
@@ -198,7 +198,7 @@ def test_three_way_conflict_picks_argmax_mtime_archives_losers(syncer: Syncer):
 # ---------- 3-way removal propagation ----------
 
 def test_removal_on_antigravity_archives_claude_and_codex(syncer: Syncer):
-    _write_skill(Path(syncer.claude_skills_dir), "fmt")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt")
     syncer.sync_once()
     pair_id, entry = _the_only_pair(syncer)
     claude_dir = Path(entry["agentic_tools"]["claude"]["path"])
@@ -217,7 +217,7 @@ def test_removal_on_antigravity_archives_claude_and_codex(syncer: Syncer):
 
 
 def test_removal_on_claude_archives_codex_and_antigravity(syncer: Syncer):
-    _write_skill(Path(syncer.claude_skills_dir), "fmt")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt")
     syncer.sync_once()
     pair_id, entry = _the_only_pair(syncer)
     claude_dir = Path(entry["agentic_tools"]["claude"]["path"])
@@ -234,7 +234,7 @@ def test_removal_on_claude_archives_codex_and_antigravity(syncer: Syncer):
 
 
 def test_removal_on_codex_archives_claude_and_antigravity(syncer: Syncer):
-    _write_skill(Path(syncer.claude_skills_dir), "fmt")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt")
     syncer.sync_once()
     pair_id, entry = _the_only_pair(syncer)
     claude_dir = Path(entry["agentic_tools"]["claude"]["path"])
@@ -253,7 +253,7 @@ def test_removal_on_codex_archives_claude_and_antigravity(syncer: Syncer):
 def test_archive_failure_short_circuits_removal(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
     """If archiving a survivor fails, the survivors stay on disk and state is
     preserved so the next poll retries."""
-    _write_skill(Path(syncer.claude_skills_dir), "fmt")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt")
     syncer.sync_once()
     pair_id, entry = _the_only_pair(syncer)
     claude_dir = Path(entry["agentic_tools"]["claude"]["path"])
@@ -286,7 +286,7 @@ def test_first_boot_adoption_of_antigravity_only_skill(syncer: Syncer):
     syncer.sync_once()
 
     pair_id, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity"}
+    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
     claude_md = Path(entry["agentic_tools"]["claude"]["path"]) / "SKILL.md"
     codex_md = Path(entry["agentic_tools"]["codex"]["path"]) / "SKILL.md"
     assert "from-antigravity" in claude_md.read_text()
@@ -300,25 +300,30 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     the antigravity dir becomes available on a later poll."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xs"):
+    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
         (tmp_path / sub).mkdir()
-    # Start with antigravity disabled so the first sync_once registers only claude+codex.
+    # Start with antigravity disabled so the first sync_once registers
+    # claude+codex+opencode.
     config_two_tool = {
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
+        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),  # doesn't exist yet
         "antigravity_enabled": False,
+        "opencode_agents_dir": str(tmp_path / "oa"),
+        "opencode_skills_dir": str(tmp_path / "os"),
+        "opencode_enabled": True,
     }
     syncer = Syncer(dict(config_two_tool))
-    _write_skill(Path(syncer.claude_skills_dir), "fmt")
+    _write_skill(syncer.tool_root("claude", "skill"), "fmt")
     syncer.sync_once()
 
-    # State currently has {claude, codex} only.
+    # State currently has {claude, codex, opencode} only.
     _, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex"}
+    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "opencode"}
 
     # Now provision the antigravity dir and re-enable.
     (tmp_path / "as").mkdir()
@@ -328,7 +333,7 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     syncer2.sync_once()
 
     _, entry2 = _the_only_pair(syncer2)
-    assert set(entry2["agentic_tools"].keys()) == {"claude", "codex", "antigravity"}
+    assert set(entry2["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
     ag_path = Path(entry2["agentic_tools"]["antigravity"]["path"])
     assert (ag_path / "SKILL.md").exists()
 
@@ -338,8 +343,8 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
 def test_three_tool_new_duplicate_with_drifted_content_merges(syncer: Syncer):
     """The same name on all 3 tools, drifted content. argmax(mtime) wins;
     every other tool's bytes archived under the merged pair_id."""
-    cs_dir = _write_skill(Path(syncer.claude_skills_dir), "demo", description="claude-version")
-    xs_dir = _write_skill(Path(syncer.codex_skills_dir), "demo", description="codex-version")
+    cs_dir = _write_skill(syncer.tool_root("claude", "skill"), "demo", description="claude-version")
+    xs_dir = _write_skill(syncer.tool_root("codex", "skill"), "demo", description="codex-version")
     ag_root = Path(syncer.config["antigravity_skills_dir"])
     ag_dir = _write_skill(ag_root, "demo", description="antigravity-version")
     _set_skill_mtimes(cs_dir, 1000.0)
@@ -349,7 +354,7 @@ def test_three_tool_new_duplicate_with_drifted_content_merges(syncer: Syncer):
     syncer.sync_once()
 
     pair_id, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity"}
+    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
     # Antigravity won (latest mtime); all three converge to "antigravity-version".
     for tool in ("claude", "codex", "antigravity"):
         path = Path(entry["agentic_tools"][tool]["path"]) / "SKILL.md"
@@ -366,8 +371,8 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
     B resolved between claude and codex; C resolved between codex and antigravity;
     A and D adopted as singletons. No collision blocks. No skills lost.
     """
-    claude_root = Path(syncer.claude_skills_dir)
-    codex_root = Path(syncer.codex_skills_dir)
+    claude_root = syncer.tool_root("claude", "skill")
+    codex_root = syncer.tool_root("codex", "skill")
     antigravity_root = Path(syncer.config["antigravity_skills_dir"])
 
     _write_skill(claude_root, "A", description="A-claude")
@@ -402,7 +407,7 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
 
     assert set(by_name.keys()) == {"A", "B", "C", "D"}
     for name, entry in by_name.items():
-        assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity"}
+        assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
 
     # B converged to codex content (codex won mtime); C converged to antigravity content.
     b_claude_text = (Path(by_name["B"]["agentic_tools"]["claude"]["path"]) / "SKILL.md").read_text()
@@ -411,21 +416,24 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
     assert "C-ag" in c_claude_text
 
 
-# ---------- agent customization_type is Claude-only in v0.4 ----------
+# ---------- agent customization_type excludes Antigravity ----------
 
-def test_agent_customization_type_is_claude_only(syncer: Syncer):
+def test_agent_customization_type_syncs_claude_codex_opencode(syncer: Syncer):
     """In v0.4, only claude supports the agent customization_type. Codex
     uses a single AGENTS.md file (not per-agent files), and Antigravity
     has no stable per-agent format. A claude agent adopts with paths
     containing only claude — no codex or antigravity projection."""
-    claude_md = Path(syncer.claude_agents_dir) / "foo.md"
+    claude_md = syncer.tool_root("claude", "agent") / "foo.md"
     claude_md.write_text("---\nname: foo\ndescription: x\n---\nbody\n")
 
     syncer.sync_once()
 
     _, entry = _the_only_pair(syncer)
     assert entry["customization_type"] == "agent"
-    assert set(entry["agentic_tools"].keys()) == {"claude"}
-    # Neither codex nor antigravity skills dir gets touched by the agent flow.
-    assert list(Path(syncer.codex_skills_dir).iterdir()) == []
+    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "opencode"}
+    assert (syncer.tool_root("codex", "agent") / "foo.toml").exists()
+    assert (syncer.tool_root("opencode", "agent") / "foo.md").exists()
+    # Skills roots are not touched by the agent flow.
+    assert list(syncer.tool_root("codex", "skill").iterdir()) == []
     assert list(Path(syncer.config["antigravity_skills_dir"]).iterdir()) == []
+    assert list(syncer.tool_root("opencode", "skill").iterdir()) == []
