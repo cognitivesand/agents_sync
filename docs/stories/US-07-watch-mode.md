@@ -35,6 +35,8 @@ Vocabulary used in this story is defined in the project glossary at `docs/projec
 
 - [ ] AC-7 [Failure — configuration error]: Given the daemon's configuration is structurally invalid (malformed TOML, two agentic_tools with identical `name`, an agentic_tool declaring a `customization_type` in `supported_customization_types` for which its IO module is missing the required functions, the `state_path` parent cannot be created, the `poll_interval_seconds` is not a positive number, etc.), When the daemon starts, Then it logs a structured error naming the specific configuration defect and exits with a non-zero code distinct from any runtime sync failure code (per NFR-10).
 
+- [ ] AC-8 [Normal - Windows silent startup]: Given `agents_sync` is installed on Windows, When the user logs in and the background launcher starts the daemon, Then no terminal, console, PowerShell, or command prompt window is opened, the daemon remains running in the background, and startup logs are written to the configured log destination.
+
 ## Notes
 
 The daemon is the only execution mode; there is no separate one-shot CLI invocation. The polling interval is configurable; propagation latency under nominal conditions includes one poll to detect a change and one poll to write the result.
