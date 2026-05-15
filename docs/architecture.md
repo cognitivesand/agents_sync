@@ -1,0 +1,607 @@
+# agents_sync — Architecture
+
+This document describes the architecture of `agents_sync` as it stands at
+v0.4, organised around the layers of *Clean Architecture* (Martin, 2017).
+It is intended to be useful as both a reader's map of the code and a
+governance artefact: any future change should leave this document either
+true or amended.
+
+- **Status**: current as of v0.4 (`feat/v0.4-antigravity-skills`,
+  commit `653eb4b` at the time of writing).
+- **Sources of truth**: the code under `src/agents_sync/`,
+  `docs/project_description.md`, `docs/project_requirements.md`, and the
+  user stories under `docs/stories/`.
+- **Scope**: the production daemon — the installers, CI pipeline, and
+  packaging are out of scope here.
+
+---
+
+## Table of Contents
+
+1. [Architectural goals](#1-architectural-goals)
+2. [The four layers](#2-the-four-layers)
+3. [The Dependency Rule](#3-the-dependency-rule)
+4. [Module map](#4-module-map)
+5. [Boundary contracts](#5-boundary-contracts)
+6. [The principal use case: `sync_once`](#6-the-principal-use-case-sync_once)
+7. [Ports and adapters](#7-ports-and-adapters)
+8. [Cross-cutting invariants](#8-cross-cutting-invariants)
+9. [Traceability to requirements and user stories](#9-traceability-to-requirements-and-user-stories)
+10. [Testing strategy, per layer](#10-testing-strategy-per-layer)
+11. [Known deviations and technical debt](#11-known-deviations-and-technical-debt)
+12. [Worked example: adding a new agentic_tool](#12-worked-example-adding-a-new-agentic_tool)
+13. [Glossary cross-reference](#13-glossary-cross-reference)
+
+---
+
+## 1. Architectural goals
+
+The system has four load-bearing goals, drawn from the project description
+and requirements. The architecture exists to make these goals provably
+true, not aspirationally true.
+
+| Goal | Source | Architectural consequence |
+|---|---|---|
+| Editing a customization on **any** participating agentic_tool propagates to **every other** within ≤ 2 polling intervals | description goal 1, NFR-02 | A poll-driven use case (`sync_once`) that is a pure function of on-disk state + persisted state. |
+| No user-authored content is ever destroyed | description goal 3, NFR-01 | Every destructive operation goes through an **archive-before-write** gateway (`archive.py`). No alternative write path exists. |
+| The daemon recovers from transient errors unattended | description goal 4, NFR-04, NFR-10 | Use-case code is idempotent and re-entrant; failures inside `process_pair` are caught and logged but do not crash the loop. |
+| Adding a new agentic_tool is **one new module + one config block** | description goal 5, NFR-11, US-10 AC-2 | A frozen-dataclass port (`AgenticToolSpec` / `CustomizationTypeIO`) at the boundary of the use cases; adapters live one layer outside. The sync engine never references a concrete tool name. |
+
+Uncle Bob's "stable abstractions" rule applies directly: the names
+`claude`, `codex`, `antigravity` (and one day `opencode`) appear in
+adapter modules and in user-provided config keys — **and nowhere else**.
+The use cases see only `agentic_tools.values()`.
+
+---
+
+## 2. The four layers
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│ 4. Frameworks & Drivers                                       │
+│    daemon.py · cli.py · config.py · filesystem_windows_retry  │
+│    (signals, argparse, TOML, OS retries, __main__)            │
+│                                                               │
+│   ┌─────────────────────────────────────────────────────────┐ │
+│   │ 3. Interface Adapters                                   │ │
+│   │    claude_io · codex_io · antigravity_io                │ │
+│   │    rendering · archive · state (I/O half)               │ │
+│   │    agentic_tool_spec (the port that defines the seam)   │ │
+│   │                                                         │ │
+│   │   ┌───────────────────────────────────────────────────┐ │ │
+│   │   │ 2. Use Cases                                      │ │ │
+│   │   │    sync.Syncer        (orchestration)             │ │ │
+│   │   │    adoption.AdoptionEngine                        │ │ │
+│   │   │    discovery.DiscoveryWalker                      │ │ │
+│   │   │    tool_status.ToolStatusTracker                  │ │ │
+│   │   │                                                   │ │ │
+│   │   │   ┌─────────────────────────────────────────────┐ │ │ │
+│   │   │   │ 1. Entities                                 │ │ │ │
+│   │   │   │    canonical document schema                │ │ │ │
+│   │   │   │    pair_id (UUIDv4) — identity.py           │ │ │ │
+│   │   │   │    target_slug — state.py (domain half)     │ │ │ │
+│   │   │   │    CustomizationArtifactState dataclass     │ │ │ │
+│   │   │   │    AgenticToolState dataclass               │ │ │ │
+│   │   │   │    sync_types: ArtifactInfo, ToolInfo       │ │ │ │
+│   │   │   └─────────────────────────────────────────────┘ │ │ │
+│   │   └───────────────────────────────────────────────────┘ │ │
+│   └─────────────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### Layer 1 — Entities (enterprise business rules)
+
+The objects that would exist even if the project shipped as a library with
+no daemon, no CLI, and no filesystem:
+
+- **The canonical document** — a JSON object with `pair_id`, `kind`,
+  `name`, `description`, `body`, `tools`, `disallowed_tools`,
+  `permission_mode`, `model`, `effort`, and the two passthrough bags
+  `per_agentic_tool_only` and `per_agentic_tool_extra`. Schema constants
+  and the empty-document factory live in `canonical.py`.
+- **`pair_id`** — a canonical UUIDv4 string, validated by
+  `identity.validate_pair_id`. The artifact's identity across tools.
+- **`target_slug(name)`** — the rule that turns an artifact name into a
+  filesystem-friendly basename, including the Windows reserved-name
+  guard. Pure function in `state.py`.
+- **`CustomizationArtifactState` / `AgenticToolState`** — the in-memory
+  shape of the cross-poll persisted view of one artifact (no I/O methods,
+  just `to_dict` / `from_dict`).
+- **`CustomizationArtifactInfo` / `AgenticToolInfo`** — the in-memory
+  shape of the per-poll observation of one artifact (`sync_types.py`).
+
+These types know nothing about disk, frameworks, tools, or time.
+
+### Layer 2 — Use Cases (application business rules)
+
+The "what the system does in response to inputs":
+
+- **`Syncer`** (`sync.py`) — the top-level use case. Its only public
+  method is `sync_once()`. It composes the other three use-case classes
+  and runs one poll.
+- **`DiscoveryWalker`** (`discovery.py`) — walks the registry, reads
+  every artifact, validates `pair_id`s, groups by `pair_id`, and blocks
+  any pair whose adoption target would collide with an existing path.
+- **`AdoptionEngine`** (`adoption.py`) — per-pair dispatcher. Decides
+  whether to adopt, sync one-way, extend to newly-available tools,
+  resolve a conflict by mtime, or propagate a removal.
+- **`ToolStatusTracker`** (`tool_status.py`) — keeps each tool's
+  `available` / `unavailable` / `disabled` status, logs transitions
+  (NFR-12), gates participation per poll (US-11).
+
+These classes accept a `dict[str, AgenticToolSpec]` registry and a
+`config` dict and never touch a concrete tool name.
+
+### Layer 3 — Interface Adapters
+
+Two kinds of adapters live here.
+
+**Tool-specific gateways** — one module per agentic_tool, each
+implementing the `CustomizationTypeIO` triple `(parse, render,
+extract_pair_id)` plus storage shape:
+
+- `claude_io.py` — `~/.claude/agents/*.md` and `~/.claude/skills/<name>/SKILL.md`.
+- `codex_io.py` — `~/.codex/skills/<name>/SKILL.md` (skills only in v0.4).
+- `antigravity_io.py` — `~/.gemini/antigravity/skills/<name>/SKILL.md`.
+
+**Tool-agnostic gateways** that hide platform / filesystem concerns
+from the use cases:
+
+- `rendering.py` — projection of canonical onto a tool's storage shape;
+  atomic write, atomic skill-directory swap, collision-aware target
+  resolution, post-write state update.
+- `archive.py` — the data-preservation gateway (NFR-01). Two operations:
+  `archive_copy` (snapshot before overwrite) and `archive_move` (move
+  into archive before removal).
+- `state.py` (I/O half) — `load_state` / `save_state` /
+  `atomic_write_text` and the `sha256_file` / `sha256_tree` digest
+  helpers. The I/O half is one module away from the entity half above
+  for historical reasons; see §11 deviation D-1.
+
+**The port** — `agentic_tool_spec.py` — is the seam that lets adapters
+plug into the use cases. The two frozen dataclasses `AgenticToolSpec`
+and `CustomizationTypeIO` are the contract; everything else here is an
+implementation detail.
+
+### Layer 4 — Frameworks & Drivers
+
+The thinnest possible shell:
+
+- `daemon.py` — `watch(syncer, interval)`: the polling loop, signal
+  handlers, error swallowing around `sync_once()`. 37 lines.
+- `cli.py` — argparse, legacy-install detection, log configuration,
+  `Syncer` construction, `watch()` call. 94 lines.
+- `config.py` — platform defaults, TOML loading, structural validation,
+  per-OS path conventions.
+- `filesystem_windows_retry.py` — a `retry_fs(callable, operation)`
+  helper that retries on Windows sharing-violation errors. Pure infra
+  shim.
+- `__main__.py` — three lines: `raise SystemExit(main())`.
+
+If we ever swapped the polling daemon for a watchman-driven trigger, or
+the CLI for a web admin UI, this layer is the only one that should change.
+
+---
+
+## 3. The Dependency Rule
+
+Source code dependencies point inward only:
+
+> Layer N may import from layer N-1, N-2, …, 1. Layer N may **not**
+> import from layer N+1 or above.
+
+Three concrete invariants the codebase upholds today:
+
+1. **No use case imports an adapter directly.** `sync.py`, `adoption.py`,
+   `discovery.py`, and `tool_status.py` import from `agentic_tool_spec`,
+   `rendering`, `archive`, `canonical`, `state`, `identity`, and
+   `sync_types`. They do **not** import from `claude_io`, `codex_io`, or
+   `antigravity_io`. The only place adapters are referenced by name is
+   the `_build_*_spec` factories in `agentic_tool_spec.py` itself —
+   which is the registry, not a use case.
+2. **No entity imports a use case or an adapter.** `canonical.py`,
+   `identity.py`, `sync_types.py`, and the dataclasses in `state.py`
+   import only from the standard library and from each other. One
+   exception, `canonical.py` → `state.atomic_write_text`, is flagged as
+   D-1 in §11.
+3. **No layer imports from layer 4.** Nothing under `src/agents_sync/`
+   imports from `cli`, `daemon`, `__main__`, `config`, or
+   `filesystem_windows_retry` except other framework modules. (Note:
+   `expand_path` from `config.py` is imported by adapter and use-case
+   modules; that is a path-handling utility, not configuration loading.
+   See deviation D-2.)
+
+The import graph (verified by `grep -RE "^(from|import) agents_sync" src/`)
+forms a DAG with the seven layer-2 / layer-3 modules at the centre, the
+three adapter modules on the rim, and the four framework modules on the
+outside.
+
+---
+
+## 4. Module map
+
+| Module | Lines | Layer | Role | Inward dependencies (intra-package) |
+|---|---:|:---:|---|---|
+| `identity.py` | 19 | 1 | UUIDv4 invariant | — |
+| `sync_types.py` | 25 | 1 | Per-poll observation types | — |
+| `canonical.py` | 72 | 1 / 3 | Canonical schema + JSON I/O (D-1) | `state`, `identity` |
+| `state.py` (dataclasses + slug) | ~110 of 221 | 1 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug` | `identity` (validation), `filesystem_windows_retry` (I/O half) |
+| `state.py` (load/save/digest/atomic_write) | ~110 of 221 | 3 | State JSON gateway | `identity`, `filesystem_windows_retry` |
+| `agentic_tool_spec.py` | 180 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports the three IO adapters lazily |
+| `claude_io.py` | 215 | 3 | Claude `.md` + `SKILL.md` parser/renderer | `canonical` |
+| `codex_io.py` | 253 | 3 | Codex `SKILL.md` (v0.4) + Codex TOML (retained) | `canonical` |
+| `antigravity_io.py` | 180 | 3 | Antigravity `SKILL.md` parser/renderer | `canonical` |
+| `archive.py` | 72 | 3 | Archive-copy / archive-move gateway | `filesystem_windows_retry`, `identity`, `state` |
+| `rendering.py` | 185 | 3 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
+| `discovery.py` | 313 | 2 | Per-poll discovery + collision blocking | `agentic_tool_spec`, `canonical`, `config`, `identity`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `tool_status.py` | 152 | 2 | US-11 availability tracking | `agentic_tool_spec`, `config` |
+| `adoption.py` | 391 | 2 | Per-pair adopt / sync / conflict / extend / remove | `archive`, `agentic_tool_spec`, `canonical`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `sync.py` | 218 | 2 | Top-level orchestrator | `archive`, `adoption`, `agentic_tool_spec`, `config`, `discovery`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `daemon.py` | 37 | 4 | Polling loop | `sync` |
+| `cli.py` | 94 | 4 | argparse + entry point | `config`, `daemon`, `sync` |
+| `config.py` | 171 | 4 | TOML config, platform defaults, validation | — |
+| `filesystem_windows_retry.py` | 50 | 4 | OS quirk retry shim | — |
+| `__main__.py` | 3 | 4 | `python -m agents_sync` entry | `cli` |
+| `__init__.py` | 1 | — | Empty | — |
+
+Totals: 19 modules, 2 852 lines. Use-case classes (Layer 2) account for
+1 074 lines; adapters (Layer 3) account for 1 277 lines; entities and
+frameworks together make up the remaining 501.
+
+---
+
+## 5. Boundary contracts
+
+Each boundary between layers is mediated by a small, stable contract.
+
+### 5.1 Use case → adapter (the port)
+
+Defined in `agentic_tool_spec.py`:
+
+```python
+@dataclass(frozen=True)
+class CustomizationTypeIO:
+    parse: ParseFn                  # (text, prior_canonical|None) -> canonical
+    render: RenderFn                # (canonical, prior_text|None) -> text
+    extract_pair_id: ExtractPairIdFn # (text) -> str|None
+    storage: str                    # "single_file" | "directory_skill"
+    file_suffix: str                # e.g. ".md", "" for skills
+
+@dataclass(frozen=True)
+class AgenticToolSpec:
+    name: str
+    config_dir_keys: dict[str, str]      # customization_type -> config key
+    io: dict[str, CustomizationTypeIO]   # customization_type -> IO triple
+    disable_config_key: str | None = None
+```
+
+Five rules every adapter must obey (US-10 AC-1, AC-4, AC-5, AC-6):
+
+1. **`parse` is pure** and round-trip-stable:
+   `parse(render(c, prior), prior) == c` over the
+   agentic_tool-relevant subset of `c`.
+2. **`render` is pure**. When `prior_text` is provided it preserves user
+   formatting where the underlying syntax allows (ruamel round-trip in
+   YAML; tomlkit-style in TOML).
+3. **`extract_pair_id` never raises** on malformed input — it returns
+   `None`.
+4. **Unknown fields are not dropped**; they live in
+   `canonical["per_agentic_tool_extra"][tool_name]` and survive
+   round-trips verbatim.
+5. **Fields owned by other tools must not leak** into a rendered output
+   (NFR-06).
+
+### 5.2 Use case → state (the persistence gateway)
+
+`state.load_state(state_dir) -> dict[pair_id, CustomizationArtifactState]`
+and `state.save_state(state_dir, state) -> None` are the only entry
+points. `state.json` is schema-versioned (`schema_version=2`); any other
+shape is treated as missing (the project is pre-1.0, hence the cutover
+without a migration reader — see `state.load_state` docstring).
+
+### 5.3 Use case → archive (the preservation gateway)
+
+`archive.archive_copy(state_dir, pair_id, side, source)` and
+`archive.archive_move(state_dir, pair_id, side, source)` are the only
+two operations that may precede a destructive write. NFR-01 holds iff
+**no use-case code path mutates user files without going through one of
+these two functions first.** Static auditing this is one test we should
+add (see §10).
+
+### 5.4 Use case → rendering (the projection gateway)
+
+`rendering.render_to_agentic_tool(...)` is the only entry point for
+writing canonical content out to a tool. It encapsulates:
+
+- target-path computation (`existing_path` or
+  `root / target_slug(canonical["name"])`);
+- collision refusal (`assert_target_available`);
+- single-file atomic-write vs directory-skill staged-then-renamed swap;
+- digest recomputation and state-entry update via
+  `update_state_n_way`.
+
+`rendering.read_artifact_text` is the symmetric read-side helper used by
+discovery and adoption.
+
+### 5.5 CLI → use case
+
+`cli.main(argv)` builds a `merged_config(args)` dict, calls
+`validate_config(config)` (fails closed with a structured `ConfigError`,
+exit code 2; cf. NFR-10), and hands the result to
+`Syncer(config)` followed by `watch(syncer, interval)`.
+
+---
+
+## 6. The principal use case: `sync_once`
+
+`sync_once` is one polling cycle. It is a pure function from
+`(on-disk state, persisted state)` to `(new on-disk state, new
+persisted state, log lines)`.
+
+```
+sync_once
+├── validate_config(config)                 ─ fail-closed structural check
+├── tool_status.refresh()                   ─ US-11 per-poll status probe
+├── load_state(state_dir)                   ─ schema_version=2 envelope
+├── discovery.discover(state)               ─ walk available tools, group by pair_id
+├── _reconcile_new_groups(discovery, state) ─ v0.4 plan §5.5 multi-tool dedup
+├── discovery.block_target_collisions(…)    ─ refuse to clobber unmanaged paths
+│
+├── for pair_id in discovery:
+│       adoption.process_pair(pair_id, info, state)
+│         ├── ps is None                     → _adopt_new_pair
+│         ├── available tools missing in info → _propagate_removal
+│         ├── exactly one changed tool       → _sync_from_agentic_tool
+│         ├── ≥ 2 changed tools              → _resolve_conflict_n_way
+│         └── no changes but new participants → _extend_to_new_tools
+│
+├── for pair_id in state \ discovery:
+│       adoption.propagate_orphan_state(pair_id, state)
+│         (skips entries owned only by `unavailable` tools — US-11 AC-4)
+│
+└── save_state(state_dir, state)             ─ schema_version=2 envelope
+```
+
+Properties this control flow gives us:
+
+| Property | How |
+|---|---|
+| **NFR-01** data preservation | Every destructive branch — adoption pair-id injection, sync-onto-target, conflict-loser-overwrite, removal-of-survivors — goes through `archive_copy` or `archive_move` *first*. |
+| **NFR-04** self-healing | Each branch is idempotent: re-running a half-finished cycle observes the same digests and re-derives the same plan. |
+| **NFR-05** no-loop degradation | Discovery's digest comparison short-circuits when nothing changed. |
+| **NFR-02** latency ≤ 2× interval | One poll catches a change; the next poll's discovery sees the digest delta on the now-projected counterparts and writes nothing further. |
+| **FR-02** fault isolation | `sync_once` wraps each `process_pair` and each `propagate_orphan_state` in `try / except Exception` + `logging.exception(...)` — one bad artifact does not halt the loop. |
+| **FR-04** trusted removal source | `_propagate_removal` only fires when an **available** tool's view is missing the artifact; entries owned only by **unavailable** tools are preserved (`propagate_orphan_state` short-circuit). |
+
+---
+
+## 7. Ports and adapters
+
+`AgenticToolSpec` is the **port**; each `*_io.py` module is an
+**adapter** that satisfies it. The factory functions in
+`agentic_tool_spec._build_*_spec` are the wiring; `default_agentic_tools()`
+exposes the resulting registry as an ordered dict (order matters for the
+v0.4 plan §5.5 alphabetical tiebreaker).
+
+Today the registry is built eagerly at module import. US-10 anticipates
+a discovery mechanism that walks `src/agents_sync/agentic_tools/` and
+imports every module that exposes an `AGENTIC_TOOL` constant; that is
+the v0.5 refactor target. The current `_build_*_spec` shape is a
+shim that produces the same result without yet enforcing
+"one module per tool". See deviation D-3.
+
+### What flows across the port
+
+```
+read path (discovery / adoption from a source tool):
+    on-disk text  --extract_pair_id-->  pair_id | None
+    on-disk text  --parse--------->  canonical (dict)
+
+write path (adoption / sync / extend / conflict resolution onto a target tool):
+    canonical (dict)  --render-->  on-disk text
+                                   (preserves formatting when given prior_text)
+```
+
+The canonical is the only currency that crosses the port; the use cases
+never see a `.md`, `.toml`, or `SKILL.md`.
+
+---
+
+## 8. Cross-cutting invariants
+
+Four invariants apply globally and are not the responsibility of any one
+module:
+
+| Invariant | Established by | Verified by |
+|---|---|---|
+| **I-1: pair_id is canonical UUIDv4** anywhere it appears | `canonical.new_pair_id` + `identity.validate_pair_id` | every state-read, every adapter `extract_pair_id`, every archive-path construction |
+| **I-2: target paths use `target_slug(name)`** as basename | `state.target_slug` | discovery's `_planned_adoption_targets`; rendering's target computation |
+| **I-3: no destructive write without prior archive** | `archive_copy` / `archive_move` | every branch of `adoption.AdoptionEngine` that overwrites or deletes |
+| **I-4: every reported failure is structured** (`pair_id`, `tool`, cause) | NFR-13 | `logging.exception` and `logging.error` call sites everywhere |
+
+I-3 is the load-bearing one for NFR-01. A future static-analysis test
+should grep the use-case modules for `.write_text` / `.rename` / `.unlink`
+/ `shutil.rmtree` calls that are not preceded by an `archive_*` call —
+see §10.
+
+---
+
+## 9. Traceability to requirements and user stories
+
+| Layer / module | Carries | Verified by |
+|---|---|---|
+| `canonical.py`, `identity.py`, `state.py` slug | I-1, I-2, US-04 (rename), schema version v2 | `tests/test_round_trip.py`, `tests/test_codex_round_trip.py`, `tests/test_antigravity_io.py` |
+| `sync.Syncer` | description goal 1, NFR-02, FR-02, US-01 | `tests/test_e2e_sync.py`, `tests/test_antigravity_three_way.py` |
+| `discovery.DiscoveryWalker` | US-03 (adoption), US-10 AC-3 (kind-restricted participation) | `tests/test_e2e_sync.py`, `tests/test_first_boot_reconciliation.py`, `tests/test_windows_slug_collision.py` |
+| `adoption.AdoptionEngine._resolve_conflict_n_way` | US-06 (conflict by mtime), NFR-01 (archive losers) | `tests/test_e2e_sync.py`, `tests/test_antigravity_three_way.py` |
+| `adoption.AdoptionEngine._propagate_removal` | description goal 3, FR-04, US-11 AC-4 | `tests/test_e2e_sync.py`, `tests/test_agentic_tool_status.py` |
+| `adoption.AdoptionEngine._extend_to_new_tools` | v0.4 plan §5 first bullet (newly-available tool extension) | `tests/test_antigravity_three_way.py` |
+| `tool_status.ToolStatusTracker` | US-11 (graceful absence), NFR-12 (log on transition) | `tests/test_agentic_tool_status.py` |
+| `archive.py` | NFR-01, NFR-07, US-05 | `tests/test_round_trip.py`, `tests/test_e2e_sync.py` |
+| `rendering.py` | NFR-03 (atomic visibility), NFR-06 (round-trip stability) | `tests/test_windows_filesystem_retries.py`, every adapter round-trip test |
+| `agentic_tool_spec.py` | description goal 5, NFR-11, US-10 AC-1, AC-2 | `tests/test_agentic_tool_spec.py` |
+| `claude_io.py`, `codex_io.py`, `antigravity_io.py` | US-01 per-tool, NFR-06 | `tests/test_round_trip.py`, `tests/test_codex_round_trip.py`, `tests/test_antigravity_io.py` |
+| `daemon.py` | US-07 (watch-mode), FR-02 | `tests/test_daemon_signals.py` |
+| `cli.py` | NFR-10 (distinct exit codes) | `tests/test_e2e_sync.py` |
+| `config.py` | description constraints (per-OS paths), NFR-10 | `tests/test_config_platform_defaults.py`, `tests/test_macos_compat.py` |
+| `filesystem_windows_retry.py` | description constraints (Windows operations) | `tests/test_windows_filesystem_retries.py` |
+
+Every requirement in `project_requirements.md` and every story under
+`docs/stories/` has at least one module carrying it. Any future
+requirement that has no carrying module is a defect in either the
+requirement or the architecture.
+
+---
+
+## 10. Testing strategy, per layer
+
+| Layer | What unit tests cover | What integration tests cover |
+|---|---|---|
+| 1 — Entities | UUID validity, slugify rules, `to_dict`/`from_dict` round-trip, schema constants | n/a |
+| 2 — Use cases | per-method behaviour with hand-built spec registries (`tests/test_agentic_tool_status.py`) | the full poll: `tests/test_e2e_sync.py`, `tests/test_first_boot_reconciliation.py`, `tests/test_antigravity_three_way.py` |
+| 3 — Adapters | parse/render round-trip per tool, BOM/CRLF tolerance, unknown-field passthrough, malformed-input handling | covered by Layer-2 e2e tests on real `tmp_path` filesystems |
+| 4 — Frameworks | signal handling (`tests/test_daemon_signals.py`), CLI exit codes (in e2e), config defaults per OS (`tests/test_config_platform_defaults.py`, `tests/test_macos_compat.py`), Windows retries (`tests/test_windows_filesystem_retries.py`) | n/a |
+
+**Tests we should add** (gaps in current coverage):
+
+- A grep-style guard in `tests/test_no_destructive_writes.py` that
+  scans `adoption.py` and `sync.py` for `.unlink`, `.write_text`,
+  `shutil.move`, `shutil.rmtree` and asserts each call site is
+  textually preceded by an `archive_` call or an explanatory comment.
+  Backs I-3 by static inspection.
+- A property-based test (Hypothesis) that drives random sequences of
+  artifact create / edit / rename / delete operations on each tool and
+  asserts NFR-01 (every loss path archived) and NFR-05 (eventual
+  quiescence).
+
+---
+
+## 11. Known deviations and technical debt
+
+These are honest gaps between the architecture as drawn and the code as
+written. Each is small enough to fix incrementally and large enough to
+deserve a name.
+
+### D-1 — `state.py` straddles Layer 1 and Layer 3
+
+`state.py` contains both **domain types** (`CustomizationArtifactState`,
+`AgenticToolState`, `target_slug`, `slugify`) and **I/O gateways**
+(`load_state`, `save_state`, `atomic_write_text`, `sha256_file`,
+`sha256_tree`). The Dependency Rule still holds — both halves only
+import inward — but the file mixes layers.
+
+`canonical.py` (Layer 1) imports `state.atomic_write_text` (Layer 3),
+which is a strict-Clean violation: an entity reaching out to a gateway.
+Refactor: split `state.py` into `entities/artifact_state.py` (dataclasses
++ slugify) and `gateways/state_store.py` (load/save/atomic/digest), and
+move `atomic_write_text` into the gateway layer so `canonical.py` either
+returns serialised bytes for a gateway to write, or gets its own
+gateway.
+
+### D-2 — `config.expand_path` is used as a utility, not a configuration concern
+
+`config.py` exposes `expand_path` which is imported by `discovery.py`,
+`rendering.py`, and `tool_status.py`. It is a thin
+`Path(value).expanduser().resolve()` wrapper. Either move it into a
+neutral `paths.py` (Layer 1 utility) or accept that `expand_path` is
+the architectural escape hatch and document it as such. Today it is the
+single Layer-4 symbol any use case imports — a real (if narrow)
+violation.
+
+### D-3 — The registry is a hand-rolled factory, not a discovered set
+
+`agentic_tool_spec.default_agentic_tools` calls three concrete
+`_build_*_spec` functions that lazily import the three IO modules.
+US-10's intended end-state is a `pkgutil.iter_modules` walk under
+`src/agents_sync/agentic_tools/` that picks up every module exporting an
+`AGENTIC_TOOL` constant, with structured fail-closed errors per AC-5,
+AC-6, AC-8. Refactor: move the three IO modules under
+`agentic_tools/<name>.py`, have each export its `AGENTIC_TOOL`, replace
+`default_agentic_tools` with a discovery loop. Touched on by the v0.5
+opencode work (cf. `docs/opencode_integration_research.md` §8).
+
+### D-4 — Codex's two IO modes coexist
+
+`codex_io.py` contains both the v0.4-active `parse_codex_skill_md` /
+`render_codex_skill_md` path **and** the dormant
+`parse_codex_agent_toml` / `render_codex_agent_toml` path retained "for
+any future Codex release that adds a per-agent file format" (cf.
+`_build_codex_spec` docstring). The dormant code is unreachable through
+the registry. YAGNI says delete; product judgement says keep. Document
+the trade in the module docstring and revisit if Codex ships a per-agent
+format.
+
+### D-5 — `Syncer.__init__` still touches three Claude/Codex-specific config keys
+
+`sync.Syncer.__init__` reads `claude_agents_dir`, `claude_skills_dir`,
+and `codex_skills_dir` into instance attributes. None of those
+attributes is used after assignment — `discovery` reads paths through
+`config[config_dir_keys[...]]` instead. Dead code that names concrete
+tools inside Layer 2. Delete the three assignments.
+
+### D-6 — No static check for I-3 (no-destructive-write-without-archive)
+
+I-3 is the load-bearing invariant for NFR-01 and is currently only
+covered transitively by integration tests. A grep-style guard test
+(see §10) is the cheapest fix.
+
+---
+
+## 12. Worked example: adding a new agentic_tool
+
+This is the v0.5 opencode integration, stated against the architecture:
+
+| Step | File | Layer | Why |
+|---|---|---|---|
+| 1 | `src/agents_sync/agentic_tools/opencode.py` (new) | 3 | One adapter module. Exports `AGENTIC_TOOL: AgenticToolSpec`. Implements `parse`, `render`, `extract_pair_id` for both `agent` and `skill` `customization_type`s. |
+| 2 | `src/agents_sync/agentic_tool_spec.py` | 3 (port) | Add `_build_opencode_spec` and include it in `default_agentic_tools` — *or* deliver D-3 first and then nothing changes here. |
+| 3 | `src/agents_sync/config.py` | 4 | Add `opencode_agents_dir` and `opencode_skills_dir` to `platform_defaults`, append to `REQUIRED_DIR_KEYS`. |
+| 4 | `src/agents_sync/cli.py` | 4 | Add the two new `--opencode-*-dir` flags. |
+| 5 | `tests/agentic_tools/test_opencode.py` (new) | tests | Round-trip, BOM, CRLF, unknown-field passthrough, no leak of Claude/Codex-only fields. |
+| 6 | `tests/test_e2e_sync_opencode.py` (new) | tests | The US-01 / US-03 / US-06 / US-11 matrix with opencode in the participating set. |
+| 7 | `README.md`, `docs/architecture.md` | docs | One-line entry in the "Module map" table; one-row entry in the README "What It Syncs" table. |
+
+**No edits** to `sync.py`, `adoption.py`, `discovery.py`, `tool_status.py`,
+`canonical.py`, `rendering.py`, `archive.py`, `state.py`, `identity.py`,
+`sync_types.py`, `daemon.py`. If any of those needs to change to make
+opencode work, the design has failed US-10 AC-2 — fix the port instead
+of working around it.
+
+---
+
+## 13. Glossary cross-reference
+
+This document uses the terminology defined in
+`docs/project_description.md` and
+`docs/agentic_tool_integration_protocol.md`. Five terms appear most
+often:
+
+- **`agentic_tool`** — an external application that consumes
+  user-authored, reusable files (Claude Code, Codex, Antigravity, …); in
+  the codebase, the integration module for one such application.
+- **`customization_artifact`** — a specific managed instance: identified
+  by `pair_id`, present on N agentic_tools. The technical unit of
+  synchronisation. Legacy code still uses `pair` and `pair_id`; new code
+  uses `customization_artifact` and `customization_artifact_id` where it
+  has been refactored.
+- **`customization_type`** — `agent` (single file) or `skill` (folder
+  with `SKILL.md`). Each agentic_tool declares which types it supports.
+- **Canonical** — per-artifact JSON document storing the union of fields
+  from every agentic_tool; the lossless intermediate that drives every
+  renderer.
+- **Available / unavailable / disabled** — per-tool status per poll;
+  managed by `ToolStatusTracker`. Only `available` tools can be removal
+  sources (FR-04).
+
+---
+
+## References
+
+- Martin, Robert C. *Clean Architecture: A Craftsman's Guide to Software
+  Structure and Design*. Prentice Hall, 2017.
+- `docs/project_description.md` — purpose, scope, goals, glossary.
+- `docs/project_requirements.md` — FR-01..04, NFR-01..13.
+- `docs/agentic_tool_integration_protocol.md` — the port contract.
+- `docs/stories/US-*.md` — user-visible behaviour.
+- `docs/v0.4_implementation_plan.md` — current-version engineering plan.
+- `docs/opencode_integration_research.md` — proposed v0.5 adapter.
