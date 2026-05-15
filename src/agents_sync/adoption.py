@@ -139,7 +139,7 @@ class AdoptionEngine:
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
         text = read_artifact_text(source_io, source_info.path)
-        canonical = source_io.parse(text, None)
+        canonical = source_io.parse(text, None, artifact_path=source_info.path)
         canonical["pair_id"] = pair_id
 
         if not source_info.pair_id_present:
@@ -189,7 +189,11 @@ class AdoptionEngine:
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
         text = read_artifact_text(source_io, source_info.path)
-        canonical = source_io.parse(text, prior_canonical)
+        canonical = source_io.parse(
+            text,
+            prior_canonical,
+            artifact_path=source_info.path,
+        )
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
 

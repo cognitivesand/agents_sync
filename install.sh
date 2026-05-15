@@ -76,14 +76,19 @@ state_path = "~/.local/state/agents-sync/state.json"
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
 
-# Codex is skills-only in v0.4: it stores its global instructions in a single
-# ~/.codex/AGENTS.md (not per-agent files).
+codex_agents_dir = "~/.codex/agents"
 codex_skills_dir = "~/.codex/skills"
 
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
+
+# opencode (agents + skills). Enabled by default once the roots exist or can
+# be created. To disable, uncomment opencode_enabled.
+# opencode_agents_dir = "~/.config/opencode/agents"
+# opencode_skills_dir = "~/.config/opencode/skills"
+# opencode_enabled = false
 EOF
 fi
 
@@ -97,7 +102,7 @@ uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
 
 cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
-Description=Bidirectional sync of Claude Code agents and skills with Codex
+Description=Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations
 
 [Service]
 Type=simple

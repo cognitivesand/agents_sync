@@ -52,8 +52,8 @@ def test_two_tool_duplicate_with_drifted_content_merges_to_one(syncer: Syncer):
     content, claude bytes archived. State has one pair_id with both tools
     (plus antigravity from the registry projection).
     """
-    claude_dir = _write_skill(Path(syncer.claude_skills_dir), "formatter", "claude version")
-    codex_dir = _write_skill(Path(syncer.codex_skills_dir), "formatter", "codex version")
+    claude_dir = _write_skill(syncer.tool_root("claude", "skill"), "formatter", "claude version")
+    codex_dir = _write_skill(syncer.tool_root("codex", "skill"), "formatter", "codex version")
 
     _set_skill_mtime(claude_dir, 1000.0)
     _set_skill_mtime(codex_dir, 2000.0)  # codex wins on mtime
@@ -81,8 +81,8 @@ def test_two_tool_duplicate_with_drifted_content_merges_to_one(syncer: Syncer):
 
 def test_mtime_tie_uses_alphabetical_tool_tiebreaker(syncer: Syncer):
     """Equal mtime ⇒ alphabetical first (claude < codex), so claude wins."""
-    claude_dir = _write_skill(Path(syncer.claude_skills_dir), "tied", "claude content")
-    codex_dir = _write_skill(Path(syncer.codex_skills_dir), "tied", "codex content")
+    claude_dir = _write_skill(syncer.tool_root("claude", "skill"), "tied", "claude content")
+    codex_dir = _write_skill(syncer.tool_root("codex", "skill"), "tied", "codex content")
 
     _set_skill_mtime(claude_dir, 5000.0)
     _set_skill_mtime(codex_dir, 5000.0)
@@ -98,8 +98,8 @@ def test_mtime_tie_uses_alphabetical_tool_tiebreaker(syncer: Syncer):
 
 def test_identical_content_across_tools_merges_cleanly(syncer: Syncer):
     """Same name, same content on both tools: one merged artifact."""
-    _write_skill(Path(syncer.claude_skills_dir), "twin", "same")
-    _write_skill(Path(syncer.codex_skills_dir), "twin", "same")
+    _write_skill(syncer.tool_root("claude", "skill"), "twin", "same")
+    _write_skill(syncer.tool_root("codex", "skill"), "twin", "same")
 
     syncer.sync_once()
 
@@ -109,7 +109,7 @@ def test_identical_content_across_tools_merges_cleanly(syncer: Syncer):
 
 def test_singleton_new_artifact_is_unaffected_by_reconcile(syncer: Syncer):
     """An artifact present on only one tool still adopts normally."""
-    _write_skill(Path(syncer.claude_skills_dir), "solo")
+    _write_skill(syncer.tool_root("claude", "skill"), "solo")
 
     changed = syncer.sync_once()
     assert changed == 1
@@ -127,8 +127,8 @@ def test_intra_tool_slug_collision_still_blocks(syncer: Syncer):
     Reconcile only collapses entries that live on different tools; same-tool
     slug collisions remain the job of _block_target_collisions.
     """
-    first = Path(syncer.claude_skills_dir) / "first"
-    second = Path(syncer.claude_skills_dir) / "second"
+    first = syncer.tool_root("claude", "skill") / "first"
+    second = syncer.tool_root("claude", "skill") / "second"
     first.mkdir()
     second.mkdir()
     (first / "SKILL.md").write_text(_skill_md("same"))
@@ -153,20 +153,24 @@ def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
     """
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xs"):
+    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
         (tmp_path / sub).mkdir()
     config = {
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
+        "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": False,
+        "opencode_agents_dir": str(tmp_path / "oa"),
+        "opencode_skills_dir": str(tmp_path / "os"),
+        "opencode_enabled": False,
     }
     syncer = Syncer(config)
 
-    claude_dir = Path(syncer.claude_skills_dir) / "managed"
+    claude_dir = syncer.tool_root("claude", "skill") / "managed"
     claude_dir.mkdir()
     (claude_dir / "SKILL.md").write_text(
         "---\n"
@@ -176,7 +180,7 @@ def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
         "---\n"
         "body\n"
     )
-    _write_skill(Path(syncer.codex_skills_dir), "managed", "from-codex")
+    _write_skill(syncer.tool_root("codex", "skill"), "managed", "from-codex")
 
     syncer.sync_once()
 

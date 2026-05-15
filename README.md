@@ -15,9 +15,9 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, and **Google Antigravity**.
+`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
 
-> Build your AI workflow once and use it from every tool you've installed. Create or edit a skill in Claude Code and it appears in Codex and Antigravity. Edit it in Antigravity and it comes back to Claude Code and Codex. Agents sync between Claude Code and Codex (Antigravity has no stable per-agent file format yet).
+> Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
 
 The daemon runs quietly in the background, protects your content with archives, and keeps user-level files connected even when they are renamed. If one of the tools isn't installed, that tool is silently skipped — the others continue to sync.
 
@@ -45,25 +45,26 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level skills across Claude Code, Codex, and Google Antigravity. Agents are tracked on Claude Code only (the other tools have no per-agent file format).
+`agents_sync` synchronizes user-level agents across Claude Code and OpenCode, and user-level skills across Claude Code, Codex, Google Antigravity, and OpenCode.
 
-| What you edit | Claude Code | Codex | Antigravity |
-|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | — (uses a single `~/.codex/AGENTS.md`) | — (no per-agent format) |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` |
+| What you edit | Claude Code | Codex | Antigravity | OpenCode |
+|:---|:---|:---|:---|:---|
+| Agents | `~/.claude/agents/*.md` | n/a (skills only) | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. All three tools use the same open `SKILL.md` spec, so skills sync three ways.
-- Agents are reusable AI personas. Only Claude Code keeps them as per-agent files; Codex collapses its global guidance into a single `AGENTS.md`. Until another tool adopts a per-agent file format, claude agents are tracked locally but have no projection target.
+- Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
+- Agents are reusable AI personas. Claude Code and OpenCode have per-agent file formats, so agents sync two ways.
 
 ```mermaid
 flowchart LR
     subgraph Tools["Tools"]
         direction TB
         Claude["Claude Code<br/>agents + skills"]
-        Codex["Codex<br/>agents + skills"]
+        Codex["Codex<br/>skills only"]
         Antigravity["Antigravity<br/>skills only"]
+        Opencode["OpenCode<br/>agents + skills"]
     end
 
     Sync["agents_sync<br/>watch + match + sync"]
@@ -73,6 +74,7 @@ flowchart LR
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
     Antigravity <-->|changes| Sync
+    Opencode <-->|changes| Sync
     Sync --> State
     Sync --> Archive
 
@@ -81,14 +83,14 @@ flowchart LR
     classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
     classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
 
-    class Claude,Codex,Antigravity side
+    class Claude,Codex,Antigravity,Opencode side
     class Sync sync
     class State state
     class Archive archive
 
-    linkStyle 0,1,2 stroke:#2da44e,stroke-width:2px
-    linkStyle 3 stroke:#8250df,stroke-width:2px
-    linkStyle 4 stroke:#2da44e,stroke-width:2px
+    linkStyle 0,1,2,3 stroke:#2da44e,stroke-width:2px
+    linkStyle 4 stroke:#8250df,stroke-width:2px
+    linkStyle 5 stroke:#2da44e,stroke-width:2px
 ```
 
 ---
@@ -101,9 +103,9 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit a Claude Code agent | Codex receives the matching `.toml` file |
-| Create or edit a Codex agent | Claude Code receives the matching `.md` file |
-| Create or edit a skill on any tool | The other two tools receive the matching `SKILL.md` folder |
+| Create or edit a Claude Code agent | OpenCode receives a matching agent file |
+| Create or edit an OpenCode agent | Claude Code receives a matching agent file |
+| Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
 | Two or more tools edit the same skill simultaneously | The most recently modified copy wins; the losers are archived |
 | Remove a synced agent or skill on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
@@ -170,6 +172,12 @@ Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/ski
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
+### Enabling OpenCode
+
+OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/` and `~/.config/opencode/skills/`. On Windows the default is `%APPDATA%\opencode\agents\` and `%APPDATA%\opencode\skills\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir` and `opencode_skills_dir`.
+
+To disable OpenCode entirely, set `opencode_enabled = false` in your `config.toml`, or pass `--no-opencode-enabled` on the command line.
+
 ---
 
 <a id="daily-usage"></a>
@@ -182,7 +190,7 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code or Codex normally. Create, edit, rename, or remove agents and skills from either side; matching changes propagate automatically. Removals archive the opposite side before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove agents and skills from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
 ---
 
@@ -332,6 +340,15 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 | macOS | `~/.config/agents-sync/config.toml` | `~/.local/state/agents-sync/` | `~/Library/Logs/agents-sync/agents-sync.log` |
 | Windows | `%APPDATA%\agents-sync\config.toml` | `%LOCALAPPDATA%\agents-sync\state\` | `%LOCALAPPDATA%\agents-sync\logs\agents-sync.log` |
 
+**Synced roots:**
+
+| Tool | Agents | Skills |
+|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/skills` |
+| Codex | n/a | `~/.codex/skills` |
+| Antigravity | n/a | `~/.gemini/antigravity/skills` |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/skills` |
+
 **State layout:**
 
 ```text
@@ -353,7 +370,8 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
-- This tool was developed with the support of Claude Code, Codex, and Google Antigravity.
+- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir` and `opencode_skills_dir`.
+- This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
 
 ---
 
@@ -361,14 +379,21 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
+### 0.4.1
+
+- Added OpenCode as an agentic tool. Agents now sync two ways across Claude Code and OpenCode.
+- Skills now include OpenCode as an additional sync participant.
+- Added OpenCode agent and skill roots with `opencode_agents_dir`, `opencode_skills_dir`, and `opencode_enabled` config/CLI wiring.
+- Preserved OpenCode-only metadata such as `mode`, `permission`, `steps`, `color`, and open-spec skill metadata without leaking foreign fields into OpenCode files.
+
 ### 0.4.0
 
 - Added Google Antigravity as a third agentic tool. Antigravity participates in skills only.
-- Codex is now skills-only too. v0.3 assumed Codex used per-agent `.toml` files under `~/.codex/agents/`, but the real Codex layout is a single global `~/.codex/AGENTS.md`. The `codex_agents_dir` config key and `--codex-agents-dir` CLI flag are removed; Codex's per-agent `codex_io` functions stay in the codebase for any future Codex release that adds a per-agent format.
+- Codex became skills-only in v0.4.
 - The default `codex_skills_dir` is now `~/.codex/skills` (the path Codex's own `skill-installer` and `skill-creator` use). The v0.3-era `~/.agents/skills` default never matched a live Codex install.
 - Daemon-projected counterparts use the bare slugified name. The v0.3 `-skill` / `-agent` suffix is dropped — agents and skills live in distinct config-keyed roots, so kind disambiguation is unnecessary. A skill named `formatter` now lives at `<root>/formatter/SKILL.md` on every tool instead of `<root>/formatter-skill/SKILL.md`.
 - On startup the daemon creates each enabled tool's roots if they don't exist (`mkdir -p`). Mid-life loss of a root still flips a tool to `unavailable` per US-11.
-- Agents (per-agent files) are therefore Claude-only in v0.4. Adoption still mints and injects a `pair_id` so your Claude agents are ready to sync if another tool ever adopts a per-agent file format.
+- Agents (per-agent files) were therefore Claude-only in v0.4. v0.4.1 adds OpenCode as an agent sync target.
 - Generalised the sync algorithm from two named peers (`claude` / `codex`) to an N-tool registry. Adding another agentic tool is now an IO module + a config entry; the sync engine, conflict resolution, adoption, reconciliation, and removal-propagation paths are tool-agnostic.
 - Replaced the v0.2.1 "exit on missing root" startup behavior with per-tool status (`available` / `unavailable` / `disabled`). A missing root marks the tool unavailable for that poll and is logged once; the daemon continues to sync the remaining available tools. Removal-propagation never fires from an unavailable tool, so an uninstalled or unmounted tool never wipes your library.
 - Added first-boot reconciliation: when the same logical skill exists on multiple tools without a `pair_id`, the daemon merges them by most-recent mtime instead of failing on a slug collision.
@@ -404,6 +429,7 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 - `docs/v0.2.1_remediation_plan.md` - safety remediation plan.
 - `docs/v0.3_implementation_plan.md` - Windows support plan.
 - `docs/v0.4_implementation_plan.md` - Antigravity / N-tool sync plan.
+- `docs/v0.4.1_implementation_plan.md` - OpenCode integration follow-up plan.
 - `docs/agentic_tool_integration_protocol.md` - how to add another agentic tool.
 
 ---

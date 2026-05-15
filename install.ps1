@@ -124,6 +124,8 @@ function Ensure-Config([string]$ConfigFile, [string]$StateFile) {
   New-Item -ItemType Directory -Path (Split-Path -Parent $StateFile) -Force | Out-Null
   if ((-not (Test-Path $ConfigFile)) -or $Force) {
     $tomlStatePath = Convert-ToTomlPath $StateFile
+    $opencodeAgentsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\agents")
+    $opencodeSkillsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\skills")
     $cfg = @"
 [agents-sync]
 poll_interval_seconds = 2.0
@@ -132,8 +134,7 @@ state_path = "$tomlStatePath"
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
 
-# Codex is skills-only in v0.4: it stores its global instructions in a single
-# ~/.codex/AGENTS.md (not per-agent files).
+codex_agents_dir = "~/.codex/agents"
 codex_skills_dir = "~/.codex/skills"
 
 # Google Antigravity (skills only). Enabled by default once
@@ -142,6 +143,13 @@ codex_skills_dir = "~/.codex/skills"
 # override antigravity_skills_dir if you are on that version.
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
+
+# opencode (agents + skills). Enabled by default once the roots exist or can
+# be created. Some opencode builds report %USERPROFILE%\.config\opencode
+# from opencode debug paths; override these paths if yours does.
+# opencode_agents_dir = "$opencodeAgentsPath"
+# opencode_skills_dir = "$opencodeSkillsPath"
+# opencode_enabled = false
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($ConfigFile, $cfg, $utf8NoBom)
@@ -170,7 +178,7 @@ function Register-AgentsSyncTask([string]$Name, [string]$HiddenLauncherFile) {
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description "Bidirectional sync of Claude Code agents and skills with Codex" `
+    -Description "Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations" `
     -Force | Out-Null
 
   Start-ScheduledTask -TaskName $Name

@@ -2,15 +2,16 @@
 
 ## Purpose
 
-`agents_sync` keeps user-authored agents and skills in sync across multiple agentic_tools (for example Claude Code, Codex, Google Antigravity) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
+`agents_sync` keeps user-authored agents and skills in sync across multiple agentic_tools (for example Claude Code, Codex, Google Antigravity, and opencode) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
 
 ## Problem statement
 
 Every agentic_tool stores its agents and skills under its own filesystem layout. For example:
 
 - Claude Code: user-level agents at `~/.claude/agents/*.md`; user-level skills at `~/.claude/skills/<name>/SKILL.md`.
-- Codex: skills at `~/.codex/skills/<name>/SKILL.md` (Codex's own `skill-installer` and `skill-creator` documentation use this path; `$CODEX_HOME/skills` is the override). Codex stores its global guidance in a single `~/.codex/AGENTS.md` and has no per-agent file format, so it participates in the `skill` customization_type only.
+- Codex: user-level agents at `~/.codex/agents/*.toml`; user-level skills at `~/.codex/skills/<name>/SKILL.md`.
 - Google Antigravity: skills at `~/.gemini/antigravity/skills/<name>/SKILL.md` (no per-agent file format as of v0.4 release).
+- opencode: user-level agents at `~/.config/opencode/agents/*.md`; user-level skills at `~/.config/opencode/skills/<name>/SKILL.md`.
 
 Maintaining the same library of customizations across two or more such agentic_tools by hand is tedious and drifts.
 
@@ -20,6 +21,7 @@ Release history:
 - v0.2: bidirectional, lossless sync between two agentic_tools (Claude Code, Codex) via a per-customization_artifact canonical JSON intermediate.
 - v0.3: first-class Windows operations.
 - v0.4: generalisation to **N agentic_tools** via the agentic-tool-integration protocol (`docs/agentic_tool_integration_protocol.md`). Each additional agentic_tool is a small, isolated module under `src/agents_sync/agentic_tools/` plus a config entry; no sync-algorithm changes are required.
+- v0.4.1: opencode added for agents and skills; Codex custom agents restored under `~/.codex/agents/*.toml`.
 
 ## Scope
 
@@ -33,7 +35,7 @@ In scope:
 - Data preservation: every operation that would overwrite or remove user content first archives the prior bytes under a deterministic, recoverable layout (US-05).
 - Auto-adoption of new customization artifacts; first-boot reconciliation of multi-tool duplicates by `(customization_type, target_slug(name))` reconciliation key (US-03).
 - Graceful absence: if a registered, enabled agentic_tool's root becomes missing or unreadable, the tool is marked `unavailable` and the transition is logged once. An `unavailable` tool never causes a removal to propagate to healthy tools (US-11).
-- Explicit generated filenames for new counterparts; the `customization_type` is included in the slug (e.g. `formatter-skill/SKILL.md`).
+- Explicit generated filenames for new counterparts; agents and skills use the bare slugified artifact name inside their distinct roots (e.g. `formatter/SKILL.md` for skills).
 - Continuous daemon operation (no one-shot CLI mode).
 - Background supervision:
   - Linux: `systemd --user` service.
@@ -101,11 +103,11 @@ The tool does not use an on-disk lock; concurrency safety is achieved by atomic 
 
 Each entry pairs the technical identifier used in code, configs, ACs, and schemas with the first-person prose form used in user stories and the README.
 
-- **`agentic_tool`** (prose: "my agentic_tools") — an external application that consumes user-authored, reusable files (e.g. Claude Code, Codex, Google Antigravity). The user installs and uses agentic_tools directly; `agents_sync` does not modify them. In this codebase, the integration module for a given agentic_tool is itself called an `agentic_tool` — a 1:1 correspondence with the external tool, with no separate "side" or "peer" abstraction.
+- **`agentic_tool`** (prose: "my agentic_tools") — an external application that consumes user-authored, reusable files (e.g. Claude Code, Codex, Google Antigravity, opencode). The user installs and uses agentic_tools directly; `agents_sync` does not modify them. In this codebase, the integration module for a given agentic_tool is itself called an `agentic_tool` — a 1:1 correspondence with the external tool, with no separate "side" or "peer" abstraction.
 - **`agentic_tool` status** (prose: "available / unavailable / disabled") — at a given poll: `available` (configured, enabled, root reachable), `unavailable` (configured, enabled, root missing or unreadable), or `disabled` (turned off in config).
 - **`user_customization`** (prose: "my customizations") — the umbrella term for the domain of user-authored customizations that `agents_sync` manages, across every `customization_type`. Used in user-facing prose and as a global concept. The concrete unit of synchronisation is the `customization_artifact` (below); a `user_customization` is what you mean colloquially when you say "I'm customising my agentic_tools."
 - **`customization_artifact`** (prose: "a customization", "my agent", "my skill") — a specific managed instance: a user-authored customization identified by a UUIDv4 `customization_artifact_id` and present on N agentic_tools (N ≥ 1) as N renditions of the same content. It is the technical unit of synchronisation: every poll, sync, conflict, removal, and reconciliation operates over customization_artifacts.
-- **`customization_type`** — the category of a customization_artifact. v0.4 ships two: `agent` (a single managed file per customization_artifact) and `skill` (a managed folder containing a `SKILL.md` written by the agentic_tool's renderer, plus optional auxiliary files). Future versions may add `prompt_template`, `mcp_server_config`, etc. An agentic_tool declares which customization_types it can read and write via `supported_customization_types`. Each customization_type has an associated `file_layout` (single file or folder) describing how it is stored on disk.
+- **`customization_type`** — the category of a customization_artifact. v0.4.1 ships two: `agent` (a single managed file per customization_artifact) and `skill` (a managed folder containing a `SKILL.md` written by the agentic_tool's renderer, plus optional auxiliary files). Future versions may add `prompt_template`, `mcp_server_config`, etc. An agentic_tool declares which customization_types it can read and write via `supported_customization_types`. Each customization_type has an associated `file_layout` (single file or folder) describing how it is stored on disk.
 - **Participating `agentic_tools` for a customization_artifact** — agentic_tools whose `supported_customization_types` include the customization_artifact's `customization_type` AND whose status is `available`. Denoted **N** (N ≥ 1 for the customization_artifact to exist; N ≥ 2 for any cross-tool sync to happen; ≥ 2 changed simultaneously for a conflict).
 - **Changed `agentic_tools` for a customization_artifact at the current poll** — the subset of participating agentic_tools whose current digest differs from the `last_written` digest recorded in state. ≥ 2 changed = conflict; exactly 1 = one-way propagation; 0 = no-op.
 - **Available `agentic_tools` at a given poll** — registered, enabled agentic_tools whose status is `available` (root reachable, readable, writable).
@@ -115,7 +117,7 @@ Each entry pairs the technical identifier used in code, configs, ACs, and schema
 - **New customization_artifact** — a customization_artifact whose artifact metadata does not yet contain a `customization_artifact_id`, awaiting adoption or reconciliation. See US-03.
 - **Artifact metadata** — the structured block on a customization_artifact that declares its identifying fields (`name`, `customization_artifact_id`, `description`, and any agentic_tool-specific fields). Physical form varies per agentic_tool: a YAML block delimited by `---` for `.md` files, the whole TOML document for `.toml` files, etc. Each agentic_tool module's `parse` and `render` functions are responsible for reading and writing it.
 - **Reconciliation key** — `(customization_type, target_slug(name))`, used to group new customization_artifacts that represent the same logical user_customization across agentic_tools.
-- **Slug** — the filesystem-friendly form of a customization_artifact's `name`; determines the basename of a rendered file. New counterparts include the `customization_type` in the slug (e.g. `formatter-skill/SKILL.md`).
+- **Slug** — the filesystem-friendly form of a customization_artifact's `name`; determines the basename of a rendered file. Agents and skills live in separate roots, so generated counterparts use the bare slug (e.g. `formatter/SKILL.md`).
 
 ## References
 
@@ -123,3 +125,4 @@ Each entry pairs the technical identifier used in code, configs, ACs, and schema
 - User stories: `docs/stories/US-XX-*.md`.
 - Requirements: `docs/project_requirements.md`.
 - v0.4 implementation plan: `docs/v0.4_implementation_plan.md`.
+- v0.4.1 implementation plan: `docs/v0.4.1_implementation_plan.md`.

@@ -20,7 +20,7 @@ def _skill_md(name: str = "foo", description: str = "x", body: str = "body") -> 
 
 
 def _write_claude_skill(syncer: Syncer, name: str = "foo") -> Path:
-    skill_dir = Path(syncer.claude_skills_dir) / name
+    skill_dir = syncer.tool_root("claude", "skill") / name
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(_skill_md(name))
     return skill_dir
@@ -37,7 +37,7 @@ def _read_state(syncer: Syncer) -> dict:
 
 def test_missing_root_at_startup_does_not_raise(syncer: Syncer):
     """US-11 AC-1: a missing root marks the tool unavailable; daemon continues."""
-    shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(syncer.tool_root("codex", "skill"))
     syncer.sync_once()  # must not raise
     assert syncer.tool_status.snapshot()["codex"] == "unavailable"
     assert syncer.tool_status.snapshot()["claude"] == "available"
@@ -45,7 +45,7 @@ def test_missing_root_at_startup_does_not_raise(syncer: Syncer):
 
 def test_missing_root_at_startup_logs_info_line(syncer: Syncer, caplog: pytest.LogCaptureFixture):
     """US-11 AC-1: log line names the tool, missing root, and underlying reason."""
-    shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(syncer.tool_root("codex", "skill"))
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
     transition_log = [r for r in caplog.records if "agentic_tool codex" in r.getMessage()]
@@ -65,7 +65,7 @@ def test_mid_life_unavailable_transition_logs_warning(
     syncer.sync_once()
     state_before = _read_state(syncer)
 
-    shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(syncer.tool_root("codex", "skill"))
 
     caplog.clear()
     with caplog.at_level(logging.WARNING):
@@ -84,10 +84,10 @@ def test_unavailable_tool_does_not_propagate_removal(syncer: Syncer):
     """US-11 AC-4: removal-propagation never fires from an unavailable tool."""
     claude_dir = _write_claude_skill(syncer)
     syncer.sync_once()
-    codex_artifact = Path(syncer.codex_skills_dir) / "foo"
+    codex_artifact = syncer.tool_root("codex", "skill") / "foo"
     assert codex_artifact.exists()
 
-    shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(syncer.tool_root("codex", "skill"))
     syncer.sync_once()
 
     # Claude side intact; state preserves codex's pre-removal entry.
@@ -104,11 +104,11 @@ def test_returning_to_available_logs_info_and_extends(syncer: Syncer, caplog: py
     _write_claude_skill(syncer)
     syncer.sync_once()
 
-    shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(syncer.tool_root("codex", "skill"))
     syncer.sync_once()  # codex now unavailable
     assert syncer.tool_status.snapshot()["codex"] == "unavailable"
 
-    syncer.codex_skills_dir.mkdir(parents=True)
+    syncer.tool_root("codex", "skill").mkdir(parents=True)
     caplog.clear()
     with caplog.at_level(logging.INFO):
         syncer.sync_once()
@@ -146,9 +146,12 @@ def test_steady_state_polls_emit_no_status_logs(
 
 def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     """US-11 AC-7: even with every tool unavailable, sync_once continues."""
-    shutil.rmtree(syncer.claude_agents_dir)
-    shutil.rmtree(syncer.claude_skills_dir)
-    shutil.rmtree(syncer.codex_skills_dir)
+    shutil.rmtree(syncer.tool_root("claude", "agent"))
+    shutil.rmtree(syncer.tool_root("claude", "skill"))
+    shutil.rmtree(syncer.tool_root("codex", "agent"))
+    shutil.rmtree(syncer.tool_root("codex", "skill"))
+    shutil.rmtree(syncer.tool_root("opencode", "agent"))
+    shutil.rmtree(syncer.tool_root("opencode", "skill"))
     shutil.rmtree(tmp_path / "as")
 
     # No raise, zero changes.
@@ -158,6 +161,7 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
         "antigravity": "unavailable",
         "claude": "unavailable",
         "codex": "unavailable",
+        "opencode": "unavailable",
     }
 
 
@@ -167,7 +171,7 @@ def test_removal_propagation_from_available_tool_still_works(syncer: Syncer):
     """Removing a skill on a tool whose status is `available` propagates normally."""
     claude_dir = _write_claude_skill(syncer)
     syncer.sync_once()
-    codex_artifact = Path(syncer.codex_skills_dir) / "foo"
+    codex_artifact = syncer.tool_root("codex", "skill") / "foo"
     assert codex_artifact.exists()
 
     shutil.rmtree(claude_dir)

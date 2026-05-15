@@ -11,9 +11,9 @@ from agents_sync.agentic_tool_spec import (
 from agents_sync.canonical import empty_canonical
 
 
-def test_default_registry_has_claude_codex_and_antigravity():
+def test_default_registry_has_claude_codex_antigravity_and_opencode():
     registry = default_agentic_tools()
-    assert set(registry.keys()) == {"claude", "codex", "antigravity"}
+    assert set(registry.keys()) == {"claude", "codex", "antigravity", "opencode"}
     for spec in registry.values():
         assert isinstance(spec, AgenticToolSpec)
 
@@ -29,7 +29,7 @@ def test_antigravity_spec_is_skill_only_with_disable_key():
 
 
 def test_claude_and_codex_have_no_disable_key():
-    """claude and codex are always enabled; only antigravity can be opted out."""
+    """claude and codex are always enabled; optional tools can be opted out."""
     registry = default_agentic_tools()
     assert registry["claude"].disable_config_key is None
     assert registry["codex"].disable_config_key is None
@@ -50,12 +50,28 @@ def test_claude_spec_supports_both_customization_types():
     assert spec.io["skill"].storage == "directory_skill"
 
 
-def test_codex_spec_is_skill_only():
-    """Codex is skill-only in v0.4: its user-level instructions live in a
-    single ~/.codex/AGENTS.md (not per-agent files in a directory)."""
+def test_codex_spec_supports_agents_and_skills():
     spec = default_agentic_tools()["codex"]
-    assert spec.supported_customization_types == frozenset({"skill"})
-    assert spec.config_dir_keys == {"skill": "codex_skills_dir"}
+    assert spec.supported_customization_types == frozenset({"agent", "skill"})
+    assert spec.config_dir_keys == {
+        "agent": "codex_agents_dir",
+        "skill": "codex_skills_dir",
+    }
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".toml"
+    assert spec.io["skill"].storage == "directory_skill"
+
+
+def test_opencode_spec_supports_agents_and_skills_with_disable_key():
+    spec = default_agentic_tools()["opencode"]
+    assert spec.supported_customization_types == frozenset({"agent", "skill"})
+    assert spec.config_dir_keys == {
+        "agent": "opencode_agents_dir",
+        "skill": "opencode_skills_dir",
+    }
+    assert spec.disable_config_key == "opencode_enabled"
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".md"
     assert spec.io["skill"].storage == "directory_skill"
 
 

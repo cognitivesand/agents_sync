@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from agents_sync import archive
@@ -30,9 +31,6 @@ class Syncer:
         self.agentic_tools: dict[str, AgenticToolSpec] = (
             agentic_tools if agentic_tools is not None else default_agentic_tools()
         )
-        self.claude_agents_dir = expand_path(config["claude_agents_dir"])
-        self.claude_skills_dir = expand_path(config["claude_skills_dir"])
-        self.codex_skills_dir = expand_path(config["codex_skills_dir"])
         self.state_dir = expand_path(config["state_path"]).parent
         self._blocked_pair_ids: set[str] = set()
         self.tool_status = ToolStatusTracker(self.config, self.agentic_tools)
@@ -48,6 +46,12 @@ class Syncer:
         # strand the user's library). Mid-life loss of a root still flips the
         # tool to `unavailable` per US-11 AC-2.
         self.tool_status.ensure_roots()
+
+    def tool_root(self, tool_name: str, customization_type: str) -> Path:
+        """Return the configured root for one tool/customization-type cell."""
+        spec = self.agentic_tools[tool_name]
+        config_key = spec.config_dir_keys[customization_type]
+        return expand_path(self.config[config_key])
 
     # ---------- top-level loop ----------
 
@@ -133,7 +137,7 @@ class Syncer:
             io = self.agentic_tools[tool_name].io[info.kind]
             try:
                 text = read_artifact_text(io, tool_info.path)
-                canonical = io.parse(text, None)
+                canonical = io.parse(text, None, artifact_path=tool_info.path)
             except Exception:
                 logging.exception(
                     "Reconcile: cannot parse for grouping: pair_id=%s tool=%s path=%s",

@@ -30,13 +30,13 @@ def test_target_slug_returns_bare_slugified_name():
 
 def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("agents_sync.rendering.os.path.normcase", lambda value: value.lower())
-    codex_path = Path(syncer.codex_skills_dir) / "Alpha"
+    codex_path = syncer.tool_root("codex", "skill") / "Alpha"
     state = {
         "pair-1": CustomizationArtifactState(
             kind="skill",
             agentic_tools={
                 "claude": AgenticToolState(
-                    path=str(Path(syncer.claude_skills_dir) / "alpha"),
+                    path=str(syncer.tool_root("claude", "skill") / "alpha"),
                 ),
                 "codex": AgenticToolState(path=str(codex_path)),
             },
@@ -44,7 +44,7 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
     }
 
     owner = syncer.discovery.state_owner_for_path(
-        Path(syncer.codex_skills_dir) / "alpha", state
+        syncer.tool_root("codex", "skill") / "alpha", state
     )
     assert owner == "pair-1"
 
@@ -56,8 +56,8 @@ def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: py
         "pair-b": CustomizationArtifactInfo(kind="skill"),
     }
     targets = iter([
-        Path(syncer.codex_skills_dir) / "Alpha",
-        Path(syncer.codex_skills_dir) / "alpha",
+        syncer.tool_root("codex", "skill") / "Alpha",
+        syncer.tool_root("codex", "skill") / "alpha",
     ])
     monkeypatch.setattr(
         syncer.discovery, "_planned_adoption_targets", lambda info: [next(targets)]

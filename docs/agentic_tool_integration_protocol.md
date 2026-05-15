@@ -19,6 +19,8 @@ User stories and the README use everyday prose; this protocol uses precise techn
 
 An agentic_tool module is therefore the code that reads and writes `customization_artifact` instances on disk for one specific agentic_tool, for each `customization_type` that tool supports.
 
+Implementation note: the current on-disk and in-code identity field is still named `pair_id` for state-schema compatibility. This document uses the broader term `customization_artifact_id` where it describes the domain model.
+
 ## Module layout
 
 One Python module per agentic_tool, named after the agentic_tool:
@@ -33,6 +35,7 @@ Examples:
 src/agents_sync/agentic_tools/claude.py
 src/agents_sync/agentic_tools/codex.py
 src/agents_sync/agentic_tools/antigravity.py
+src/agents_sync/agentic_tools/opencode.py
 ```
 
 `<agentic_tool_name>` is the agentic_tool's unique identifier. It is lowercase ASCII, matches `^[a-z][a-z0-9_]{1,30}$`, and is the same string used throughout:
@@ -109,10 +112,21 @@ An agentic_tool may declare additional `file_layout` flags as the protocol evolv
 For each `customization_type` in `supported_customization_types`, the module supplies a `CustomizationTypeIO` triple:
 
 ```python
+class ParseFn(Protocol):
+    def __call__(
+        self,
+        text: str,
+        prior_canonical: dict | None,
+        *,
+        artifact_path: Path | None = None,
+    ) -> dict:
+        ...
+
+
 @dataclass(frozen=True)
 class CustomizationTypeIO:
     extract_customization_artifact_id: Callable[[str], str | None]
-    parse: Callable[[str, dict | None], dict]
+    parse: ParseFn
     render: Callable[[dict, str | None], str]
 ```
 
@@ -125,10 +139,11 @@ Function contracts:
 - **`extract_customization_artifact_id(text) -> str | None`**
   Pure. Returns the `customization_artifact_id` if the artifact metadata carries one and it parses as a UUID; returns `None` otherwise. Must not raise on malformed input — return `None`.
 
-- **`parse(text, prior_canonical) -> canonical`**
+- **`parse(text, prior_canonical, *, artifact_path=None) -> canonical`**
   Pure. Reads the agentic_tool's native format and folds its content into a canonical dict (see `docs/project_description.md` for the canonical schema). If `prior_canonical` is provided, fields not present in `text` retain their canonical state; fields present in `text` overwrite. Agentic_tool-specific fields the canonical does not know about are stashed in `canonical["per_agentic_tool_extra"][<agentic_tool_name>]`. Agentic_tool-only-meaningful fields go in `canonical["per_agentic_tool_only"][<agentic_tool_name>]`. Required behaviour:
     - Round-trip stability: `parse(render(c), c) == c` over the agentic_tool-relevant subset of `c`.
     - Malformed input raises a clearly-named exception that the sync core catches and converts to a structured warning per US-03 AC-10.
+    - If a native format derives identity from the filename rather than artifact metadata (for example opencode agents), the parser may use `artifact_path` to recover the filename stem. Parsers that do not need the path must accept and ignore it.
 
 - **`render(canonical, prior_text=None) -> text`**
   Pure. Projects the canonical into the agentic_tool's native format. When `prior_text` is provided, the renderer should preserve existing key order, comments, and quoting style in the agentic_tool's artifact metadata where the underlying format supports it. Fields owned by other agentic_tools must not leak into the rendered output — see "Cross-agentic_tool field ownership" in the v0.4 implementation plan.

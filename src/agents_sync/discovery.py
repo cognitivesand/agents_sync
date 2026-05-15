@@ -292,13 +292,14 @@ class DiscoveryWalker:
         source_info = info.agentic_tools[source_tool]
         source_io = self.agentic_tools[source_tool].io[info.kind]
         text = read_artifact_text(source_io, source_info.path)
-        canonical = source_io.parse(text, None)
-        slug = target_slug(canonical["name"])
+        canonical = source_io.parse(text, None, artifact_path=source_info.path)
         targets: list[Path] = []
         for tool_name in missing:
             spec = self.agentic_tools[tool_name]
             io = spec.io[info.kind]
             root = expand_path(self.config[spec.config_dir_keys[info.kind]])
+            slugger = io.slugify_name or target_slug
+            slug = slugger(canonical["name"])
             if io.storage == "single_file":
                 targets.append(root / f"{slug}{io.file_suffix}")
             else:
