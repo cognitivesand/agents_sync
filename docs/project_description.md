@@ -36,7 +36,8 @@ In scope:
 - Auto-adoption of new customization artifacts; first-boot reconciliation of multi-tool duplicates by `(customization_type, target_slug(name))` reconciliation key (US-03).
 - Graceful absence: if a registered, enabled agentic_tool's root becomes missing or unreadable, the tool is marked `unavailable` and the transition is logged once. An `unavailable` tool never causes a removal to propagate to healthy tools (US-11).
 - Explicit generated filenames for new counterparts; agents and skills use the bare slugified artifact name inside their distinct roots (e.g. `formatter/SKILL.md` for skills).
-- Continuous daemon operation (no one-shot CLI mode).
+- Continuous daemon operation, plus one-shot CLI subcommands for portable export and import of the canonical library (US-12).
+- Portable library snapshot: one-shot `export` and `import` subcommands that serialise the canonical store to a single archive file and restore it on another install (US-12).
 - Background supervision:
   - Linux: `systemd --user` service.
   - Windows: per-user Task Scheduler task.
