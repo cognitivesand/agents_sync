@@ -5,8 +5,14 @@ import logging
 import os
 from pathlib import Path
 
+from agents_sync.agentic_tool_spec import default_agentic_tools
 from agents_sync.config import ConfigError, merged_config, validate_config
 from agents_sync.daemon import watch
+from agents_sync.portable_archive import (
+    PortableArchiveError,
+    export_to_zip,
+    import_from_zip,
+)
 from agents_sync.sync import Syncer
 
 
@@ -26,6 +32,10 @@ if os.name == "nt":
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Top-level parser owns every shared flag. Subparsers add only their
+    own positional + flags so argparse does not silently clobber the
+    parent's values with subparser defaults during subcommand parsing.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Continuous sync of Claude Code, Codex, Antigravity, "
@@ -71,6 +81,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
+
+    subparsers = parser.add_subparsers(dest="command", metavar="{export,import}")
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Write a portable library snapshot zip from the local canonical store.",
+    )
+    export_parser.add_argument(
+        "output", type=Path, help="Destination zip file path."
+    )
+
+    import_parser = subparsers.add_parser(
+        "import",
+        help="Restore a portable library snapshot zip into the local install.",
+    )
+    import_parser.add_argument(
+        "input", type=Path, help="Source zip file path."
+    )
+    import_parser.add_argument(
+        "--collision-strategy",
+        choices=["skip", "mtime_wins", "overwrite"],
+        default=None,
+        help=(
+            "Override the config's import_collision_strategy for this "
+            "invocation only."
+        ),
+    )
+
     return parser
 
 
@@ -86,6 +124,48 @@ def _check_legacy_install() -> int | None:
         "\n  ".join(str(p) for p in found),
     )
     return 2
+
+
+def _run_export(args: argparse.Namespace, config: dict) -> int:
+    from agents_sync.config import expand_path
+
+    state_dir = expand_path(config["state_path"]).parent
+    try:
+        report = export_to_zip(state_dir, args.output)
+    except OSError:
+        logging.exception("Export failed")
+        return 1
+    logging.info(
+        "Exported %d artifact(s) to %s", report.artifact_count, report.archive_path
+    )
+    return 0
+
+
+def _run_import(args: argparse.Namespace, config: dict) -> int:
+    from agents_sync.config import expand_path
+
+    state_dir = expand_path(config["state_path"]).parent
+    strategy = args.collision_strategy or config["import_collision_strategy"]
+    agentic_tools = default_agentic_tools()
+    try:
+        report = import_from_zip(
+            state_dir,
+            args.input,
+            strategy=strategy,
+            config=config,
+            agentic_tools=agentic_tools,
+        )
+    except PortableArchiveError:
+        logging.exception("Import rejected")
+        return 1
+    except OSError:
+        logging.exception("Import failed")
+        return 1
+    logging.info(
+        "Import complete: accepted=%d skipped=%d archived_local=%d",
+        len(report.accepted), len(report.skipped), len(report.archived_local),
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,6 +185,12 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError:
         logging.exception("Invalid agents-sync configuration")
         return 2
+
+    if args.command == "export":
+        return _run_export(args, config)
+    if args.command == "import":
+        return _run_import(args, config)
+
     syncer = Syncer(config)
     watch(syncer, float(config["poll_interval_seconds"]))
     return 0
