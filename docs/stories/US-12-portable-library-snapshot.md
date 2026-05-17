@@ -14,7 +14,7 @@ Should Have
 
 ## Terminology
 
-Vocabulary used in this story is defined in the project glossary at `docs/project_description.md`. A **portable library snapshot** is a single archive file (`.zip` container at v0.4.2) whose contents are sufficient, on a target install, to materialise every customization_artifact recorded in the source's canonical store.
+Vocabulary used in this story is defined in the project glossary at `docs/project_description.md`. A **portable library snapshot** is a single archive file (`.zip` container at v0.4.3) whose contents are sufficient, on a target install, to materialise every customization_artifact recorded in the source's canonical store.
 
 ## Acceptance Criteria
 

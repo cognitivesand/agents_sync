@@ -1,6 +1,6 @@
 [project]
 name = "agents_sync"
-version = "0.4.2"
+version = "0.4.3"
 description = "Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations."
 readme = "README.md"
 requires-python = ">=3.12"
