@@ -13,7 +13,7 @@ from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 
 
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 
 
 _WINDOWS_RESERVED_BASENAMES = {
@@ -71,14 +71,23 @@ class AgenticToolState:
 
 @dataclass
 class CustomizationArtifactState:
-    """One managed customization artifact, projected across N agentic tools."""
+    """One managed customization artifact, projected across N agentic tools.
+
+    ``last_modified`` is a wall-clock POSIX timestamp (seconds, float) updated
+    every time the daemon writes new bytes for this pair. It is the source
+    of truth for the ``mtime_wins`` collision strategy when importing a
+    portable library snapshot (US-12). A value of ``None`` means the entry
+    predates the field; for comparison purposes treat it as 0.0.
+    """
 
     kind: str  # "agent" | "skill" — serialized as "customization_type"
     agentic_tools: dict[str, AgenticToolState] = field(default_factory=dict)
+    last_modified: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "customization_type": self.kind,
+            "last_modified": self.last_modified,
             "agentic_tools": {
                 name: at.to_dict() for name, at in self.agentic_tools.items()
             },
@@ -89,6 +98,15 @@ class CustomizationArtifactState:
         raw_tools = data.get("agentic_tools") or {}
         if not isinstance(raw_tools, dict):
             raise ValueError("agentic_tools must be a mapping")
+        raw_last_modified = data.get("last_modified")
+        last_modified: float | None
+        if raw_last_modified is None:
+            last_modified = None
+        else:
+            try:
+                last_modified = float(raw_last_modified)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("last_modified must be a number") from exc
         return cls(
             kind=data["customization_type"],
             agentic_tools={
@@ -96,6 +114,7 @@ class CustomizationArtifactState:
                 for name, entry in raw_tools.items()
                 if isinstance(entry, dict)
             },
+            last_modified=last_modified,
         )
 
 
