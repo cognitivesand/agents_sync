@@ -13,19 +13,27 @@ def _skill_md(name: str) -> str:
     return f"---\nname: {name}\ndescription: x\n---\nbody\n"
 
 
-def _config_toml(syncer: Syncer) -> str:
-    """Render the syncer fixture's runtime config to a TOML file the CLI can read."""
-    cfg = syncer.config
+def _render_toml(cfg: dict) -> str:
+    """Render a config dict as TOML. String values use literal (single-quoted)
+    syntax so Windows-style paths with backslashes survive intact — TOML basic
+    strings would treat `\\U` and `\\x` as escape sequences and fail to parse.
+    """
     lines = ["[agents-sync]"]
     for key, value in cfg.items():
         if isinstance(value, bool):
             lines.append(f"{key} = {str(value).lower()}")
-        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        elif isinstance(value, (int, float)):
             lines.append(f"{key} = {value}")
         else:
-            escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'{key} = "{escaped}"')
+            text = str(value)
+            assert "'" not in text, f"path with apostrophe breaks literal TOML: {text!r}"
+            lines.append(f"{key} = '{text}'")
     return "\n".join(lines) + "\n"
+
+
+def _config_toml(syncer: Syncer) -> str:
+    """Render the syncer fixture's runtime config to a TOML file the CLI can read."""
+    return _render_toml(syncer.config)
 
 
 def _write_config(syncer: Syncer, tmp_path: Path) -> Path:
@@ -74,16 +82,8 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",
     }
-    lines = ["[agents-sync]"]
-    for key, value in cfg.items():
-        if isinstance(value, bool):
-            lines.append(f"{key} = {str(value).lower()}")
-        elif isinstance(value, (int, float)):
-            lines.append(f"{key} = {value}")
-        else:
-            lines.append(f'{key} = "{value}"')
     cfg_path = tmp_path / f"{label}.toml"
-    cfg_path.write_text("\n".join(lines) + "\n")
+    cfg_path.write_text(_render_toml(cfg))
     return root, cfg_path
 
 
