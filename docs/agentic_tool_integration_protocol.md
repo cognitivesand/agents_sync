@@ -77,16 +77,19 @@ The daemon's agentic_tool registry imports `AGENTIC_TOOL` from every module unde
 
 ### 1. What is synced
 
-The `supported_customization_types` field. v0.4 defines two `customization_type` values:
+The `supported_customization_types` field. The registered `customization_type` values are:
 
-| `customization_type` | Unit on disk |
-|---|---|
-| `agent` | A single file (e.g. `.md`, `.toml`) per managed customization_artifact |
-| `skill` | A folder containing `SKILL.md` plus optional auxiliary files |
+| `customization_type` | Since | Unit on disk |
+|---|---|---|
+| `agent` | v0.4 | A single file (e.g. `.md`, `.toml`) per managed customization_artifact |
+| `skill` | v0.4 | A folder containing `SKILL.md` plus optional auxiliary files |
+| `rules` | v0.5 | A single file (`.md` or `.mdc`) per rule, with optional YAML frontmatter |
+| `slash_command` | v0.5 | A single file (`.md` or `.toml`) per command, with optional frontmatter |
+| `mcp_server` | v0.5 | One MCP server definition per managed customization_artifact, projected to a slot inside a shared keyed-map file |
 
 `supported_customization_types` is a `frozenset[str]`, subset of the registered `customization_type` set. An agentic_tool that supports none is rejected at registry init.
 
-Future `customization_type` values (e.g. `prompt-template`, `mcp-server-config`) will extend this set when concrete agentic_tools demand them. Adding a new `customization_type` requires updating `agents_sync.agentic_tool_spec` to declare it and the corresponding `file_layout` descriptor. Agentic_tool modules that do not support the new `customization_type` are unaffected.
+The detailed semantics of each v0.5 customization_type are specified in §v0.5 customization_types below. Future values will extend this set when concrete agentic_tools demand them. Adding a new `customization_type` requires updating `agents_sync.agentic_tool_spec` to declare it and the corresponding `file_layout` descriptor. Agentic_tool modules that do not support the new `customization_type` are unaffected.
 
 ### 2. Where the files are
 
@@ -104,8 +107,11 @@ Two declarations:
 
   - `AgentFileLayout(extension: str)` — `agent` artifacts are single files whose basename is `<target_slug>.<extension>`.
   - `SkillFileLayout(skill_md_name: str)` — `skill` artifacts are folders. Inside each folder, the agentic_tool-rendered file has the name given by `skill_md_name` (today always `"SKILL.md"`, but future open-spec evolutions may diverge per tool).
+  - `RulesFileLayout(extension: str)` *(v0.5)* — `rules` artifacts are single files whose basename is `<target_slug>.<extension>`. Cursor declares `extension=".mdc"`; every other agentic_tool declares `extension=".md"`.
+  - `SlashCommandFileLayout(extension: str)` *(v0.5)* — `slash_command` artifacts are single files whose basename is `<target_slug>.<extension>`. Gemini CLI declares `extension=".toml"`; every other agentic_tool declares `extension=".md"`.
+  - `SharedKeyedMapLayout(shared_path: str, map_key_path: tuple[str, ...], key_field: str = "name")` *(v0.5)* — the artifact is one slot inside a shared keyed-map file. `shared_path` is the config key naming the file (e.g. `mcp_servers_file`); `map_key_path` is the JSON/TOML path to the map inside (e.g. `("mcpServers",)`); `key_field` is the field name the canonical uses for the slot's identity (`"name"`). Used by `mcp_server` artifacts in v0.5. See §SharedKeyedMapLayout semantics for read/write/archive behaviour.
 
-An agentic_tool may declare additional `file_layout` flags as the protocol evolves (e.g. case-sensitivity hints, filename-character restrictions beyond Windows reserved names). v0.4 ships with the two layouts above.
+An agentic_tool may declare additional `file_layout` flags as the protocol evolves (e.g. case-sensitivity hints, filename-character restrictions beyond Windows reserved names). v0.5 ships with the five layouts above.
 
 ### 3. How to translate to and from the canonical form
 
@@ -219,6 +225,84 @@ AGENTIC_TOOL = AgenticToolSpec(
 ```
 
 The shared `io_helpers.skill_md` module hosts the open-spec `SKILL.md` parse/render that every agentic_tool speaking the open Agent Skills Specification can share; per-agentic_tool specialisation is confined to `known_fields` and the agentic_tool name. This is the recommended pattern for any agentic_tool whose on-disk format follows the open spec.
+
+## v0.5 customization_types
+
+v0.5 adds three customization_types: `rules`, `slash_command`, and `mcp_server`. Each is specified below to the same level of detail as `agent` and `skill`.
+
+### `rules` (v0.5)
+
+A `rules` artifact is a single Markdown file (`.md` or `.mdc`) optionally carrying YAML frontmatter, providing always-on or conditionally-injected instructions to the agentic_tool's agent loop.
+
+- **`file_layout`**: `RulesFileLayout(extension: str)`. Cursor declares `".mdc"`; every other agentic_tool declares `".md"`.
+- **`config_roots`**: single key naming the directory where rule files live. By convention `rules_dir` for `.md`-using tools and `cursor_rules_dir` for Cursor; the key name is the adapter's choice.
+- **Identity**: the filename stem (slug). When a `customization_artifact_id` is present in frontmatter, the adapter MUST inject and recover it via `extract_customization_artifact_id` per US-04.
+- **Canonical document fields** (in addition to those defined by the agentic_tool):
+  - `name` (string, required) — the slug.
+  - `description` (string, optional) — natural-language summary.
+  - `body` (string, required) — the Markdown body verbatim.
+  - `globs` (string | list[string], optional) — file globs that auto-attach the rule.
+  - `applyTo` (string, optional) — single glob; Copilot-style synonym for `globs`.
+  - `alwaysApply` (bool, optional) — Cursor-style flag.
+  - `trigger` (string, optional) — Windsurf-style activation mode (`always_on` / `manual` / `model_decision` / `glob`).
+  - `provenance` (`"user" | "agent"`, default `"user"`) — set by the adapter at parse time. Adapter declarations enumerate the source paths that produce `"agent"` provenance (e.g. Gemini CLI's `~/.gemini/GEMINI.md`-after-`/memory add` marker, Claude Code's `/memories/*.md`, Goose's `memory/<category>.txt`).
+  - `private` (bool, default `false`) — set by the adapter at parse time. When `true`, the sync engine excludes the artifact end-to-end: no canonical entry, no archive write, no propagation. Adapter declarations enumerate the source paths that produce `private: true` (e.g. `.goosehints.local`, Windsurf hash-keyed memories, Junie user-scope memory).
+- **Parser contract**: as for `agent`. Frontmatter fields not in the canonical schema are stashed in `per_agentic_tool_extra`. Frontmatter fields meaningful only to one tool (e.g. Cursor's exact derived-rule-type semantics, Windsurf's character budget) go in `per_agentic_tool_only`.
+- **Renderer contract**: as for `agent`. When an adapter does not natively support `provenance` or `private`, those fields are not rendered to the artifact but are retained in the canonical (round-trip stable).
+
+### `slash_command` (v0.5)
+
+A `slash_command` artifact is a single file (`.md` or `.toml`) optionally carrying YAML frontmatter (Markdown) or top-level TOML keys (Gemini CLI), defining a reusable named prompt invoked as `/<name>` in the agentic_tool's chat surface.
+
+- **`file_layout`**: `SlashCommandFileLayout(extension: str)`. Gemini CLI declares `".toml"`; every other agentic_tool declares `".md"`.
+- **`config_roots`**: single key naming the directory where command files live. By convention `commands_dir`.
+- **Identity**: the filename stem, optionally namespaced by subdirectory under `commands/`. For path-namespaced commands (`commands/git/commit.md` → `/git:commit` per Claude/Codex/Gemini convention), the canonical's `name` field carries the namespaced form (`git:commit`); the adapter is responsible for the on-disk separator (`/` or `\`) per platform.
+- **Canonical document fields**:
+  - `name` (string, required).
+  - `description` (string, optional).
+  - `argument_hint` (string, optional) — Claude/Roo/Junie's `argument-hint`; Copilot's `hint`. Stored canonically as `argument_hint`; per-tool spelling differences live in `per_agentic_tool_only`.
+  - `allowed_tools` (list[string], optional) — the canonical stores a list; per-tool syntax (`Bash(git:*)`, glob-tool keys, flat lists) lives in `per_agentic_tool_only`.
+  - `model` (string, optional).
+  - `agent` or `mode` (string, optional) — per-tool semantics; stored in `per_agentic_tool_only`.
+  - `body` (string, required) — the prompt template verbatim. Interpolation grammars (`$ARGUMENTS`, `$1..N`, `!`-shell, `@`-file, `{{args}}`, `{{{ input }}}`, Handlebars) are NOT normalised. The adapter parser preserves the body byte-for-byte; the renderer emits it byte-for-byte.
+- **Reserved names**: Each agentic_tool may declare a set of reserved built-in command names that the sync engine refuses to create or rename onto. opencode's reserved set (`build`, `plan`, `general`, `explore`, `scout`) is the prototype. Reserved-name violations are reported as structured warnings per US-03 AC-10.
+- **TOML variant (Gemini CLI)**: the entire file is a TOML document. `prompt` and `description` are top-level keys. The parser MUST translate `prompt` ↔ `body` when converting to/from the canonical. The shell-injection (`!{cmd}`) and file-injection (`@{path}`) grammars are stored verbatim in `body` and not interpreted by the sync engine.
+
+### `mcp_server` (v0.5)
+
+An `mcp_server` artifact is one MCP-server definition. Unlike `agent`/`skill`/`rules`/`slash_command`, the on-disk projection is **one slot inside a shared keyed-map file**, not a single dedicated file.
+
+- **`file_layout`**: `SharedKeyedMapLayout(shared_path: str, map_key_path: tuple[str, ...], key_field: str = "name")`.
+  - `shared_path` is the config key naming the file the map lives in. Examples: `mcp_servers_file = "~/.cursor/mcp.json"`, `mcp_servers_file = "~/.gemini/settings.json"`, `mcp_servers_file = "~/.copilot/mcp-config.json"`.
+  - `map_key_path` is the JSON/TOML/YAML path to the map inside the file. Examples: `("mcpServers",)` for `~/.cursor/mcp.json`; `("mcpServers",)` for `~/.gemini/settings.json`; `("mcp_servers",)` for OpenAI Codex's `config.toml`. Encoded as a tuple of keys; nesting is allowed.
+  - `key_field` is the canonical identity field. Almost always `"name"`.
+- **`config_roots`**: single key naming the shared file. The same key name is reused as `SharedKeyedMapLayout.shared_path`.
+- **Identity**: the map key (server name). When the canonical injects a `customization_artifact_id`, it is stored under a tool-specific frontmatter / passthrough field inside the slot (concrete location is the adapter's choice; the protocol requires only that `extract_customization_artifact_id` recovers it).
+- **Canonical document fields**:
+  - `name` (string, required) — the slot key.
+  - `transport` (`"stdio" | "http" | "sse" | "streamable-http"`, required) — canonical transport name. Per-tool aliases (`local`/`remote` from opencode, `streamableHttp` from Cline, `httpUrl` vs `url` from Gemini CLI) are normalised to the canonical name on parse and reverted on render via `per_agentic_tool_only`.
+  - For `transport: "stdio"`:
+    - `command` (string, required).
+    - `args` (list[string], optional).
+    - `env` (object, optional).
+    - `cwd` (string, optional).
+    - `timeout` (int, optional, seconds or milliseconds — see per-tool aliasing in `per_agentic_tool_only`).
+  - For `transport: "http"` / `"sse"` / `"streamable-http"`:
+    - `url` (string, required).
+    - `headers` (object, optional).
+    - `auth` (object, optional) — used by tools that carry OAuth client credentials inline.
+  - `disabled` (bool, optional) — most tools support this; passthrough where they do not.
+  - `always_allow` (list[string], optional) — Cline/Roo/Kilo style. Stored canonically as `always_allow`; per-tool spellings (`alwaysAllow`, `allowedTools`) in `per_agentic_tool_only`.
+  - `secret_redactions` (list[object], optional) — populated only under `mcp_server_secret_policy = "redact"`; each entry records `{ field_path, original_env_var | null }` so the user can re-resolve manually.
+- **Secret-redaction policy (`mcp_server_secret_policy`)**: a top-level config key in the user's `agents_sync` config, accepted values `"refuse"` (default), `"redact"`, `"permissive"`. Evaluated by the sync core (not per adapter) at parse time and again at render time. The detection heuristic flags string values in `env`, `headers["Authorization"]`, `headers["X-API-Key"]`, `auth.client_secret`, and any field name matching `(?i)(api[_-]?key|token|secret|password)` whose value is not already an `${env:VAR}` reference.
+  - `"refuse"`: parse fails with a structured error per US-03 AC-10. The artifact is NOT adopted; the prior on-disk file is left untouched. Per-tool tests verify the error shape.
+  - `"redact"`: literals are replaced with `${env:AGENTS_SYNC_REDACTED_<n>}`; original variable hints (if recoverable, e.g. a sibling `env_key = "FOO"` in Codex) are stored in `canonical.secret_redactions`; otherwise `original_env_var: null`. Renders emit the placeholder; the user is expected to set the env var on each target host.
+  - `"permissive"`: literals propagate unchanged. The sync engine emits one structured warning per artifact per poll naming the field path. Loop suppression is unaffected (warning is informational).
+- **SharedKeyedMapLayout semantics** (read / write / archive):
+  - **Read**: discovery enumerates `shared_path` once per poll. The parser is invoked once per slot (one `parse(slot_text, prior_canonical)` per server). On a malformed slot, the artifact is skipped with a structured warning; sibling slots are still processed.
+  - **Write**: rendering produces a slot value. The sync core reads the current `shared_path`, replaces (or inserts) the slot under `map_key_path`, and atomically writes the merged file. Sibling slots are preserved byte-for-byte. The file's keys outside `map_key_path` are preserved byte-for-byte.
+  - **Archive granularity**: the **shared file** is the archive unit, not the slot. Each time the sync engine touches `shared_path`, the prior file bytes are archived under `archive/<customization_artifact_id>/<agentic_tool_name>/<shared_filename>.<ISO-timestamp>` for the customization_artifact that triggered the write. Concurrent writes to two slots within one poll merge into one archive entry per the existing self-healing-poll logic (NFR-04); the archive is keyed by the first-touched artifact. This is the only file_layout where the archive entry's `<customization_artifact_id>` does not isomorphically identify the changed bytes — a known design tradeoff to keep per-server canonical artifacts atomic.
+  - **Identity injection**: when the sync engine creates a slot, the adapter chooses where in the slot the `customization_artifact_id` is stored. The protocol requires only that `extract_customization_artifact_id(slot_text)` recovers it. Conventional choice: a top-level key like `__agents_sync_id__` or `_agents_sync_artifact_id` inside the slot, mirroring how `agent` artifacts embed it in frontmatter.
 
 ## Versioning
 
