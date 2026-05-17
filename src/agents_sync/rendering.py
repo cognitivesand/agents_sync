@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -170,9 +171,15 @@ def update_state_n_way(
     paths: dict[str, Path],
     agentic_tools: dict[str, AgenticToolSpec],
 ) -> None:
-    """Record `paths` (one per tool) into `state[pair_id]`, computing digests."""
+    """Record `paths` (one per tool) into `state[pair_id]`, computing digests.
+
+    Also stamps ``last_modified`` on the pair so cross-host export/import
+    comparisons (US-12 mtime_wins) have a persisted timestamp to consult.
+    Every render-and-record is treated as a meaningful change.
+    """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
+    ps.last_modified = time.time()
     for tool_name, path in paths.items():
         spec = agentic_tools[tool_name]
         io = spec.io[kind]

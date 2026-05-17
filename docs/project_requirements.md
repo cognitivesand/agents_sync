@@ -21,6 +21,8 @@ Project-wide constraints (Python 3.12+, per-OS supervision mechanism, single use
 - **FR-04** (Trusted removal source): The daemon **shall** treat a customization_artifact as removed only when an `available` agentic_tool no longer has it. A missing artifact on an `unavailable` or `disabled` agentic_tool **shall not** trigger removal.
 - **FR-05** (v0.4.1 agent matrix): The daemon **shall** sync user-level `agent` artifacts across Claude Code, Codex, and opencode when those tools are available.
 - **FR-06** (v0.4.1 skill matrix): The daemon **shall** sync user-level `skill` artifacts across Claude Code, Codex, Google Antigravity, and opencode when those tools are available.
+- **FR-07** (Portable library snapshot): The daemon **shall** provide one-shot CLI subcommands (`export`, `import`) that serialise the canonical store to a single portable archive file and deserialise such a file back into a local install. The archive **shall** contain only host-portable content (canonical documents and a manifest); `state.json` and the on-disk archive directory **shall not** be included.
+- **FR-08** (Configurable import collision strategy): When importing a portable library snapshot, the daemon **shall** support a configurable collision strategy (`skip`, `mtime_wins`, `overwrite`) governing how an imported customization_artifact is reconciled with a locally-managed one of the same `customization_artifact_id` or of the same `(customization_type, target_slug(name))`. The default **shall** be `mtime_wins`. The strategy **shall** be overridable per invocation on the CLI.
 
 ## Non-Functional Requirements
 

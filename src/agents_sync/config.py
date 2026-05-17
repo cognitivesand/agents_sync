@@ -94,6 +94,7 @@ def platform_defaults(
         "opencode_agents_dir": str(opencode_root / "agents"),
         "opencode_skills_dir": str(opencode_root / "skills"),
         "opencode_enabled": True,
+        "import_collision_strategy": "mtime_wins",
     }
 
 
@@ -179,6 +180,13 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigError(f"missing required config key: {key}")
         if not isinstance(config[key], (str, Path)):
             raise ConfigError(f"{key} must be a path string")
+
+    strategy = config.get("import_collision_strategy", "mtime_wins")
+    if strategy not in {"skip", "mtime_wins", "overwrite"}:
+        raise ConfigError(
+            f"import_collision_strategy must be skip|mtime_wins|overwrite, "
+            f"got {strategy!r}"
+        )
 
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent

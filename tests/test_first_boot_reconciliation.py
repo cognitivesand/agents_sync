@@ -61,7 +61,7 @@ def test_two_tool_duplicate_with_drifted_content_merges_to_one(syncer: Syncer):
     syncer.sync_once()
 
     state = _list_state(syncer)
-    assert state["schema_version"] == 2
+    assert state["schema_version"] == 3
     customization_artifacts = state["customization_artifacts"]
     assert len(customization_artifacts) == 1
     entry = next(iter(customization_artifacts.values()))
