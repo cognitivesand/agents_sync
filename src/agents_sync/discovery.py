@@ -16,7 +16,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    CustomizationTypeIO,
+    is_reserved_customization_name,
+)
 from agents_sync.canonical import new_pair_id
 from agents_sync.config import expand_path
 from agents_sync.identity import InvalidPairId, validate_pair_id
@@ -176,8 +180,9 @@ class DiscoveryWalker:
         ``*/SKILL.md`` so callers get the artifact path (not the metadata file).
         """
         if io.storage == "single_file":
+            walker = root.rglob if io.recursive else root.glob
             return sorted(
-                p for p in root.glob(f"*{io.file_suffix}")
+                p for p in walker(f"*{io.file_suffix}")
                 if p.is_file() and not p.name.startswith(".")
             )
         if io.storage == "directory_skill":
@@ -291,12 +296,22 @@ class DiscoveryWalker:
         source_tool = sorted(info.agentic_tools.keys())[0]
         source_info = info.agentic_tools[source_tool]
         source_io = self.agentic_tools[source_tool].io[info.kind]
+        source_root = expand_path(
+            self.config[self.agentic_tools[source_tool].config_dir_keys[info.kind]]
+        )
         text = read_artifact_text(source_io, source_info.path)
-        canonical = source_io.parse(text, None, artifact_path=source_info.path)
+        canonical = source_io.parse(
+            text,
+            None,
+            artifact_path=source_info.path,
+            artifact_root=source_root,
+        )
         targets: list[Path] = []
         for tool_name in missing:
             spec = self.agentic_tools[tool_name]
             io = spec.io[info.kind]
+            if self._is_reserved_target_name(spec, info.kind, canonical):
+                continue
             root = expand_path(self.config[spec.config_dir_keys[info.kind]])
             slugger = io.slugify_name or target_slug
             slug = slugger(canonical["name"])
@@ -312,3 +327,13 @@ class DiscoveryWalker:
             if kind in spec.supported_customization_types
             and self.tool_status.is_available(name)
         ]
+
+    def _is_reserved_target_name(
+        self,
+        spec: AgenticToolSpec,
+        kind: str,
+        canonical: dict[str, Any],
+    ) -> bool:
+        io = spec.io[kind]
+        name = str(canonical.get("name", ""))
+        return is_reserved_customization_name(io, name)
