@@ -20,7 +20,11 @@ from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
 from agents_sync.canonical import is_private, new_pair_id
 from agents_sync.config import expand_path
 from agents_sync.identity import InvalidPairId, validate_pair_id
-from agents_sync.rendering import path_collision_key, read_artifact_text
+from agents_sync.rendering import (
+    path_collision_key,
+    read_artifact_text,
+    single_file_target,
+)
 from agents_sync.state import (
     CustomizationArtifactState,
     sha256_file,
@@ -176,6 +180,11 @@ class DiscoveryWalker:
         ``*/SKILL.md`` so callers get the artifact path (not the metadata file).
         """
         if io.storage == "single_file":
+            if io.fixed_file_name is not None:
+                fixed_path = root / io.fixed_file_name
+                if fixed_path.is_file() and not fixed_path.name.startswith("."):
+                    return [fixed_path]
+                return []
             return sorted(
                 p for p in root.glob(f"*{io.file_suffix}")
                 if p.is_file() and not p.name.startswith(".")
@@ -303,7 +312,7 @@ class DiscoveryWalker:
             slugger = io.slugify_name or target_slug
             slug = slugger(canonical["name"])
             if io.storage == "single_file":
-                targets.append(root / f"{slug}{io.file_suffix}")
+                targets.append(single_file_target(root, io, slug))
             else:
                 targets.append(root / slug)
         return targets

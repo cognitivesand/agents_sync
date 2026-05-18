@@ -300,7 +300,7 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     the antigravity dir becomes available on a later poll."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
+    for sub in ("ca", "cs", "cr", "xa", "xs", "xr", "oa", "os", "or"):
         (tmp_path / sub).mkdir()
     # Start with antigravity disabled so the first sync_once registers
     # claude+codex+opencode.
@@ -309,12 +309,15 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
+        "claude_rules_dir": str(tmp_path / "cr"),
         "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
+        "codex_rules_dir": str(tmp_path / "xr"),
         "antigravity_skills_dir": str(tmp_path / "as"),  # doesn't exist yet
         "antigravity_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_skills_dir": str(tmp_path / "os"),
+        "opencode_rules_dir": str(tmp_path / "or"),
         "opencode_enabled": True,
     }
     syncer = Syncer(dict(config_two_tool))

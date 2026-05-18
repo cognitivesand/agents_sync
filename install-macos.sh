@@ -92,9 +92,11 @@ state_path = "~/.local/state/agents-sync/state.json"
 
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
+claude_rules_dir = "~/.claude"
 
 codex_agents_dir = "~/.codex/agents"
 codex_skills_dir = "~/.codex/skills"
+codex_rules_dir = "~/.codex"
 
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
@@ -105,6 +107,7 @@ codex_skills_dir = "~/.codex/skills"
 # be created. To disable, uncomment opencode_enabled.
 # opencode_agents_dir = "~/.config/opencode/agents"
 # opencode_skills_dir = "~/.config/opencode/skills"
+# opencode_rules_dir = "~/.config/opencode"
 # opencode_enabled = false
 EOF
 fi

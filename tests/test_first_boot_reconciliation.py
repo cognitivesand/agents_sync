@@ -153,19 +153,22 @@ def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
     """
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
+    for sub in ("ca", "cs", "cr", "xa", "xs", "xr", "oa", "os", "or"):
         (tmp_path / sub).mkdir()
     config = {
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
         "claude_skills_dir": str(tmp_path / "cs"),
+        "claude_rules_dir": str(tmp_path / "cr"),
         "codex_agents_dir": str(tmp_path / "xa"),
         "codex_skills_dir": str(tmp_path / "xs"),
+        "codex_rules_dir": str(tmp_path / "xr"),
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_skills_dir": str(tmp_path / "os"),
+        "opencode_rules_dir": str(tmp_path / "or"),
         "opencode_enabled": False,
     }
     syncer = Syncer(config)

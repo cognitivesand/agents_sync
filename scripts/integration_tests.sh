@@ -102,12 +102,15 @@ poll_interval_seconds = 1.0
 state_path = '$install_root/state/state.json'
 claude_agents_dir = '$install_root/claude/agents'
 claude_skills_dir = '$install_root/claude/skills'
+claude_rules_dir = '$install_root/claude'
 codex_agents_dir = '$install_root/codex/agents'
 codex_skills_dir = '$install_root/codex/skills'
+codex_rules_dir = '$install_root/codex'
 antigravity_skills_dir = '$install_root/antigravity/skills'
 antigravity_enabled = true
 opencode_agents_dir = '$install_root/opencode/agents'
 opencode_skills_dir = '$install_root/opencode/skills'
+opencode_rules_dir = '$install_root/opencode'
 opencode_enabled = true
 import_collision_strategy = "mtime_wins"
 EOF

@@ -126,6 +126,7 @@ function Ensure-Config([string]$ConfigFile, [string]$StateFile) {
     $tomlStatePath = Convert-ToTomlPath $StateFile
     $opencodeAgentsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\agents")
     $opencodeSkillsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\skills")
+    $opencodeRulesPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode")
     $cfg = @"
 [agents-sync]
 poll_interval_seconds = 2.0
@@ -133,9 +134,11 @@ state_path = "$tomlStatePath"
 
 claude_agents_dir = "~/.claude/agents"
 claude_skills_dir = "~/.claude/skills"
+claude_rules_dir = "~/.claude"
 
 codex_agents_dir = "~/.codex/agents"
 codex_skills_dir = "~/.codex/skills"
+codex_rules_dir = "~/.codex"
 
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
@@ -149,6 +152,7 @@ codex_skills_dir = "~/.codex/skills"
 # from opencode debug paths; override these paths if yours does.
 # opencode_agents_dir = "$opencodeAgentsPath"
 # opencode_skills_dir = "$opencodeSkillsPath"
+# opencode_rules_dir = "$opencodeRulesPath"
 # opencode_enabled = false
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)

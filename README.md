@@ -46,26 +46,28 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents across Claude Code and OpenCode, and user-level skills across Claude Code, Codex, Google Antigravity, and OpenCode.
+`agents_sync` synchronizes user-level agents, skills, and global rules across the tools that expose each customization type.
 
 | What you edit | Claude Code | Codex | Antigravity | OpenCode |
 |:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | n/a (skills only) | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | n/a | `~/.config/opencode/AGENTS.md` |
 
 **In plain terms:**
 
 - Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
-- Agents are reusable AI personas. Claude Code and OpenCode have per-agent file formats, so agents sync two ways.
+- Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
+- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
 
 ```mermaid
 flowchart LR
     subgraph Tools["Tools"]
         direction TB
-        Claude["Claude Code<br/>agents + skills"]
-        Codex["Codex<br/>skills only"]
+        Claude["Claude Code<br/>agents + skills + rules"]
+        Codex["Codex<br/>agents + skills + rules"]
         Antigravity["Antigravity<br/>skills only"]
-        Opencode["OpenCode<br/>agents + skills"]
+        Opencode["OpenCode<br/>agents + skills + rules"]
     end
 
     Sync["agents_sync<br/>watch + match + sync"]
@@ -175,7 +177,7 @@ To disable Antigravity entirely, set `antigravity_enabled = false` in your `conf
 
 ### Enabling OpenCode
 
-OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/` and `~/.config/opencode/skills/`. On Windows the default is `%APPDATA%\opencode\agents\` and `%APPDATA%\opencode\skills\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir` and `opencode_skills_dir`.
+OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/`, `~/.config/opencode/skills/`, and `~/.config/opencode/AGENTS.md`. On Windows the default is `%APPDATA%\opencode\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir`, `opencode_skills_dir`, and `opencode_rules_dir`.
 
 To disable OpenCode entirely, set `opencode_enabled = false` in your `config.toml`, or pass `--no-opencode-enabled` on the command line.
 
@@ -381,12 +383,12 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 
 **Synced roots:**
 
-| Tool | Agents | Skills |
-|:---|:---|:---|
-| Claude Code | `~/.claude/agents` | `~/.claude/skills` |
-| Codex | n/a | `~/.codex/skills` |
-| Antigravity | n/a | `~/.gemini/antigravity/skills` |
-| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/skills` |
+| Tool | Agents | Skills | Rules |
+|:---|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/skills` | `~/.claude/CLAUDE.md` |
+| Codex | `~/.codex/agents` | `~/.codex/skills` | `~/.codex/AGENTS.md` |
+| Antigravity | n/a | `~/.gemini/antigravity/skills` | n/a |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` |
 
 **State layout:**
 

@@ -44,12 +44,24 @@ class FileLayout(Protocol):
     def file_suffix(self) -> str:
         ...
 
+    @property
+    def fixed_file_name(self) -> str | None:
+        ...
+
 
 @dataclass(frozen=True)
 class SingleFileLayout:
     """A customization artifact stored as one file under its configured root."""
 
     extension: str
+    fixed_file_name: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.fixed_file_name is not None
+            and not self.fixed_file_name.endswith(self.extension)
+        ):
+            raise ValueError("fixed_file_name must end with extension")
 
     @property
     def storage(self) -> str:
@@ -97,6 +109,12 @@ class CustomizationTypeIO:
         object.__setattr__(self, "storage", layout_storage)
         object.__setattr__(self, "file_suffix", layout_suffix)
 
+    @property
+    def fixed_file_name(self) -> str | None:
+        if self.file_layout is None:
+            return None
+        return self.file_layout.fixed_file_name
+
 
 @dataclass(frozen=True)
 class AgenticToolSpec:
@@ -118,6 +136,49 @@ class AgenticToolSpec:
     @property
     def supported_customization_types(self) -> frozenset[str]:
         return frozenset(self.io.keys())
+
+
+def _global_rules_io(
+    agentic_tool_name: str,
+    fixed_file_name: str,
+) -> CustomizationTypeIO:
+    from agents_sync.rules_io import (
+        GLOBAL_RULE_NAME,
+        extract_pair_id_from_rules_md,
+        parse_rules_md,
+        render_rules_md,
+    )
+
+    def parse_rules(
+        text: str,
+        prior_canonical: dict[str, Any] | None,
+        *,
+        artifact_path: Path | None = None,
+    ) -> dict[str, Any]:
+        return parse_rules_md(
+            text,
+            prior_canonical,
+            agentic_tool_name=agentic_tool_name,
+            artifact_path=artifact_path,
+            canonical_name=GLOBAL_RULE_NAME,
+        )
+
+    def render_rules(canonical: dict[str, Any], prior_text: str | None) -> str:
+        return render_rules_md(
+            canonical,
+            prior_text,
+            agentic_tool_name=agentic_tool_name,
+        )
+
+    return CustomizationTypeIO(
+        parse=parse_rules,
+        render=render_rules,
+        extract_pair_id=extract_pair_id_from_rules_md,
+        file_layout=RulesFileLayout(
+            extension=".md",
+            fixed_file_name=fixed_file_name,
+        ),
+    )
 
 
 def _build_claude_spec() -> AgenticToolSpec:
@@ -151,6 +212,7 @@ def _build_claude_spec() -> AgenticToolSpec:
         config_dir_keys={
             "agent": "claude_agents_dir",
             "skill": "claude_skills_dir",
+            "rules": "claude_rules_dir",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -167,6 +229,7 @@ def _build_claude_spec() -> AgenticToolSpec:
                 storage="directory_skill",
                 file_suffix="",
             ),
+            "rules": _global_rules_io("claude", "CLAUDE.md"),
         },
     )
 
@@ -208,6 +271,7 @@ def _build_codex_spec() -> AgenticToolSpec:
         config_dir_keys={
             "agent": "codex_agents_dir",
             "skill": "codex_skills_dir",
+            "rules": "codex_rules_dir",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -224,6 +288,7 @@ def _build_codex_spec() -> AgenticToolSpec:
                 storage="directory_skill",
                 file_suffix="",
             ),
+            "rules": _global_rules_io("codex", "AGENTS.md"),
         },
     )
 
@@ -303,6 +368,7 @@ def _build_opencode_spec() -> AgenticToolSpec:
         config_dir_keys={
             "agent": "opencode_agents_dir",
             "skill": "opencode_skills_dir",
+            "rules": "opencode_rules_dir",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -320,6 +386,7 @@ def _build_opencode_spec() -> AgenticToolSpec:
                 file_suffix="",
                 slugify_name=opencode_skill_slug,
             ),
+            "rules": _global_rules_io("opencode", "AGENTS.md"),
         },
         disable_config_key="opencode_enabled",
     )
