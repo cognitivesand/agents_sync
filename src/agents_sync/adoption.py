@@ -440,8 +440,38 @@ class AdoptionEngine:
         dropped. Abort if archiving any survivor fails — survivors stay on
         disk and the state entry is preserved so the next poll retries.
         """
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        from agents_sync.shared_keyed_map_io import apply_slot
         for tool in survivors:
-            survivor_path = info.agentic_tools[tool].path
+            survivor_info = info.agentic_tools[tool]
+            survivor_io = self.agentic_tools[tool].io[info.kind]
+            if isinstance(survivor_io.file_layout, SharedKeyedMapLayout):
+                # Keyed-map removal: archive the slot text, then delete the
+                # slot key from the shared file. Sibling slots and out-of-map
+                # keys must survive.
+                slot_key = survivor_info.slot
+                if slot_key is None:
+                    continue
+                try:
+                    prior_slot_text = apply_slot(
+                        survivor_info.path, survivor_io.file_layout,
+                        slot_key, new_slot_text=None,
+                    )
+                except Exception:
+                    logging.exception(
+                        "Archive-then-remove aborted: pair_id=%s survivor=%s slot=%s",
+                        pair_id, tool, slot_key,
+                    )
+                    return False
+                if prior_slot_text is not None:
+                    archive.archive_text(
+                        self.state_dir, pair_id, tool,
+                        slot_name=slot_key,
+                        extension=survivor_io.file_layout.file_suffix,
+                        content=prior_slot_text,
+                    )
+                continue
+            survivor_path = survivor_info.path
             if not survivor_path.exists():
                 continue
             try:

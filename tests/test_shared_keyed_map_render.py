@@ -227,6 +227,45 @@ def test_archive_contains_prior_slot_text_not_whole_file(tmp_path: Path):
         assert "name" in archived_obj
 
 
+def test_removal_deletes_slot_preserving_siblings(tmp_path: Path):
+    """Removing a slot from the source tool's shared file propagates as
+    a slot delete (not a file delete) on the projection target. Sibling
+    slots and out-of-map keys must survive on both sides."""
+    syncer = _mcp_syncer(tmp_path)
+    alpha_file = tmp_path / "alpha-mcp.json"
+    beta_file = tmp_path / "beta-mcp.json"
+    alpha_file.write_text(json.dumps({
+        "mcpServers": {
+            "github": {"name": "github", "command": "gh-mcp"},
+            "filesystem": {"name": "filesystem", "command": "fs-mcp"},
+        },
+        "theme": "dark",
+    }))
+
+    # First poll adopts both pairs into beta.
+    syncer.sync_once()
+
+    # User removes 'github' from alpha's shared file by hand.
+    current = json.loads(alpha_file.read_text())
+    del current["mcpServers"]["github"]
+    alpha_file.write_text(json.dumps(current, indent=2) + "\n")
+
+    syncer.sync_once()
+
+    state = load_state(syncer.state_dir)
+    surviving_slots = {
+        next(iter(entry.agentic_tools.values())).slot
+        for entry in state.values()
+    }
+    assert surviving_slots == {"filesystem"}, "github pair must be dropped"
+
+    beta = json.loads(beta_file.read_text())
+    assert set(beta["mcpServers"]) == {"filesystem"}
+    alpha = json.loads(alpha_file.read_text())
+    assert alpha["theme"] == "dark"
+    assert set(alpha["mcpServers"]) == {"filesystem"}
+
+
 def test_second_sync_does_not_re_archive(tmp_path: Path):
     """Once both tools carry the pair_id, the slot bytes match across
     polls. A no-op sync_once must not produce a fresh archive entry."""
