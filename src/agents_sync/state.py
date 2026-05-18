@@ -47,18 +47,29 @@ _IGNORED_TREE_FILE_PREFIXES = ("._",)
 
 @dataclass
 class AgenticToolState:
-    """Per-agentic-tool slice of one customization artifact's state."""
+    """Per-agentic-tool slice of one customization artifact's state.
+
+    ``slot`` is set only for artifacts whose ``file_layout`` is a
+    ``SharedKeyedMapLayout`` (v0.5+ ``mcp_server`` artifacts). When set,
+    ``path`` is the shared keyed-map file and ``slot`` is the key within
+    the map identifying this artifact's entry. When ``None``, ``path``
+    is the per-file artifact path as it has been since v0.2.
+    """
 
     path: str
     last_seen: str | None = None
     last_written: str | None = None
+    slot: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "path": self.path,
             "last_seen": self.last_seen,
             "last_written": self.last_written,
         }
+        if self.slot is not None:
+            data["slot"] = self.slot
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgenticToolState":
@@ -66,6 +77,7 @@ class AgenticToolState:
             path=data["path"],
             last_seen=data.get("last_seen"),
             last_written=data.get("last_written"),
+            slot=data.get("slot"),
         )
 
 

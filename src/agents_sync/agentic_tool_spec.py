@@ -79,6 +79,43 @@ class RulesFileLayout(SingleFileLayout):
 
 
 @dataclass(frozen=True)
+class SharedKeyedMapLayout:
+    """A customization artifact stored as one slot inside a shared keyed-map file.
+
+    Unlike ``SingleFileLayout``, the artifact is *not* one file on disk —
+    multiple artifacts share the same file, each owning one entry in a
+    keyed map nested at ``map_key_path`` inside that file.
+
+    ``shared_path_config_key`` names the config entry that resolves to
+    the shared file path (e.g. ``mcp_servers_file`` for Cursor's
+    ``~/.cursor/mcp.json``). ``map_key_path`` is the tuple of keys to
+    walk into the parsed mapping to reach the map of slots (e.g.
+    ``("mcpServers",)``). ``key_field`` names the canonical field whose
+    value becomes the slot key (``"name"`` for every v0.5 ``mcp_server``
+    adapter). ``file_format`` selects the registered format handler in
+    ``shared_keyed_map_formats``.
+    """
+
+    shared_path_config_key: str
+    map_key_path: tuple[str, ...]
+    key_field: str = "name"
+    file_format: str = "json"
+
+    @property
+    def storage(self) -> str:
+        return "shared_keyed_map"
+
+    @property
+    def file_suffix(self) -> str:
+        from agents_sync.shared_keyed_map_formats import get_format
+        return get_format(self.file_format).extension
+
+    @property
+    def fixed_file_name(self) -> str | None:
+        return None
+
+
+@dataclass(frozen=True)
 class CustomizationTypeIO:
     """Parse / render / extract bundle for one (agentic_tool, customization_type) cell.
 
