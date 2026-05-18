@@ -108,11 +108,10 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit a Claude Code agent | Codex and OpenCode receive matching agent files |
-| Create or edit an OpenCode agent | Claude Code and Codex receive matching agent files |
+| Create or edit an agent in Claude Code, Codex, or OpenCode | The other two agent-capable tools receive matching agent files |
 | Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
 | Create or edit a slash command in Claude Code, Codex, or OpenCode | The other slash-command tools receive matching command files |
-| Two or more tools edit the same skill simultaneously | The most recently modified copy wins; the losers are archived |
+| Two or more tools edit the same customization simultaneously | The most recently modified copy wins; the losers are archived |
 | Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
 
@@ -174,7 +173,7 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs claude's and codex's skills into it. Antigravity itself picks up the directory on its next read.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, and OpenCode into it. Antigravity itself picks up the directory on its next read.
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
@@ -240,7 +239,7 @@ Get-Content "$env:LOCALAPPDATA\agents-sync\logs\agents-sync.log" -Tail 20
 **Expected log line:**
 
 ```text
-INFO Watching Claude agents/skills with SHA256 polling
+INFO Watching configured agent and skill roots with SHA256 polling
 ```
 
 ### macOS
@@ -398,7 +397,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 ```text
 state.json                                pair_id -> paths and digests
 canonical/<pair_id>.json                  one canonical document per pair
-archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
+archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ```
 
 ---
@@ -437,7 +436,8 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 
 ### 0.4.1
 
-- Added OpenCode as an agentic tool. Agents now sync two ways across Claude Code and OpenCode.
+- Added OpenCode as an agentic tool. Agents now sync three ways across Claude Code, Codex, and OpenCode.
+- Restored Codex custom agents under `~/.codex/agents/*.toml`.
 - Skills now include OpenCode as an additional sync participant.
 - Added OpenCode agent and skill roots with `opencode_agents_dir`, `opencode_skills_dir`, and `opencode_enabled` config/CLI wiring.
 - Preserved OpenCode-only metadata such as `mode`, `permission`, `steps`, `color`, and open-spec skill metadata without leaking foreign fields into OpenCode files.
@@ -445,11 +445,11 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 ### 0.4.0
 
 - Added Google Antigravity as a third agentic tool. Antigravity participates in skills only.
-- Codex became skills-only in v0.4.
+- Codex agent sync was temporarily removed in v0.4, then restored in v0.4.1.
 - The default `codex_skills_dir` is now `~/.codex/skills` (the path Codex's own `skill-installer` and `skill-creator` use). The v0.3-era `~/.agents/skills` default never matched a live Codex install.
 - Daemon-projected counterparts use the bare slugified name. The v0.3 `-skill` / `-agent` suffix is dropped — agents and skills live in distinct config-keyed roots, so kind disambiguation is unnecessary. A skill named `formatter` now lives at `<root>/formatter/SKILL.md` on every tool instead of `<root>/formatter-skill/SKILL.md`.
 - On startup the daemon creates each enabled tool's roots if they don't exist (`mkdir -p`). Mid-life loss of a root still flips a tool to `unavailable` per US-11.
-- Agents (per-agent files) were therefore Claude-only in v0.4. v0.4.1 adds OpenCode as an agent sync target.
+- Agents (per-agent files) were therefore Claude-only in v0.4. v0.4.1 restores Codex custom agents under `~/.codex/agents/*.toml` and adds OpenCode as an agent sync target.
 - Generalised the sync algorithm from two named peers (`claude` / `codex`) to an N-tool registry. Adding another agentic tool is now an IO module + a config entry; the sync engine, conflict resolution, adoption, reconciliation, and removal-propagation paths are tool-agnostic.
 - Replaced the v0.2.1 "exit on missing root" startup behavior with per-tool status (`available` / `unavailable` / `disabled`). A missing root marks the tool unavailable for that poll and is logged once; the daemon continues to sync the remaining available tools. Removal-propagation never fires from an unavailable tool, so an uninstalled or unmounted tool never wipes your library.
 - Added first-boot reconciliation: when the same logical skill exists on multiple tools without a `pair_id`, the daemon merges them by most-recent mtime instead of failing on a slug collision.
