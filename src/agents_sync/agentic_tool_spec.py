@@ -33,6 +33,38 @@ class ParseFn(Protocol):
         ...
 
 
+class FileLayout(Protocol):
+    """Storage shape for one customization_type on one agentic_tool."""
+
+    @property
+    def storage(self) -> str:
+        ...
+
+    @property
+    def file_suffix(self) -> str:
+        ...
+
+
+@dataclass(frozen=True)
+class SingleFileLayout:
+    """A customization artifact stored as one file under its configured root."""
+
+    extension: str
+
+    @property
+    def storage(self) -> str:
+        return "single_file"
+
+    @property
+    def file_suffix(self) -> str:
+        return self.extension
+
+
+@dataclass(frozen=True)
+class RulesFileLayout(SingleFileLayout):
+    """Layout for v0.5 `rules` artifacts."""
+
+
 @dataclass(frozen=True)
 class CustomizationTypeIO:
     """Parse / render / extract bundle for one (agentic_tool, customization_type) cell.
@@ -45,9 +77,25 @@ class CustomizationTypeIO:
     parse: ParseFn
     render: RenderFn
     extract_pair_id: ExtractPairIdFn
-    storage: str
-    file_suffix: str
+    storage: str = ""
+    file_suffix: str = ""
+    file_layout: FileLayout | None = None
     slugify_name: SlugifyFn | None = None
+
+    def __post_init__(self) -> None:
+        if self.file_layout is None:
+            if not self.storage:
+                raise ValueError("CustomizationTypeIO requires storage or file_layout")
+            return
+
+        layout_storage = self.file_layout.storage
+        layout_suffix = self.file_layout.file_suffix
+        if self.storage and self.storage != layout_storage:
+            raise ValueError("storage conflicts with file_layout")
+        if self.file_suffix and self.file_suffix != layout_suffix:
+            raise ValueError("file_suffix conflicts with file_layout")
+        object.__setattr__(self, "storage", layout_storage)
+        object.__setattr__(self, "file_suffix", layout_suffix)
 
 
 @dataclass(frozen=True)
