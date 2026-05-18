@@ -46,6 +46,14 @@ def path_collision_key(path: Path) -> str:
     return normalized
 
 
+def slot_aware_collision_key(path: Path, slot: str | None) -> tuple[str, str | None]:
+    """Composite collision key for both per-file and shared-keyed-map
+    artifacts. Two slots in the same shared file are distinct artifacts;
+    two artifacts targeting the same (file, None) per-file path collide
+    as before."""
+    return (path_collision_key(path), slot)
+
+
 def assert_target_available(target: Path, existing_path: Path | None) -> None:
     """Refuse to overwrite a target that doesn't already belong to this pair."""
     if existing_path is not None and (

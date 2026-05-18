@@ -11,11 +11,20 @@ from pathlib import Path
 
 @dataclass
 class AgenticToolInfo:
-    """One tool's view of one artifact in the current poll."""
+    """One tool's view of one artifact in the current poll.
+
+    For ``SharedKeyedMapLayout`` artifacts (v0.5 ``mcp_server``),
+    ``path`` is the shared keyed-map file and ``slot`` is the key
+    inside the map identifying this artifact's entry. For every other
+    layout ``slot`` is ``None`` and ``path`` is the per-file artifact
+    path. ``digest`` is over the slot text when ``slot`` is set,
+    over the whole file otherwise.
+    """
     path: Path
     digest: str
     mtime: float
     pair_id_present: bool
+    slot: str | None = None
 
 
 @dataclass
@@ -23,3 +32,13 @@ class CustomizationArtifactInfo:
     """All tools' views of one pair, indexed by tool name."""
     kind: str
     agentic_tools: dict[str, AgenticToolInfo] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PlannedTarget:
+    """An adoption / projection target. ``slot`` is set only for
+    ``SharedKeyedMapLayout`` (v0.5 ``mcp_server``) targets; otherwise
+    ``slot`` is ``None`` and ``path`` is the per-file target path.
+    """
+    path: Path
+    slot: str | None = None

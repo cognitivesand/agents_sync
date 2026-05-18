@@ -162,6 +162,10 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def is_ignored_tree_path(path: Path) -> bool:
     return path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(_IGNORED_TREE_FILE_PREFIXES)
 
