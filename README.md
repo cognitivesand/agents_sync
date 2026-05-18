@@ -46,26 +46,28 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents across Claude Code and OpenCode, and user-level skills across Claude Code, Codex, Google Antigravity, and OpenCode.
+`agents_sync` synchronizes user-level agents, skills, and slash commands across the tools that expose file-based formats.
 
 | What you edit | Claude Code | Codex | Antigravity | OpenCode |
 |:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | n/a (skills only) | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
 
 **In plain terms:**
 
 - Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
-- Agents are reusable AI personas. Claude Code and OpenCode have per-agent file formats, so agents sync two ways.
+- Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
+- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, and OpenCode sync them as Markdown files.
 
 ```mermaid
 flowchart LR
     subgraph Tools["Tools"]
         direction TB
-        Claude["Claude Code<br/>agents + skills"]
-        Codex["Codex<br/>skills only"]
+        Claude["Claude Code<br/>agents + commands + skills"]
+        Codex["Codex<br/>agents + prompts + skills"]
         Antigravity["Antigravity<br/>skills only"]
-        Opencode["OpenCode<br/>agents + skills"]
+        Opencode["OpenCode<br/>agents + commands + skills"]
     end
 
     Sync["agents_sync<br/>watch + match + sync"]
@@ -104,11 +106,12 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit a Claude Code agent | OpenCode receives a matching agent file |
-| Create or edit an OpenCode agent | Claude Code receives a matching agent file |
+| Create or edit a Claude Code agent | Codex and OpenCode receive matching agent files |
+| Create or edit an OpenCode agent | Claude Code and Codex receive matching agent files |
 | Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
+| Create or edit a slash command in Claude Code, Codex, or OpenCode | The other slash-command tools receive matching command files |
 | Two or more tools edit the same skill simultaneously | The most recently modified copy wins; the losers are archived |
-| Remove a synced agent or skill on any tool | The other tools' copies are archived, then removed |
+| Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
 
 ---
@@ -175,7 +178,7 @@ To disable Antigravity entirely, set `antigravity_enabled = false` in your `conf
 
 ### Enabling OpenCode
 
-OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/` and `~/.config/opencode/skills/`. On Windows the default is `%APPDATA%\opencode\agents\` and `%APPDATA%\opencode\skills\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir` and `opencode_skills_dir`.
+OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/`, `~/.config/opencode/commands/`, and `~/.config/opencode/skills/`. On Windows the default is `%APPDATA%\opencode\agents\`, `%APPDATA%\opencode\commands\`, and `%APPDATA%\opencode\skills\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir`, `opencode_commands_dir`, and `opencode_skills_dir`.
 
 To disable OpenCode entirely, set `opencode_enabled = false` in your `config.toml`, or pass `--no-opencode-enabled` on the command line.
 
@@ -309,7 +312,7 @@ tail -f ~/Library/Logs/agents-sync/agents-sync.log
 
 ## 💾 Backup, Restore, Share
 
-`agents_sync` can serialise your entire managed library — every agent and skill it tracks — into a single zip file. The same file restores onto another install, or seeds a teammate's machine.
+`agents_sync` can serialise your entire managed library into a single zip file. The same file restores onto another install, or seeds a teammate's machine.
 
 ```bash
 agents-sync export ~/my-library.zip
@@ -381,12 +384,12 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 
 **Synced roots:**
 
-| Tool | Agents | Skills |
-|:---|:---|:---|
-| Claude Code | `~/.claude/agents` | `~/.claude/skills` |
-| Codex | n/a | `~/.codex/skills` |
-| Antigravity | n/a | `~/.gemini/antigravity/skills` |
-| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/skills` |
+| Tool | Agents | Slash commands | Skills |
+|:---|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` |
+| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` |
+| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` |
 
 **State layout:**
 
@@ -403,13 +406,13 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 ## 📝 Notes
 
 - The daemon polls every configured tool at a configurable interval.
-- First sight of any agent or skill file without a `pair_id` triggers adoption.
+- First sight of any managed customization file without a `pair_id` triggers adoption.
 - Adoption archives the original, injects a `pair_id`, and creates the counterpart on every other tool that supports that kind of customization.
-- Removing a synced agent or skill on any one tool archives every surviving tool's copy before removing it.
+- Removing a synced customization on any one tool archives every surviving tool's copy before removing it.
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
-- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir` and `opencode_skills_dir`.
+- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, and `opencode_skills_dir`.
 - This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
 
 ---
@@ -417,6 +420,11 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 <a id="changelog"></a>
 
 ## 🗓️ Changelog
+
+### Unreleased
+
+- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
+- Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
 
 ### 0.4.3
 

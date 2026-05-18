@@ -25,11 +25,14 @@ def _required_config(tmp_path: Path, state_dir: Path) -> dict[str, Any]:
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "unused-ca"),
+        "claude_commands_dir": str(tmp_path / "unused-cc"),
         "claude_skills_dir": str(tmp_path / "unused-cs"),
         "codex_agents_dir": str(tmp_path / "unused-xa"),
+        "codex_prompts_dir": str(tmp_path / "unused-xp"),
         "codex_skills_dir": str(tmp_path / "unused-xs"),
         "antigravity_skills_dir": str(tmp_path / "unused-as"),
         "opencode_agents_dir": str(tmp_path / "unused-oa"),
+        "opencode_commands_dir": str(tmp_path / "unused-oc"),
         "opencode_skills_dir": str(tmp_path / "unused-os"),
     }
 
@@ -211,4 +214,3 @@ def test_reserved_slash_command_name_skips_only_that_target(tmp_path: Path, capl
 
     state = load_state(syncer.state_dir)
     assert set(state[pair_id].agentic_tools) == {"source", "tomltool"}
-

@@ -37,42 +37,73 @@ def test_claude_and_codex_have_no_disable_key():
 
 def test_claude_spec_supports_both_customization_types():
     spec = default_agentic_tools()["claude"]
-    assert spec.supported_customization_types == frozenset({"agent", "skill"})
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "slash_command",
+    })
     assert spec.config_dir_keys == {
         "agent": "claude_agents_dir",
+        "slash_command": "claude_commands_dir",
         "skill": "claude_skills_dir",
     }
-    for ct in ("agent", "skill"):
+    for ct in ("agent", "skill", "slash_command"):
         io = spec.io[ct]
         assert isinstance(io, CustomizationTypeIO)
     assert spec.io["agent"].storage == "single_file"
     assert spec.io["agent"].file_suffix == ".md"
     assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["slash_command"].storage == "single_file"
+    assert spec.io["slash_command"].file_suffix == ".md"
+    assert spec.io["slash_command"].recursive is True
 
 
 def test_codex_spec_supports_agents_and_skills():
     spec = default_agentic_tools()["codex"]
-    assert spec.supported_customization_types == frozenset({"agent", "skill"})
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "slash_command",
+    })
     assert spec.config_dir_keys == {
         "agent": "codex_agents_dir",
+        "slash_command": "codex_prompts_dir",
         "skill": "codex_skills_dir",
     }
     assert spec.io["agent"].storage == "single_file"
     assert spec.io["agent"].file_suffix == ".toml"
     assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["slash_command"].storage == "single_file"
+    assert spec.io["slash_command"].file_suffix == ".md"
+    assert spec.io["slash_command"].recursive is True
 
 
 def test_opencode_spec_supports_agents_and_skills_with_disable_key():
     spec = default_agentic_tools()["opencode"]
-    assert spec.supported_customization_types == frozenset({"agent", "skill"})
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "slash_command",
+    })
     assert spec.config_dir_keys == {
         "agent": "opencode_agents_dir",
+        "slash_command": "opencode_commands_dir",
         "skill": "opencode_skills_dir",
     }
     assert spec.disable_config_key == "opencode_enabled"
     assert spec.io["agent"].storage == "single_file"
     assert spec.io["agent"].file_suffix == ".md"
     assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["slash_command"].storage == "single_file"
+    assert spec.io["slash_command"].file_suffix == ".md"
+    assert spec.io["slash_command"].recursive is True
+    assert spec.io["slash_command"].reserved_names == frozenset({
+        "build",
+        "plan",
+        "general",
+        "explore",
+        "scout",
+    })
 
 
 def test_claude_agent_io_round_trips_through_registry():

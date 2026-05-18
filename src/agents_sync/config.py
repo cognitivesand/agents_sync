@@ -82,8 +82,10 @@ def platform_defaults(
         "poll_interval_seconds": 2.0,
         "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
         "claude_agents_dir": str(home_dir / ".claude" / "agents"),
+        "claude_commands_dir": str(home_dir / ".claude" / "commands"),
         "claude_skills_dir": str(home_dir / ".claude" / "skills"),
         "codex_agents_dir": str(home_dir / ".codex" / "agents"),
+        "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
         "codex_skills_dir": str(home_dir / ".codex" / "skills"),
         # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
         # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
@@ -92,6 +94,7 @@ def platform_defaults(
         "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
         "antigravity_enabled": True,
         "opencode_agents_dir": str(opencode_root / "agents"),
+        "opencode_commands_dir": str(opencode_root / "commands"),
         "opencode_skills_dir": str(opencode_root / "skills"),
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",
@@ -129,12 +132,15 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     config.update(load_external_config(config_path))
     maybe_set(config, "poll_interval_seconds", args.interval)
     maybe_set(config, "claude_agents_dir", args.claude_agents_dir)
+    maybe_set(config, "claude_commands_dir", getattr(args, "claude_commands_dir", None))
     maybe_set(config, "claude_skills_dir", args.claude_skills_dir)
     maybe_set(config, "codex_agents_dir", getattr(args, "codex_agents_dir", None))
+    maybe_set(config, "codex_prompts_dir", getattr(args, "codex_prompts_dir", None))
     maybe_set(config, "codex_skills_dir", args.codex_skills_dir)
     maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
     maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
     maybe_set(config, "opencode_agents_dir", getattr(args, "opencode_agents_dir", None))
+    maybe_set(config, "opencode_commands_dir", getattr(args, "opencode_commands_dir", None))
     maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
     maybe_set(config, "opencode_enabled", getattr(args, "opencode_enabled", None))
     maybe_set(config, "state_path", args.state_path)
@@ -143,11 +149,14 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
 
 REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "claude_agents_dir",
+    "claude_commands_dir",
     "claude_skills_dir",
     "codex_agents_dir",
+    "codex_prompts_dir",
     "codex_skills_dir",
     "antigravity_skills_dir",
     "opencode_agents_dir",
+    "opencode_commands_dir",
     "opencode_skills_dir",
 )
 

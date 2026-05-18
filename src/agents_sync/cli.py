@@ -49,8 +49,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--interval", type=float, help="Polling interval in seconds.")
     parser.add_argument("--claude-agents-dir", type=str)
+    parser.add_argument(
+        "--claude-commands-dir",
+        type=str,
+        help="Claude Code user slash-command root. Defaults to ~/.claude/commands.",
+    )
     parser.add_argument("--claude-skills-dir", type=str)
     parser.add_argument("--codex-agents-dir", type=str)
+    parser.add_argument(
+        "--codex-prompts-dir",
+        type=str,
+        help="Codex CLI custom prompts root. Defaults to ~/.codex/prompts.",
+    )
     parser.add_argument("--codex-skills-dir", type=str)
     parser.add_argument(
         "--antigravity-skills-dir",
@@ -67,6 +77,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--opencode-agents-dir",
         type=str,
         help="opencode agents root. Defaults to ~/.config/opencode/agents on POSIX and APPDATA\\opencode\\agents on Windows.",
+    )
+    parser.add_argument(
+        "--opencode-commands-dir",
+        type=str,
+        help="opencode slash-command root. Defaults to ~/.config/opencode/commands on POSIX and APPDATA\\opencode\\commands on Windows.",
     )
     parser.add_argument(
         "--opencode-skills-dir",

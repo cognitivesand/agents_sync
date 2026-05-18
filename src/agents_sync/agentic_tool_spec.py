@@ -90,6 +90,11 @@ def _build_claude_spec() -> AgenticToolSpec:
         parse_claude_md,
         render_claude_md,
     )
+    from agents_sync.slash_command_io import (
+        parse_slash_command_markdown,
+        render_slash_command_markdown,
+        slash_command_slug,
+    )
 
     def parse_agent(
         text: str,
@@ -112,11 +117,37 @@ def _build_claude_spec() -> AgenticToolSpec:
     def render(canonical: dict[str, Any], prior_text: str | None) -> str:
         return render_claude_md(canonical, prior_text=prior_text)
 
+    def parse_slash_command(
+        text: str,
+        prior_canonical: dict[str, Any] | None,
+        *,
+        artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return parse_slash_command_markdown(
+            text,
+            prior_canonical,
+            agentic_tool_name="claude",
+            artifact_path=artifact_path,
+            artifact_root=artifact_root,
+        )
+
+    def render_slash_command(
+        canonical: dict[str, Any],
+        prior_text: str | None,
+    ) -> str:
+        return render_slash_command_markdown(
+            canonical,
+            prior_text,
+            agentic_tool_name="claude",
+        )
+
     return AgenticToolSpec(
         name="claude",
         config_dir_keys={
             "agent": "claude_agents_dir",
             "skill": "claude_skills_dir",
+            "slash_command": "claude_commands_dir",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -133,6 +164,15 @@ def _build_claude_spec() -> AgenticToolSpec:
                 storage="directory_skill",
                 file_suffix="",
             ),
+            "slash_command": CustomizationTypeIO(
+                parse=parse_slash_command,
+                render=render_slash_command,
+                extract_pair_id=extract_pair_id_from_md,
+                storage="single_file",
+                file_suffix=".md",
+                slugify_name=slash_command_slug,
+                recursive=True,
+            ),
         },
     )
 
@@ -145,6 +185,11 @@ def _build_codex_spec() -> AgenticToolSpec:
         parse_codex_skill_md,
         render_codex_agent_toml,
         render_codex_skill_md,
+    )
+    from agents_sync.slash_command_io import (
+        parse_slash_command_markdown,
+        render_slash_command_markdown,
+        slash_command_slug,
     )
 
     def parse_agent(
@@ -171,11 +216,37 @@ def _build_codex_spec() -> AgenticToolSpec:
     def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
         return render_codex_skill_md(canonical)
 
+    def parse_slash_command(
+        text: str,
+        prior_canonical: dict[str, Any] | None,
+        *,
+        artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return parse_slash_command_markdown(
+            text,
+            prior_canonical,
+            agentic_tool_name="codex",
+            artifact_path=artifact_path,
+            artifact_root=artifact_root,
+        )
+
+    def render_slash_command(
+        canonical: dict[str, Any],
+        prior_text: str | None,
+    ) -> str:
+        return render_slash_command_markdown(
+            canonical,
+            prior_text,
+            agentic_tool_name="codex",
+        )
+
     return AgenticToolSpec(
         name="codex",
         config_dir_keys={
             "agent": "codex_agents_dir",
             "skill": "codex_skills_dir",
+            "slash_command": "codex_prompts_dir",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -191,6 +262,15 @@ def _build_codex_spec() -> AgenticToolSpec:
                 extract_pair_id=extract_pair_id_from_md,
                 storage="directory_skill",
                 file_suffix="",
+            ),
+            "slash_command": CustomizationTypeIO(
+                parse=parse_slash_command,
+                render=render_slash_command,
+                extract_pair_id=extract_pair_id_from_md,
+                storage="single_file",
+                file_suffix=".md",
+                slugify_name=slash_command_slug,
+                recursive=True,
             ),
         },
     )
@@ -240,6 +320,11 @@ def _build_opencode_spec() -> AgenticToolSpec:
         render_opencode_agent_md,
         render_opencode_skill_md,
     )
+    from agents_sync.slash_command_io import (
+        parse_slash_command_markdown,
+        render_slash_command_markdown,
+        slash_command_slug,
+    )
 
     def parse_agent(
         text: str,
@@ -269,11 +354,37 @@ def _build_opencode_spec() -> AgenticToolSpec:
     def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
         return render_opencode_skill_md(canonical, prior_text=prior_text)
 
+    def parse_slash_command(
+        text: str,
+        prior_canonical: dict[str, Any] | None,
+        *,
+        artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return parse_slash_command_markdown(
+            text,
+            prior_canonical,
+            agentic_tool_name="opencode",
+            artifact_path=artifact_path,
+            artifact_root=artifact_root,
+        )
+
+    def render_slash_command(
+        canonical: dict[str, Any],
+        prior_text: str | None,
+    ) -> str:
+        return render_slash_command_markdown(
+            canonical,
+            prior_text,
+            agentic_tool_name="opencode",
+        )
+
     return AgenticToolSpec(
         name="opencode",
         config_dir_keys={
             "agent": "opencode_agents_dir",
             "skill": "opencode_skills_dir",
+            "slash_command": "opencode_commands_dir",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -290,6 +401,22 @@ def _build_opencode_spec() -> AgenticToolSpec:
                 storage="directory_skill",
                 file_suffix="",
                 slugify_name=opencode_skill_slug,
+            ),
+            "slash_command": CustomizationTypeIO(
+                parse=parse_slash_command,
+                render=render_slash_command,
+                extract_pair_id=extract_pair_id_from_md,
+                storage="single_file",
+                file_suffix=".md",
+                slugify_name=slash_command_slug,
+                recursive=True,
+                reserved_names=frozenset({
+                    "build",
+                    "plan",
+                    "general",
+                    "explore",
+                    "scout",
+                }),
             ),
         },
         disable_config_key="opencode_enabled",

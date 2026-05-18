@@ -15,9 +15,12 @@ def test_linux_defaults_use_home_conventions():
 
     assert defaults["state_path"] == str(home / ".local" / "state" / "agents-sync" / "state.json")
     assert defaults["claude_agents_dir"] == str(home / ".claude" / "agents")
+    assert defaults["claude_commands_dir"] == str(home / ".claude" / "commands")
     assert defaults["codex_agents_dir"] == str(home / ".codex" / "agents")
+    assert defaults["codex_prompts_dir"] == str(home / ".codex" / "prompts")
     assert defaults["codex_skills_dir"] == str(home / ".codex" / "skills")
     assert defaults["opencode_agents_dir"] == str(home / ".config" / "opencode" / "agents")
+    assert defaults["opencode_commands_dir"] == str(home / ".config" / "opencode" / "commands")
     assert defaults["opencode_skills_dir"] == str(home / ".config" / "opencode" / "skills")
 
 
@@ -34,6 +37,9 @@ def test_windows_defaults_prefer_appdata_and_localappdata():
     )
     assert _portable_path(defaults["opencode_agents_dir"]) == (
         "C:/Users/tester/AppData/Roaming/opencode/agents"
+    )
+    assert _portable_path(defaults["opencode_commands_dir"]) == (
+        "C:/Users/tester/AppData/Roaming/opencode/commands"
     )
     assert _portable_path(defaults["opencode_skills_dir"]) == (
         "C:/Users/tester/AppData/Roaming/opencode/skills"
