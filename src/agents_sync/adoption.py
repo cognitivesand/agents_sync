@@ -18,8 +18,12 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from agents_sync import archive
-from agents_sync.agentic_tool_spec import AgenticToolSpec
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    is_reserved_customization_name,
+)
 from agents_sync.canonical import load_canonical, save_canonical
+from agents_sync.config import expand_path
 from agents_sync.rendering import (
     read_artifact_text,
     render_to_agentic_tool,
@@ -138,8 +142,14 @@ class AdoptionEngine:
         source_info = info.agentic_tools[source_tool]
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
+        source_root = expand_path(self.config[source_spec.config_dir_keys[info.kind]])
         text = read_artifact_text(source_io, source_info.path)
-        canonical = source_io.parse(text, None, artifact_path=source_info.path)
+        canonical = source_io.parse(
+            text,
+            None,
+            artifact_path=source_info.path,
+            artifact_root=source_root,
+        )
         canonical["pair_id"] = pair_id
 
         if not source_info.pair_id_present:
@@ -188,11 +198,13 @@ class AdoptionEngine:
         source_info = info.agentic_tools[source_tool]
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
+        source_root = expand_path(self.config[source_spec.config_dir_keys[info.kind]])
         text = read_artifact_text(source_io, source_info.path)
         canonical = source_io.parse(
             text,
             prior_canonical,
             artifact_path=source_info.path,
+            artifact_root=source_root,
         )
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
@@ -250,6 +262,14 @@ class AdoptionEngine:
                             target_info.path, pair_id, type(exc).__name__, exc,
                         )
                         prior_text = None
+            if self._is_reserved_target_name(target_spec, info.kind, canonical):
+                logging.warning(
+                    "Reserved slash_command name skipped: pair_id=%s tool=%s name=%s",
+                    pair_id,
+                    tool_name,
+                    canonical.get("name"),
+                )
+                continue
             paths[tool_name] = render_to_agentic_tool(
                 self.config,
                 target_spec,
@@ -288,6 +308,14 @@ class AdoptionEngine:
         paths: dict[str, Path] = {}
         for tool_name in target_tools:
             target_spec = self.agentic_tools[tool_name]
+            if self._is_reserved_target_name(target_spec, info.kind, canonical):
+                logging.warning(
+                    "Reserved slash_command name skipped: pair_id=%s tool=%s name=%s",
+                    pair_id,
+                    tool_name,
+                    canonical.get("name"),
+                )
+                continue
             paths[tool_name] = render_to_agentic_tool(
                 self.config,
                 target_spec,
@@ -393,3 +421,14 @@ class AdoptionEngine:
             if kind in spec.supported_customization_types
             and self.tool_status.is_available(name)
         ]
+
+    def _is_reserved_target_name(
+        self,
+        spec: AgenticToolSpec,
+        kind: str,
+        canonical: dict[str, Any],
+    ) -> bool:
+        """Whether rendering would create a command with a target-reserved name."""
+        io = spec.io[kind]
+        name = str(canonical.get("name", ""))
+        return is_reserved_customization_name(io, name)

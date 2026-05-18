@@ -135,9 +135,17 @@ class Syncer:
             tool_name = next(iter(info.agentic_tools))
             tool_info = info.agentic_tools[tool_name]
             io = self.agentic_tools[tool_name].io[info.kind]
+            root = expand_path(
+                self.config[self.agentic_tools[tool_name].config_dir_keys[info.kind]]
+            )
             try:
                 text = read_artifact_text(io, tool_info.path)
-                canonical = io.parse(text, None, artifact_path=tool_info.path)
+                canonical = io.parse(
+                    text,
+                    None,
+                    artifact_path=tool_info.path,
+                    artifact_root=root,
+                )
             except Exception:
                 logging.exception(
                     "Reconcile: cannot parse for grouping: pair_id=%s tool=%s path=%s",

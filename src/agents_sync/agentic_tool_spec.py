@@ -29,6 +29,7 @@ class ParseFn(Protocol):
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         ...
 
@@ -48,6 +49,8 @@ class CustomizationTypeIO:
     storage: str
     file_suffix: str
     slugify_name: SlugifyFn | None = None
+    recursive: bool = False
+    reserved_names: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,15 @@ class AgenticToolSpec:
         return frozenset(self.io.keys())
 
 
+def is_reserved_customization_name(io: CustomizationTypeIO, name: str) -> bool:
+    """Return whether a canonical name collides with a target-reserved name."""
+    if not io.reserved_names:
+        return False
+    candidates = {name.casefold(), name.rsplit(":", 1)[-1].casefold()}
+    reserved = {value.casefold() for value in io.reserved_names}
+    return bool(candidates & reserved)
+
+
 def _build_claude_spec() -> AgenticToolSpec:
     from agents_sync.claude_io import (
         extract_pair_id_from_md,
@@ -84,6 +96,7 @@ def _build_claude_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_claude_md(text, prior_canonical=prior_canonical, kind="agent")
 
@@ -92,6 +105,7 @@ def _build_claude_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_claude_md(text, prior_canonical=prior_canonical, kind="skill")
 
@@ -138,6 +152,7 @@ def _build_codex_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_codex_agent_toml(text, prior_canonical=prior_canonical)
 
@@ -149,6 +164,7 @@ def _build_codex_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_codex_skill_md(text, prior_canonical=prior_canonical)
 
@@ -192,6 +208,7 @@ def _build_antigravity_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_antigravity_skill_md(text, prior_canonical=prior_canonical)
 
@@ -229,6 +246,7 @@ def _build_opencode_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_opencode_agent_md(
             text,
@@ -244,6 +262,7 @@ def _build_opencode_spec() -> AgenticToolSpec:
         prior_canonical: dict[str, Any] | None,
         *,
         artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> dict[str, Any]:
         return parse_opencode_skill_md(text, prior_canonical=prior_canonical)
 
