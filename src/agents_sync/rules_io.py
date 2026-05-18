@@ -30,6 +30,7 @@ KNOWN_RULE_FIELDS = frozenset({
 CANONICAL_RULE_FIELDS: tuple[str, ...] = ("globs", "applyTo", "alwaysApply")
 TOOL_ONLY_RULE_FIELDS: tuple[str, ...] = ("trigger",)
 VALID_PROVENANCES = frozenset({"user", "agent"})
+GLOBAL_RULE_NAME = "global"
 
 
 def extract_pair_id_from_rules_md(text: str) -> str | None:
@@ -42,6 +43,7 @@ def parse_rules_md(
     *,
     agentic_tool_name: str = "rules",
     artifact_path: Path | None = None,
+    canonical_name: str | None = None,
     provenance: str = "user",
     private: bool = False,
 ) -> dict[str, Any]:
@@ -55,7 +57,9 @@ def parse_rules_md(
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("rules")
     canonical["body"] = body
 
-    if artifact_path is not None:
+    if canonical_name is not None:
+        canonical["name"] = canonical_name
+    elif artifact_path is not None:
         canonical["name"] = artifact_path.stem
     elif "name" in frontmatter_data:
         canonical["name"] = str(frontmatter_data["name"])
@@ -199,6 +203,7 @@ def _coerce_bool(value: Any) -> bool:
 
 __all__ = [
     "KNOWN_RULE_FIELDS",
+    "GLOBAL_RULE_NAME",
     "extract_pair_id_from_rules_md",
     "parse_rules_md",
     "render_rules_md",

@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Claude Code user slash-command root. Defaults to ~/.claude/commands.",
     )
     parser.add_argument("--claude-skills-dir", type=str)
+    parser.add_argument(
+        "--claude-rules-dir",
+        type=str,
+        help="Claude Code rules root. Defaults to ~/.claude, containing CLAUDE.md.",
+    )
     parser.add_argument("--codex-agents-dir", type=str)
     parser.add_argument(
         "--codex-prompts-dir",
@@ -62,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Codex CLI custom prompts root. Defaults to ~/.codex/prompts.",
     )
     parser.add_argument("--codex-skills-dir", type=str)
+    parser.add_argument(
+        "--codex-rules-dir",
+        type=str,
+        help="Codex rules root. Defaults to ~/.codex, containing AGENTS.md.",
+    )
     parser.add_argument(
         "--antigravity-skills-dir",
         type=str,
@@ -87,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--opencode-skills-dir",
         type=str,
         help="opencode skills root. Defaults to ~/.config/opencode/skills on POSIX and APPDATA\\opencode\\skills on Windows.",
+    )
+    parser.add_argument(
+        "--opencode-rules-dir",
+        type=str,
+        help="opencode rules root. Defaults to ~/.config/opencode on POSIX and APPDATA\\opencode on Windows, containing AGENTS.md.",
     )
     parser.add_argument(
         "--opencode-enabled",

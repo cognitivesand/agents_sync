@@ -1,0 +1,857 @@
+{
+  "detailed_analysis": "The architecture document at `docs/architecture.md` is a confident, prose-rich attempt to retrofit a Clean Architecture narrative onto a codebase whose actual structure is something else entirely \u2014 a single-package flat module layout where 'layer' is largely a label the author has applied after the fact. Read carefully, the document is part-honest (six self-flagged deviations) and part-fiction (the load-bearing invariants it claims, the protocol contract it claims to satisfy, and the trace from architecture to running code).\n\nFiles read: `docs/architecture.md`, `docs/project_description.md`, `docs/project_requirements.md`, `docs/agentic_tool_integration_protocol.md`, `docs/stories/US-10-extensible-agentic_tool-registry.md`, every `*.py` under `src/agents_sync/`, plus a directory listing of `tests/` and a probe for the (absent) `src/agents_sync/agentic_tools/` package.\n\n## The coherence map\n\nThe protocol document (`docs/agentic_tool_integration_protocol.md`) and US-10 specify a contract the architecture document is supposed to render: one module per tool under `src/agents_sync/agentic_tools/<name>.py`, exporting a top-level `AGENTIC_TOOL: AgenticToolSpec`, with field names `supported_customization_types`, `io_per_customization_type`, `config_roots`, `file_layout`, and a `CustomizationTypeIO` whose first member is `extract_customization_artifact_id`. None of this exists. The actual `AgenticToolSpec` in `src/agents_sync/agentic_tool_spec.py` has fields `config_dir_keys`, `io`, `disable_config_key`, and a `supported_customization_types` *property* derived from `io.keys()`. `CustomizationTypeIO` has `parse`, `render`, `extract_pair_id`, `storage`, `file_suffix` \u2014 entirely different vocabulary (`extract_pair_id` vs `extract_customization_artifact_id`; `storage`+`file_suffix` vs `file_layout`+`AgentFileLayout`/`SkillFileLayout`). The directory `src/agents_sync/agentic_tools/` does not exist; the IO modules are flat at the top level (`claude_io.py`, `codex_io.py`, `antigravity_io.py`). The architecture document parades the actual structure in \u00a75.1 as the port contract, never once noting that the protocol document \u2014 which it lists as an authoritative source \u2014 describes a different one. D-3 admits the layout gap, but does not admit the field-name gap, the type-name gap, or that US-10 AC-1 (which is verbatim about the `agentic_tools/<name>.py` layout and the `AGENTIC_TOOL` constant) is, as of this commit, **unsatisfied**. The \u00a79 traceability table nevertheless claims `agentic_tool_spec.py` 'carries' US-10 AC-1 and AC-2 \u2014 a lie of omission, since the structural shape AC-1 demands does not exist yet.\n\nThe project description's glossary (\u00a7Glossary) defines the unit of sync as `customization_artifact` with id `customization_artifact_id` and prose form 'a customization'. The state file at `src/agents_sync/state.py` and the canonical document keys at `src/agents_sync/canonical.py` use `pair_id`, `kind`, and `pair`. The architecture document switches mid-stream: \u00a72 talks about `CustomizationArtifactState`, but the canonical document keys it lists are `pair_id` and `kind` (the in-code names), and \u00a713 admits 'Legacy code still uses `pair` and `pair_id`; new code uses `customization_artifact`'. So the architecture's worked example, traceability table, and 'Dependency Rule' invariants are written half in v0.3 vocabulary and half in v0.4 vocabulary \u2014 and the document does not flag this drift as a deviation.\n\n## Faithfulness to the code\n\nThe Module Map (\u00a74) carries claims that do not survive a grep:\n\n- **`__init__.py` claimed 'Empty'** (row 21). It is not empty \u2014 it contains `__version__ = \"0.3.1\"`. So the architecture for v0.4 ships a `__version__` string of v0.3.1. Either the doc lies about the file being empty or it ships under the wrong version number; either way, indefensible.\n- **'No use case imports an adapter directly'** (\u00a73 invariant 1). Look at `discovery.py:23`: `from agents_sync.rendering import path_collision_key, read_artifact_text`, and `sync.py:12`: `from agents_sync.rendering import read_artifact_text`. The doc itself classifies `rendering.py` as Layer 3 in \u00a72 and \u00a74. So a Layer-2 use case imports a Layer-3 adapter directly. The \u00a73 wording carves out `rendering` as 'allowed', but \u00a73 invariant 1 reads as an absolute claim ('They do not import from `claude_io`, `codex_io`, or `antigravity_io`') and lists `rendering` as a thing they *are* permitted to import. That is the Dependency Rule reduced to whatever happens to be in the import graph \u2014 which is not what Uncle Bob means by it.\n- **Adapter \u2192 adapter dependency unmentioned.** `antigravity_io.py:23` imports `_make_yaml`, `_strip_bom_prefix`, `_yaml_load`, `_normalize_markdown_text`, `extract_pair_id_from_md`, `FRONTMATTER_RE` from `claude_io.py`. The architecture document treats each `*_io.py` as an independent adapter sitting beside the others on the same ring (\u00a72, \u00a77). In reality the antigravity adapter is structurally a subclass-by-import of the claude adapter. This is invisible in the architecture document and inconsistent with the worked example's claim that adding a tool is 'one new module + one config block'.\n- **`AgenticToolSpec` field-name claim in \u00a75.1.** The doc renders `AgenticToolSpec` as having `config_dir_keys: dict[str, str]` and `io: dict[str, CustomizationTypeIO]`. That matches the code. But the protocol document (linked as the contract) calls these `config_roots` and `io_per_customization_type`. The architecture document is faithful to code, infidel to the protocol it claims to implement.\n- **Total-lines arithmetic.** \u00a74 claims 'Totals: 19 modules, 2 852 lines.' Counting the lines listed in the same table gives **2 752**, not 2 852. The 'Use-case classes (Layer 2) account for 1 074 lines' arithmetic also doesn't reconcile (313 + 152 + 391 + 218 = 1 074 \u2014 that one works, but the grand total does not). Sloppy.\n\n## Use cases that are not framework-independent\n\nThe document insists the use cases never reference a concrete tool name (line 53\u201354: '`claude`, `codex`, `antigravity` \u2026 appear in adapter modules and in user-provided config keys \u2014 and nowhere else'). `sync.py:33\u201335` reads `config[\"claude_agents_dir\"]`, `config[\"claude_skills_dir\"]`, `config[\"codex_skills_dir\"]` into instance attributes. D-5 calls out the assignment as dead code, but does not acknowledge that those three lines refute the explicit invariant on line 53. And there is more: `Syncer.__init__` (line 50) calls `self.tool_status.ensure_roots()` \u2014 a side-effect that mkdir-creates each tool's roots at construction time. A use-case constructor that touches the filesystem is not framework-independent in any sense Uncle Bob would recognise. Unflagged in D-5.\n\n`discovery.py:21`, `rendering.py:19`, `tool_status.py:14` all import `expand_path` from `config.py`, which \u00a72 puts in Layer 4. That is a Layer-2/3 \u2192 Layer-4 reach. D-2 admits it as a 'narrow violation' and proposes a future fix. Fine \u2014 but combined with the `sync.py` config-key reads, the use-case layer is decisively coupled to framework concerns. The Dependency Rule is, as the document concedes when cornered, 'a wish' here.\n\n## Entities that are not entities\n\nThe Layer-1 list includes `CustomizationArtifactState` and `AgenticToolState` (in `state.py`) and `ArtifactInfo`, `ToolInfo` (in `sync_types.py`). These are `@dataclass` containers with `to_dict`/`from_dict` and nothing else \u2014 they are DTOs, not enterprise business rules. There is no business rule about, say, what makes a `CustomizationArtifactState` *valid* beyond schema; no invariants enforced by the dataclass; no behaviour. Calling them 'Entities' is paint-by-numbers Clean Architecture.\n\nThe canonical document is described as 'The canonical document \u2014 a JSON object\u2026' (lines 97\u2013102). It is a `dict[str, Any]` produced by a factory function. There is no class, no schema validator beyond a version int, no type. Layer 1 in this codebase is a thin layer of identifiers and shapes; the 'enterprise business rules' framing is decorative.\n\n## `canonical.py`'s admitted Dependency Rule violation\n\n`canonical.py:18`: `from agents_sync.state import atomic_write_text`. An entity importing an I/O gateway. D-1 flags this and proposes a refactor; honestly admitted, but the document then asserts in \u00a73 invariant 2 that 'No entity imports a use case or an adapter' with an inline parenthetical that this one exception 'is flagged as D-1'. Flagged-but-still-violated is still violated. The \u00a73 invariants are stated as held *today*; the truth is they are held except where they aren't.\n\n## NFR-10 (distinct exit codes) is not delivered\n\n`cli.py:main` returns `2` for both legacy-install detection AND `ConfigError`. It returns `0` after `watch()` returns. `watch()` itself catches all exceptions internally and never raises. There is no distinct runtime-failure exit code. NFR-10 requires three distinct codes (normal, config failure, runtime failure). The architecture's \u00a79 traceability table maps `cli.py` to NFR-10, verified by `tests/test_e2e_sync.py`. There is no test in the tests directory that asserts a runtime-failure exit code distinct from config-failure exit code, because no such exit code exists. NFR-10 is unfulfilled and the architecture document does not admit it.\n\n## D-6 vs the load-bearing claim for NFR-01\n\n\u00a78 promises invariant I-3: 'no destructive write without prior archive'. \u00a75.3 escalates: 'NFR-01 holds iff no use-case code path mutates user files without going through one of these two functions first.' That is a strong, falsifiable claim. D-6 honestly admits there is no static check \u2014 and indeed `tests/test_no_destructive_writes.py` does not exist in the test directory. So NFR-01's promised mechanical guarantee is, as written, an unverified assertion. The document is honest about the absence but smuggles in the certainty in adjacent paragraphs.\n\n## The worked example contradicts current code\n\n\u00a712 step 1 says new tool goes at `src/agents_sync/agentic_tools/opencode.py`. That directory does not exist. Step 2 either adds `_build_opencode_spec` (which assumes the current shape) or 'deliver D-3 first'. The 'No edits to sync.py' coda then contradicts step 2's `_build_opencode_spec`, because adding it to `default_agentic_tools()` *is* an edit to `agentic_tool_spec.py` (declared Layer-3 port) \u2014 and step 3 ('add `opencode_*_dir` to `platform_defaults`') and step 4 (CLI flags) and step 6 (e2e test) demonstrate that the actual edit surface for a new tool is much larger than 'one new module + one config block'. The closing claim 'No edits to sync.py, adoption.py, \u2026' is consistent with the current adapters' isolation, but it papers over the elephant: `Syncer.__init__` lines 33\u201335 hard-code claude/codex config keys, so any tool whose paths live under different keys still won't see use-case-level support without touching `sync.py`. D-5 names the three lines but does not acknowledge the consequence: the worked example's headline guarantee is true only after D-5 is fixed.\n\n## Mermaid-free ASCII vs the Module map\n\nThe ASCII box in \u00a72 puts `rendering`, `archive`, and `state (I/O half)` in Layer 3, and lists `state (domain half)` and `CustomizationArtifactState dataclass` in Layer 1. The \u00a74 Module map collapses both halves of `state.py` into the file but assigns them split layers ('Layer 1 / 3' for `state.py` dataclasses+slug as Layer 1 and load/save/digest as Layer 3). The ASCII says `canonical document schema` is in Layer 1, but the \u00a74 table flags `canonical.py` itself as 'Layer 1 / 3 (D-1)'. The diagram and the table are not in tension on the headline assignment, but the diagram silently hides the fact that the very files it places in Layer 1 are also Layer-3 contributors. A reader who only looks at the picture is misinformed.\n\n## Hidden deviations beyond D-1..D-6\n\nThe document admits six gaps. There are at least these additional ones it does not admit:\n\n- D-7-equivalent: `antigravity_io` imports from `claude_io`. Adapter-to-adapter coupling, unmentioned.\n- D-8-equivalent: the field names of `AgenticToolSpec` and `CustomizationTypeIO` do not match the protocol document. D-3 only addresses the *module layout*, not the *field-name divergence*.\n- D-9-equivalent: `Syncer.__init__` performs I/O (`ensure_roots`). Not a use case any more \u2014 it's a Layer-4 wiring concern smuggled into Layer 2.\n- D-10-equivalent: `__version__ = \"0.3.1\"` while the document is labelled 'current as of v0.4'.\n- D-11-equivalent: NFR-10 (distinct exit codes) is asserted as carried by `cli.py` but not actually implemented for the runtime-failure case.\n- D-12-equivalent: terminology between architecture, protocol, and project description is inconsistent (`pair_id` vs `customization_artifact_id`, `kind` vs `customization_type`, `side` vs `agentic_tool` in archive paths) and the document silently uses each spelling wherever convenient.\n\n## D-1..D-6 honesty audit\n\nD-1 understates: it presents the canonical\u2192state.atomic_write_text dependency as a tidy local cleanup, but the same paragraph that admits it earlier asserts that No-entity-imports-an-adapter is one of the three concrete invariants the codebase upholds today. Half-true.\n\nD-2 understates: 'narrow violation' is generous when three Layer-2/3 modules each reach into Layer 4.\n\nD-3 is genuine \u2014 the discovered-set approach is genuinely missing \u2014 but D-3 leaves out the field-name and type-name divergence between protocol and code (above).\n\nD-4 is borderline-not-a-defect: keeping dormant code documented in a docstring is a product decision, not a design flaw. It does not deserve to share the same severity bucket as D-1.\n\nD-5 understates: see the \u00a71 invariant violation and the `ensure_roots` side-effect above.\n\nD-6 is honest about a real gap.\n\n## Verdict\n\nThe document reads well, knows its references, names some of its sins. But it consistently uses the *picture* of Clean Architecture (four labelled boxes, a Dependency-Rule statement, a Ports-and-Adapters section, a Worked Example) to provide cover for a flat module package where the actual architectural facts \u2014 adapter-to-adapter imports, use-cases reading concrete config keys, an entity calling a gateway, no `agentic_tools/` package \u2014 are described as 'deviations' rather than as the load-bearing reality. The traceability table maps requirements to modules that, in several cases, do not yet satisfy them. The worked example promises an isolation that the current `Syncer.__init__` denies. Until US-10's discovery mechanism lands, the structural acceptance criterion of US-10 AC-1 is unmet \u2014 and the architecture document, by listing `agentic_tool_spec.py` as the carrier for AC-1, is making a claim that the code refutes.",
+  "list_of_issues": [
+    {
+      "issue_number": 1,
+      "issue_name": "US-10 AC-1 marked carried by agentic_tool_spec.py but the demanded structure does not exist",
+      "issue_detailed_description": "The \u00a79 traceability table maps `agentic_tool_spec.py` to 'US-10 AC-1, AC-2'. US-10 AC-1 specifies that each agentic_tool is fully specified by a single Python module at `src/agents_sync/agentic_tools/<agentic_tool_name>.py` exporting a top-level `AGENTIC_TOOL: AgenticToolSpec`. That directory does not exist in the repository; the IO modules are flat (`claude_io.py`, `codex_io.py`, `antigravity_io.py`) and no `AGENTIC_TOOL` constant is exported anywhere. D-3 admits the layout is wrong, but the traceability table still claims AC-1 is carried. A requirement cannot be both unmet (per D-3) and carried (per \u00a79).",
+      "defect_category": "incoherence",
+      "severity_class": "CRITICAL",
+      "criticality": 9,
+      "confidence": 5,
+      "evidence": "| `agentic_tool_spec.py` | description goal 5, NFR-11, US-10 AC-1, AC-2 | `tests/test_agentic_tool_spec.py` | || US-10 AC-1: \"each agentic_tool is fully specified by a single Python module at `src/agents_sync/agentic_tools/<agentic_tool_name>.py` that exports a top-level `AGENTIC_TOOL: AgenticToolSpec` constant\" || D-3: \"US-10's intended end-state is a `pkgutil.iter_modules` walk under `src/agents_sync/agentic_tools/` \u2026 that is the v0.5 refactor target.\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 442,
+          "line_end": 442
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 512,
+          "line_end": 521
+        },
+        {
+          "file": "docs/stories/US-10-extensible-agentic_tool-registry.md",
+          "line_start": 31,
+          "line_end": 31
+        }
+      ],
+      "affected_us": [
+        "US-10 AC-1",
+        "US-10 AC-8"
+      ],
+      "affected_req": [
+        "NFR-11"
+      ],
+      "affected_components": [
+        "agentic_tool_spec.py",
+        "agentic_tools/ (absent)"
+      ],
+      "contradicts": [
+        {
+          "file": "docs/architecture.md",
+          "section": "11. Known deviations and technical debt (D-3)"
+        }
+      ]
+    },
+    {
+      "issue_number": 2,
+      "issue_name": "Protocol-vs-code field-name divergence not admitted as a deviation",
+      "issue_detailed_description": "The agentic-tool integration protocol (`docs/agentic_tool_integration_protocol.md`) declares the AgenticToolSpec fields as `supported_customization_types`, `io_per_customization_type`, `config_roots`, `file_layout`, with `CustomizationTypeIO.extract_customization_artifact_id`. The actual `AgenticToolSpec` in `src/agents_sync/agentic_tool_spec.py` has `config_dir_keys`, `io`, `disable_config_key`, with `CustomizationTypeIO.extract_pair_id`, `storage`, `file_suffix`. The architecture document's \u00a75.1 presents the code's shape as the port contract and never notes that this is a wholesale renaming relative to the protocol it cites as authoritative. D-3 only mentions module layout, not the field-name and type-name divergence.",
+      "defect_category": "terminology_drift",
+      "severity_class": "CRITICAL",
+      "criticality": 8,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a75.1: \"name: str\\n    config_dir_keys: dict[str, str]      # customization_type -> config key\\n    io: dict[str, CustomizationTypeIO]   # customization_type -> IO triple\\n    disable_config_key: str | None = None\" || agentic_tool_integration_protocol.md: \"supported_customization_types=frozenset({...}),\\n    io_per_customization_type={...},\\n    config_roots={...},\\n    file_layout={...}\" || protocol: \"extract_customization_artifact_id: Callable[[str], str | None]\" vs code: \"extract_pair_id: ExtractPairIdFn\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 261,
+          "line_end": 276
+        },
+        {
+          "file": "docs/agentic_tool_integration_protocol.md",
+          "line_start": 49,
+          "line_end": 69
+        },
+        {
+          "file": "src/agents_sync/agentic_tool_spec.py",
+          "line_start": 24,
+          "line_end": 55
+        }
+      ],
+      "affected_components": [
+        "agentic_tool_spec.py"
+      ],
+      "contradicts": [
+        {
+          "file": "docs/agentic_tool_integration_protocol.md",
+          "section": "What every module must declare"
+        }
+      ]
+    },
+    {
+      "issue_number": 3,
+      "issue_name": "\u00a71 stable-abstractions invariant violated by Syncer.__init__",
+      "issue_detailed_description": "\u00a71 of the architecture document states verbatim: 'the names `claude`, `codex`, `antigravity` (and one day `opencode`) appear in adapter modules and in user-provided config keys \u2014 and nowhere else. The use cases see only `agentic_tools.values()`.' But `sync.Syncer.__init__` (sync.py lines 33\u201335) reads `config[\"claude_agents_dir\"]`, `config[\"claude_skills_dir\"]`, `config[\"codex_skills_dir\"]` into instance attributes. `Syncer` is the top-level use case. The invariant is asserted in \u00a71 as a held property and then contradicted by the very code \u00a711 D-5 describes \u2014 but D-5 frames the violation as 'dead code that names concrete tools inside Layer 2' rather than as a falsification of the \u00a71 stable-abstractions claim.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "CRITICAL",
+      "criticality": 8,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a71: \"`claude`, `codex`, `antigravity` (and one day `opencode`) appear in adapter modules and in user-provided config keys \u2014 and nowhere else. The use cases see only `agentic_tools.values()`.\" || sync.py:33-35: \"self.claude_agents_dir = expand_path(config[\\\"claude_agents_dir\\\"])\\n        self.claude_skills_dir = expand_path(config[\\\"claude_skills_dir\\\"])\\n        self.codex_skills_dir = expand_path(config[\\\"codex_skills_dir\\\"])\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 50,
+          "line_end": 54
+        },
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 33,
+          "line_end": 35
+        }
+      ],
+      "affected_components": [
+        "sync.Syncer"
+      ],
+      "contradicts": [
+        {
+          "file": "docs/architecture.md",
+          "section": "11 D-5"
+        }
+      ]
+    },
+    {
+      "issue_number": 4,
+      "issue_name": "Entity layer imports gateway layer (canonical.py \u2192 state.atomic_write_text)",
+      "issue_detailed_description": "\u00a73 invariant 2 asserts 'No entity imports a use case or an adapter' and lists `canonical.py` as a Layer-1 entity. `canonical.py:18` literally imports `atomic_write_text` from `state.py` \u2014 which the document classifies as a Layer-3 gateway. The invariant is therefore false today. D-1 admits the violation honestly but the document elsewhere (\u00a73) still claims the three invariants are 'upheld today'. The reader cannot tell whether the Dependency Rule is a property of the import graph or an aspiration.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "MAJOR",
+      "criticality": 7,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a73 invariant 2: \"No entity imports a use case or an adapter. \u2026 One exception, `canonical.py` \u2192 `state.atomic_write_text`, is flagged as D-1 in \u00a711.\" || canonical.py:18: \"from agents_sync.state import atomic_write_text\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 202,
+          "line_end": 206
+        },
+        {
+          "file": "src/agents_sync/canonical.py",
+          "line_start": 18,
+          "line_end": 18
+        }
+      ],
+      "affected_components": [
+        "canonical.py",
+        "state.py"
+      ]
+    },
+    {
+      "issue_number": 5,
+      "issue_name": "Adapter-to-adapter coupling: antigravity_io imports from claude_io, undocumented",
+      "issue_detailed_description": "`antigravity_io.py` lines 23\u201330 import private helpers (`FRONTMATTER_RE`, `_make_yaml`, `_normalize_markdown_text`, `_strip_bom_prefix`, `_yaml_load`, `extract_pair_id_from_md`) from `claude_io.py`. The architecture document presents `claude_io`, `codex_io`, `antigravity_io` as parallel, independent adapters on the same ring (\u00a72 box; \u00a77 ports-and-adapters). The worked example for opencode (\u00a712) assumes a new adapter is a self-contained module. Neither the module map (\u00a74) nor the deviations list flags this cross-adapter dependency. A renderer that depends on another renderer's private helpers is not the same shape as the four other adapter rows imply.",
+      "defect_category": "undefined_behavior",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 5,
+      "evidence": "antigravity_io.py:23-30: \"from agents_sync.claude_io import (\\n    FRONTMATTER_RE,\\n    _make_yaml,\\n    _normalize_markdown_text,\\n    _strip_bom_prefix,\\n    _yaml_load,\\n    extract_pair_id_from_md,\\n)\" || architecture.md \u00a74 row antigravity_io: \"`antigravity_io.py` | 180 | 3 | Antigravity `SKILL.md` parser/renderer | `canonical`\" (claims only `canonical` as inward dependency)",
+      "location": [
+        {
+          "file": "src/agents_sync/antigravity_io.py",
+          "line_start": 23,
+          "line_end": 30
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 233,
+          "line_end": 233
+        }
+      ],
+      "affected_components": [
+        "antigravity_io.py",
+        "claude_io.py"
+      ]
+    },
+    {
+      "issue_number": 6,
+      "issue_name": "Module map's claimed inward dependencies for antigravity_io are incomplete",
+      "issue_detailed_description": "The \u00a74 Module map row for `antigravity_io.py` lists inward dependencies as `canonical` only. The actual file imports from `canonical` AND from `claude_io`. The table is therefore factually wrong \u2014 and worse, it hides the very dependency that would let a reader spot the cross-adapter coupling. The table presents itself as ground truth ('verified by `grep -RE \"^(from|import) agents_sync\" src/`') but the grep would have caught this.",
+      "defect_category": "incoherence",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a74: \"`antigravity_io.py` | 180 | 3 | Antigravity `SKILL.md` parser/renderer | `canonical`\" || antigravity_io.py imports: \"from agents_sync.canonical import \u2026\" AND \"from agents_sync.claude_io import \u2026\" || architecture.md \u00a73: \"The import graph (verified by `grep -RE \\\"^(from|import) agents_sync\\\" src/`)\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 233,
+          "line_end": 233
+        },
+        {
+          "file": "src/agents_sync/antigravity_io.py",
+          "line_start": 22,
+          "line_end": 30
+        }
+      ],
+      "affected_components": [
+        "antigravity_io.py"
+      ]
+    },
+    {
+      "issue_number": 7,
+      "issue_name": "Syncer.__init__ performs filesystem I/O (ensure_roots) \u2014 Layer 2 doing Layer 4 work",
+      "issue_detailed_description": "`sync.py` line 50 has `self.tool_status.ensure_roots()` in `Syncer.__init__`. `ensure_roots` mkdir-creates every enabled tool's configured customization-type roots on disk. The architecture document classifies `Syncer` as a Layer-2 use case ('What the system does in response to inputs') and explicitly contrasts use cases with frameworks ('signals, argparse, TOML, OS retries'). A use-case constructor that touches the filesystem is framework-dependent. This is not covered by D-1..D-6 and is invisible in the \u00a72/\u00a74 layer assignment.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 5,
+      "evidence": "sync.py:50: \"self.tool_status.ensure_roots()\" within Syncer.__init__ || tool_status.py:48-67: \"def ensure_roots(self) -> None: \u2026 root.mkdir(parents=True, exist_ok=True)\" || architecture.md \u00a72: \"`Syncer` (`sync.py`) \u2014 the top-level use case.\"",
+      "location": [
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 50,
+          "line_end": 50
+        },
+        {
+          "file": "src/agents_sync/tool_status.py",
+          "line_start": 48,
+          "line_end": 67
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 116,
+          "line_end": 135
+        }
+      ],
+      "affected_components": [
+        "sync.Syncer",
+        "ToolStatusTracker"
+      ]
+    },
+    {
+      "issue_number": 8,
+      "issue_name": "NFR-10 (distinct exit codes) not actually delivered by cli.py",
+      "issue_detailed_description": "NFR-10 requires distinct process exit codes for normal termination, configuration failure, and runtime failure. `cli.py:main` returns `2` for both legacy-install detection and `ConfigError`, and returns `0` after `watch()` returns. `watch()` itself in `daemon.py:30\u201335` swallows all exceptions inside the loop ('try: syncer.sync_once() \u2026 except Exception: logging.exception(\"Sync failed\")') and never raises. There is no distinct exit code for runtime failure. \u00a79 traceability nevertheless maps `cli.py` to NFR-10 verified by `tests/test_e2e_sync.py`. The mechanism the requirement demands is not present.",
+      "defect_category": "missing_mechanism",
+      "severity_class": "MAJOR",
+      "criticality": 7,
+      "confidence": 5,
+      "evidence": "project_requirements.md NFR-10: \"The daemon shall return distinct process exit codes for normal termination, configuration failure, and runtime failure.\" || cli.py:80,87,90: \"return 2 \u2026 return 2 \u2026 return 0\" || daemon.py:30-35: \"try:\\n            changed = syncer.sync_once()\\n            if changed:\\n                logging.info(\\\"Sync completed: %d changed item(s)\\\", changed)\\n        except Exception:\\n            logging.exception(\\\"Sync failed\\\")\" || architecture.md \u00a79: \"| `cli.py` | NFR-10 (distinct exit codes) | `tests/test_e2e_sync.py`\"",
+      "location": [
+        {
+          "file": "docs/project_requirements.md",
+          "line_start": 34,
+          "line_end": 34
+        },
+        {
+          "file": "src/agents_sync/cli.py",
+          "line_start": 71,
+          "line_end": 90
+        },
+        {
+          "file": "src/agents_sync/daemon.py",
+          "line_start": 29,
+          "line_end": 37
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 445,
+          "line_end": 445
+        }
+      ],
+      "affected_req": [
+        "NFR-10"
+      ],
+      "affected_components": [
+        "cli.main",
+        "daemon.watch"
+      ]
+    },
+    {
+      "issue_number": 9,
+      "issue_name": "I-3 invariant promised as load-bearing, no mechanism verifies it",
+      "issue_detailed_description": "\u00a75.3 escalates: 'NFR-01 holds iff no use-case code path mutates user files without going through one of these two functions first.' \u00a78 names I-3 'no destructive write without prior archive' as 'the load-bearing one for NFR-01'. The verification mechanism described \u2014 a grep-style guard test in `tests/test_no_destructive_writes.py` \u2014 does not exist in the tests directory. D-6 honestly admits the gap, but \u00a75.3 still asserts the iff as if it were established. A load-bearing invariant with no enforcement is a wish, not a guarantee.",
+      "defect_category": "missing_mechanism",
+      "severity_class": "MAJOR",
+      "criticality": 7,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a75.3: \"NFR-01 holds iff no use-case code path mutates user files without going through one of these two functions first. Static auditing this is one test we should add (see \u00a710).\" || architecture.md \u00a78 I-3: \"I-3 is the load-bearing one for NFR-01.\" || `tests/test_no_destructive_writes.py` ABSENT: tests directory contains test_daemon_signals, test_windows_filesystem_retries, test_antigravity_config, test_agentic_tool_spec, test_macos_compat, test_migrate_v0_4, test_agentic_tool_status, test_config_platform_defaults, test_antigravity_io, test_e2e_sync, test_antigravity_three_way, test_first_boot_reconciliation, test_round_trip, test_codex_round_trip, test_windows_slug_collision",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 302,
+          "line_end": 309
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 416,
+          "line_end": 426
+        },
+        {
+          "file": "tests/test_no_destructive_writes.py",
+          "line_start": 0,
+          "line_end": 0
+        }
+      ],
+      "affected_req": [
+        "NFR-01"
+      ],
+      "affected_components": [
+        "adoption.AdoptionEngine",
+        "sync.Syncer"
+      ]
+    },
+    {
+      "issue_number": 10,
+      "issue_name": "__init__.py described as 'Empty' but contains __version__ = '0.3.1'",
+      "issue_detailed_description": "The \u00a74 Module map row for `__init__.py` declares 'Lines: 1' and 'Role: Empty'. The file is not empty \u2014 it contains `__version__ = \"0.3.1\"`. Two defects in one row: the file is mischaracterised, AND the version string says v0.3.1 while the document's status line states 'current as of v0.4 (`feat/v0.4-antigravity-skills`)'. Either the package is mis-versioned or the documentation is. Both possibilities indict the artefact.",
+      "defect_category": "incoherence",
+      "severity_class": "MAJOR",
+      "criticality": 5,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a74: \"| `__init__.py` | 1 | \u2014 | Empty | \u2014 |\" || architecture.md line 9-10: \"**Status**: current as of v0.4 (`feat/v0.4-antigravity-skills`, commit `653eb4b` at the time of writing).\" || src/agents_sync/__init__.py:1: \"__version__ = \\\"0.3.1\\\"\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 245,
+          "line_end": 245
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 9,
+          "line_end": 10
+        },
+        {
+          "file": "src/agents_sync/__init__.py",
+          "line_start": 1,
+          "line_end": 1
+        }
+      ],
+      "affected_components": [
+        "__init__.py"
+      ]
+    },
+    {
+      "issue_number": 11,
+      "issue_name": "Module map total-line arithmetic does not reconcile",
+      "issue_detailed_description": "\u00a74 closes with: 'Totals: 19 modules, 2 852 lines.' Summing the 'Lines' column of the table itself yields a different figure: 19+25+72+221+180+215+253+180+72+185+313+152+391+218+37+94+171+50+3+1 = 2 832 (or 2 752 if state.py's split row is counted once at 221 rather than 110+110). Neither sum is 2 852. The \u00a74 sub-totals ('Use-case classes (Layer 2) account for 1 074 lines') also do not reconcile with 'adapters (Layer 3) account for 1 277 lines' against the actual table rows. A counted summary that does not sum is sloppy at best, fabricated at worst.",
+      "defect_category": "incoherence",
+      "severity_class": "MINOR",
+      "criticality": 4,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a74 final paragraph: \"Totals: 19 modules, 2 852 lines. Use-case classes (Layer 2) account for 1 074 lines; adapters (Layer 3) account for 1 277 lines; entities and frameworks together make up the remaining 501.\" || architecture.md \u00a74 table column 'Lines' as listed: 19, 25, 72, 221 (state.py split into ~110+~110), 180, 215, 253, 180, 72, 185, 313, 152, 391, 218, 37, 94, 171, 50, 3, 1",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 247,
+          "line_end": 249
+        }
+      ],
+      "affected_components": [
+        "\u00a74 Module map"
+      ]
+    },
+    {
+      "issue_number": 12,
+      "issue_name": "Layer-2/3 modules import config.expand_path \u2014 Dependency Rule violation understated",
+      "issue_detailed_description": "\u00a73 invariant 3 reads: 'No layer imports from layer 4. Nothing under `src/agents_sync/` imports from `cli`, `daemon`, `__main__`, `config`, or `filesystem_windows_retry` except other framework modules.' Then immediately admits a parenthetical: `expand_path` from `config.py` is imported by adapter and use-case modules. The exception is then routed to D-2 as a 'narrow violation'. In fact `discovery.py:21`, `rendering.py:19`, `sync.py:10`, and `tool_status.py:14` all import from `config` \u2014 four Layer-2/3 modules importing from Layer 4. The \u00a73 invariant 3 is therefore false today; the D-2 framing of 'narrow' understates a structural inversion.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "MAJOR",
+      "criticality": 5,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a73 invariant 3: \"No layer imports from layer 4.\" || discovery.py:21 \"from agents_sync.config import expand_path\" || rendering.py:19 \"from agents_sync.config import expand_path\" || sync.py:10 \"from agents_sync.config import expand_path, validate_config\" || tool_status.py:14 \"from agents_sync.config import expand_path\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 207,
+          "line_end": 212
+        },
+        {
+          "file": "src/agents_sync/discovery.py",
+          "line_start": 21,
+          "line_end": 21
+        },
+        {
+          "file": "src/agents_sync/rendering.py",
+          "line_start": 19,
+          "line_end": 19
+        },
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 10,
+          "line_end": 10
+        },
+        {
+          "file": "src/agents_sync/tool_status.py",
+          "line_start": 14,
+          "line_end": 14
+        }
+      ],
+      "affected_components": [
+        "config.expand_path"
+      ]
+    },
+    {
+      "issue_number": 13,
+      "issue_name": "Vocabulary drift: pair_id / kind / side persist throughout code while docs use customization_artifact_id / customization_type / agentic_tool",
+      "issue_detailed_description": "The project description (\u00a7Glossary) and the integration protocol declare `customization_artifact_id`, `customization_type`, and `agentic_tool` as the canonical identifiers; the protocol explicitly deprecates `pair`, `kind`, and `side`. The actual code is dominated by `pair_id`, `kind`, and (in archive paths) `side`: `canonical.empty_canonical(kind=...)`, `archive.archive_copy(state_dir, pair_id, side, source)`, `identity.validate_pair_id`, `discovery._add_agentic_tool_artifact(..., kind=...)`, `CustomizationArtifactState.kind`. The architecture document mixes both vocabularies in the same paragraph (e.g. \u00a72 calls them `CustomizationArtifactState` but says canonical has `pair_id` and `kind`). The \u00a713 glossary cross-reference acknowledges the legacy survives but does not treat the divergence as a deviation, even though US-10 AC-4 mandates that the canonical bags be keyed by `agentic_tool_name` and archive paths use `<customization_artifact_id>/<agentic_tool_name>/`.",
+      "defect_category": "terminology_drift",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 5,
+      "evidence": "agentic_tool_integration_protocol.md Terminology table: \"`kind`, `pair`, `side` \u2014 Deprecated. \u2026 Do not introduce in new code\" || archive.py signature: \"def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path)\" || canonical.py:29: \"def empty_canonical(kind: str, pair_id: str | None = None)\" || US-10 AC-4: \"archive paths (`archive/<customization_artifact_id>/<name>/...`)\" || architecture.md \u00a713: \"Legacy code still uses `pair` and `pair_id`; new code uses `customization_artifact` and `customization_artifact_id` where it has been refactored.\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 580,
+          "line_end": 593
+        },
+        {
+          "file": "src/agents_sync/archive.py",
+          "line_start": 47,
+          "line_end": 57
+        },
+        {
+          "file": "src/agents_sync/canonical.py",
+          "line_start": 29,
+          "line_end": 29
+        },
+        {
+          "file": "docs/agentic_tool_integration_protocol.md",
+          "line_start": 18,
+          "line_end": 18
+        },
+        {
+          "file": "docs/stories/US-10-extensible-agentic_tool-registry.md",
+          "line_start": 34,
+          "line_end": 34
+        }
+      ],
+      "affected_us": [
+        "US-10 AC-4"
+      ],
+      "affected_components": [
+        "archive.py",
+        "canonical.py",
+        "identity.py"
+      ]
+    },
+    {
+      "issue_number": 14,
+      "issue_name": "Worked example's 'no edits to sync.py' contradicts current Syncer.__init__",
+      "issue_detailed_description": "\u00a712 closes with: 'No edits to `sync.py`, `adoption.py`, `discovery.py`, `tool_status.py`, \u2026'. But `sync.Syncer.__init__` currently hard-codes the read of `config[\"claude_agents_dir\"]`, `config[\"claude_skills_dir\"]`, `config[\"codex_skills_dir\"]` (D-5). Until D-5 is fixed, adding opencode either leaves `Syncer` ignorant of opencode-specific config (acceptable if those reads are dead code, as D-5 claims) or requires extending the assignments. The worked example treats D-5 as already resolved without saying so; the reader is told the design is currently extensible when in fact the \u00a712 guarantee is conditional on a fix that has not landed.",
+      "defect_category": "incoherence",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a712 conclusion: \"**No edits** to `sync.py`, `adoption.py`, `discovery.py`, `tool_status.py`, `canonical.py`, `rendering.py`, `archive.py`, `state.py`, `identity.py`, `sync_types.py`, `daemon.py`. If any of those needs to change to make opencode work, the design has failed US-10 AC-2 \u2014 fix the port instead of working around it.\" || architecture.md D-5: \"`sync.Syncer.__init__` reads `claude_agents_dir`, `claude_skills_dir`, and `codex_skills_dir` into instance attributes. \u2026 Dead code that names concrete tools inside Layer 2.\" || sync.py:33-35",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 564,
+          "line_end": 568
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 534,
+          "line_end": 541
+        },
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 33,
+          "line_end": 35
+        }
+      ],
+      "affected_us": [
+        "US-10 AC-2"
+      ],
+      "affected_components": [
+        "sync.Syncer"
+      ],
+      "contradicts": [
+        {
+          "file": "docs/architecture.md",
+          "section": "11 D-5"
+        }
+      ]
+    },
+    {
+      "issue_number": 15,
+      "issue_name": "Use cases import directly from rendering adapter; \u00a73 invariant is selectively scoped to dodge it",
+      "issue_detailed_description": "\u00a73 invariant 1 reads: 'No use case imports an adapter directly.' Then carves out an explicit allow-list: 'sync.py, adoption.py, discovery.py, and tool_status.py import from agentic_tool_spec, rendering, archive, canonical, state, identity, and sync_types.' But the document classifies `rendering.py` and `archive.py` as Layer-3 adapters in \u00a72 and \u00a74. So the invariant is stated, then immediately refuted by a list of what use cases are 'permitted' to import \u2014 including adapters. The invariant is whatever the current import graph happens to be. Uncle Bob's Dependency Rule is being relabelled to fit, not enforced.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "MAJOR",
+      "criticality": 7,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a73 invariant 1: \"No use case imports an adapter directly. `sync.py`, `adoption.py`, `discovery.py`, and `tool_status.py` import from `agentic_tool_spec`, `rendering`, `archive`, `canonical`, `state`, `identity`, and `sync_types`. They do not import from `claude_io`, `codex_io`, or `antigravity_io`.\" || architecture.md \u00a72 layer 3 list: \"**Tool-agnostic gateways** that hide platform / filesystem concerns from the use cases: - `rendering.py` \u2026 - `archive.py` \u2026\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 196,
+          "line_end": 201
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 146,
+          "line_end": 159
+        }
+      ],
+      "affected_components": [
+        "sync.py",
+        "adoption.py",
+        "discovery.py",
+        "rendering.py",
+        "archive.py"
+      ]
+    },
+    {
+      "issue_number": 16,
+      "issue_name": "default_agentic_tools registers antigravity unconditionally, ignoring antigravity_enabled at registry build time",
+      "issue_detailed_description": "`agentic_tool_spec.default_agentic_tools()` always constructs and returns all three specs, including antigravity, regardless of `antigravity_enabled` in config. US-10 AC-7 specifies that a registered-but-disabled tool 'is treated as if it were not registered: it is excluded from discovery, sync, conflict resolution, and removal propagation. No log line is emitted about its absence at any time.' The actual mechanism delegates 'disabled' handling to ToolStatusTracker (`_is_tool_enabled`), so the tool is registered, then marked disabled. The architecture document presents this as a clean port-based design but does not surface that 'enabled' is a runtime status concept, not a registration-time concept \u2014 and the spec object lives forever in `default_agentic_tools()` whether the user wanted it or not.",
+      "defect_category": "loose_end",
+      "severity_class": "MINOR",
+      "criticality": 4,
+      "confidence": 4,
+      "evidence": "agentic_tool_spec.py:169-180 default_agentic_tools(): \"return {\\n        \\\"antigravity\\\": _build_antigravity_spec(),\\n        \\\"claude\\\": _build_claude_spec(),\\n        \\\"codex\\\": _build_codex_spec(),\\n    }\" (no config parameter) || US-10 AC-7: \"the agentic_tool is treated as if it were not registered\"",
+      "location": [
+        {
+          "file": "src/agents_sync/agentic_tool_spec.py",
+          "line_start": 169,
+          "line_end": 180
+        },
+        {
+          "file": "docs/stories/US-10-extensible-agentic_tool-registry.md",
+          "line_start": 37,
+          "line_end": 37
+        }
+      ],
+      "affected_us": [
+        "US-10 AC-7"
+      ],
+      "affected_components": [
+        "agentic_tool_spec.default_agentic_tools",
+        "ToolStatusTracker"
+      ]
+    },
+    {
+      "issue_number": 17,
+      "issue_name": "AdoptionEngine traceability claim: US-11 AC-4 verified by test_agentic_tool_status.py is overstated",
+      "issue_detailed_description": "\u00a79 maps `adoption.AdoptionEngine._propagate_removal` to 'description goal 3, FR-04, US-11 AC-4' verified by `tests/test_e2e_sync.py` and `tests/test_agentic_tool_status.py`. The `_propagate_removal` branch is only triggered from `sync_once`'s discovery loop, and the FR-04 / US-11 AC-4 mechanism for skipping unavailable-tool-only state lives in `sync.py:82-84` (`if not any(self.tool_status.is_available(t) for t in ps.agentic_tools): continue`). The architecture row attributes the guarantee to `_propagate_removal` rather than to the orchestrator's pre-filter \u2014 misleading about which line of code actually enforces the requirement.",
+      "defect_category": "incoherence",
+      "severity_class": "MINOR",
+      "criticality": 4,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a79: \"| `adoption.AdoptionEngine._propagate_removal` | description goal 3, FR-04, US-11 AC-4 | `tests/test_e2e_sync.py`, `tests/test_agentic_tool_status.py` |\" || sync.py:82-84: \"if not any(\\n                self.tool_status.is_available(t) for t in ps.agentic_tools\\n            ):\\n                continue\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 437,
+          "line_end": 437
+        },
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 75,
+          "line_end": 91
+        }
+      ],
+      "affected_req": [
+        "FR-04"
+      ],
+      "affected_us": [
+        "US-11 AC-4"
+      ],
+      "affected_components": [
+        "AdoptionEngine._propagate_removal",
+        "sync.Syncer.sync_once"
+      ]
+    },
+    {
+      "issue_number": 18,
+      "issue_name": "Layer-1 'entities' are DTOs, not enterprise-business-rules",
+      "issue_detailed_description": "Uncle Bob's Layer 1 (Entities) is for objects carrying enterprise-wide business rules \u2014 invariants enforced by the type, behaviour the rest of the system relies on. The architecture's Layer 1 list (\u00a72.1) contains: an empty-canonical factory returning a `dict[str, Any]`; a string-validator `validate_pair_id`; a pure slugify; two `@dataclass`es with only `to_dict`/`from_dict`; two more `@dataclass`es of per-poll observations. These are DTOs, validators, and helpers. There is no class on this list that enforces a domain invariant by construction or carries behaviour the use cases rely on. Calling them 'enterprise business rules' is paint-by-numbers Clean Architecture.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a72.1: \"The objects that would exist even if the project shipped as a library with no daemon, no CLI, and no filesystem: - **The canonical document** \u2014 a JSON object \u2026 - **`pair_id`** \u2014 a canonical UUIDv4 string, validated by `identity.validate_pair_id`. \u2026 - **`CustomizationArtifactState` / `AgenticToolState`** \u2014 the in-memory shape \u2026 (no I/O methods, just `to_dict` / `from_dict`).\" || state.py CustomizationArtifactState: only to_dict/from_dict || canonical.empty_canonical returns `dict[str, Any]` with no class wrapping it",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 92,
+          "line_end": 113
+        },
+        {
+          "file": "src/agents_sync/state.py",
+          "line_start": 48,
+          "line_end": 99
+        },
+        {
+          "file": "src/agents_sync/canonical.py",
+          "line_start": 29,
+          "line_end": 44
+        }
+      ],
+      "affected_components": [
+        "canonical.py",
+        "state.py dataclasses",
+        "sync_types.py"
+      ]
+    },
+    {
+      "issue_number": 19,
+      "issue_name": "D-4 (dormant Codex TOML code) is product judgement, not architectural debt",
+      "issue_detailed_description": "D-4 frames the retention of `parse_codex_agent_toml` / `render_codex_agent_toml` as a deviation. By the document's own admission this is 'YAGNI says delete; product judgement says keep' and the dormant code is unreachable through the registry. A documented, unreachable code branch held in reserve for a possible future Codex feature is a product decision, not a structural defect or Clean-Architecture violation. Listing it alongside D-1 (entity importing gateway) and D-3 (missing module discovery) implies parity that is not there \u2014 false modesty padding the deviations list.",
+      "defect_category": "dud",
+      "severity_class": "SMELL",
+      "criticality": 2,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a711 D-4: \"`codex_io.py` contains both the v0.4-active `parse_codex_skill_md` / `render_codex_skill_md` path and the dormant `parse_codex_agent_toml` / `render_codex_agent_toml` path retained 'for any future Codex release that adds a per-agent file format' \u2026 The dormant code is unreachable through the registry. YAGNI says delete; product judgement says keep.\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 524,
+          "line_end": 532
+        }
+      ],
+      "affected_components": [
+        "codex_io.py"
+      ]
+    },
+    {
+      "issue_number": 20,
+      "issue_name": "ASCII diagram hides the 'state.py straddles layers' fact that the table flags",
+      "issue_detailed_description": "The \u00a72 ASCII diagram places `state (I/O half)` in Layer 3 and `state.py (domain half)` plus `CustomizationArtifactState dataclass` in Layer 1, splitting one Python file across two boxes without marking the split visually. The \u00a74 Module map row '`state.py` (load/save/digest/atomic_write)' assigns Layer 3, and '`state.py` (dataclasses + slug)' assigns Layer 1. The diagram and the table both encode this split, but neither explains how Python (where `from agents_sync.state import X` resolves to the same module) is supposed to physically enforce the split. A reader looking only at the picture sees clean boxes; a reader at the imports sees one file imported by everyone.",
+      "defect_category": "incoherence",
+      "severity_class": "MINOR",
+      "criticality": 4,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a72 ASCII: \"\u2502   \u2502   \u2502    canonical document schema                \u2502 \u2502 \u2502 \u2502\\n\u2502   \u2502   \u2502    pair_id (UUIDv4) \u2014 identity.py           \u2502 \u2502 \u2502 \u2502\\n\u2502   \u2502   \u2502    target_slug \u2014 state.py (domain half)     \u2502 \u2502 \u2502 \u2502\" || \u00a74 table: \"| `state.py` (dataclasses + slug) | ~110 of 221 | 1 | \u2026 | `identity` (validation), `filesystem_windows_retry` (I/O half) |\\n| `state.py` (load/save/digest/atomic_write) | ~110 of 221 | 3 | \u2026\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 78,
+          "line_end": 90
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 228,
+          "line_end": 229
+        }
+      ],
+      "affected_components": [
+        "state.py"
+      ]
+    },
+    {
+      "issue_number": 21,
+      "issue_name": "state.py (Layer 1 half) row claims dependency on filesystem_windows_retry, contradicting Layer-1 isolation",
+      "issue_detailed_description": "The \u00a74 row '`state.py` (dataclasses + slug) | \u2026 | 1 | \u2026 | `identity` (validation), `filesystem_windows_retry` (I/O half)' assigns Layer 1 but lists `filesystem_windows_retry` (Layer 4) as a dependency. \u00a72.1 closes with 'These types know nothing about disk, frameworks, tools, or time.' The two statements cannot both be true. Either the dataclasses+slug half does not import `filesystem_windows_retry` (in which case the row is wrong) or it does (in which case Layer 1 imports Layer 4, a Dependency Rule violation). The actual file imports `from agents_sync.filesystem_windows_retry import retry_fs` at state.py:12 \u2014 used by `atomic_write_text`, which the document allocates to the Layer-3 half. The table cell muddles which half owns the import.",
+      "defect_category": "incoherence",
+      "severity_class": "MINOR",
+      "criticality": 4,
+      "confidence": 5,
+      "evidence": "architecture.md \u00a74: \"| `state.py` (dataclasses + slug) | ~110 of 221 | 1 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug` | `identity` (validation), `filesystem_windows_retry` (I/O half) |\" || architecture.md \u00a72.1 closing: \"These types know nothing about disk, frameworks, tools, or time.\" || state.py:12 \"from agents_sync.filesystem_windows_retry import retry_fs\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 228,
+          "line_end": 228
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 113,
+          "line_end": 113
+        },
+        {
+          "file": "src/agents_sync/state.py",
+          "line_start": 12,
+          "line_end": 12
+        }
+      ],
+      "affected_components": [
+        "state.py"
+      ]
+    },
+    {
+      "issue_number": 22,
+      "issue_name": "Ports defined on adapter side (in agentic_tool_spec.py), not use-case side",
+      "issue_detailed_description": "Uncle Bob is explicit that ports belong on the use-case side: the use case defines the interface it needs, and adapters implement it. The architecture document classifies `agentic_tool_spec.py` as Layer 3 ('the port that defines the seam') and shows the use cases (sync, adoption, discovery, tool_status) importing `AgenticToolSpec` *from* the adapter layer. The port lives on the adapter side of the boundary, not the use-case side. This is a textbook inversion of Clean ports-and-adapters: the use cases depend on a type defined in the layer outside them rather than declaring their own abstraction inward.",
+      "defect_category": "architectural_principle_violation",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a72 ASCII placing 'agentic_tool_spec (the port that defines the seam)' inside Layer 3 box || architecture.md \u00a74: \"| `agentic_tool_spec.py` | 180 | 3 (port) | \u2026\" || sync.py:9 \"from agents_sync.agentic_tool_spec import AgenticToolSpec, default_agentic_tools\" (use case importing from layer-3 module)",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 68,
+          "line_end": 70
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 230,
+          "line_end": 230
+        },
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 9,
+          "line_end": 9
+        }
+      ],
+      "affected_components": [
+        "agentic_tool_spec.py",
+        "sync.Syncer",
+        "AdoptionEngine",
+        "DiscoveryWalker"
+      ]
+    },
+    {
+      "issue_number": 23,
+      "issue_name": "NFR-02 'latency \u2264 2\u00d7 interval' attributed to control flow with no actual interval-bound mechanism",
+      "issue_detailed_description": "\u00a76 maps NFR-02 to 'One poll catches a change; the next poll's discovery sees the digest delta on the now-projected counterparts and writes nothing further.' This is a hand-wave: it explains why convergence stops after two polls but does not establish an upper bound of two polling intervals between an edit and observation across every other tool, particularly when a poll itself takes time and `time.sleep(interval_seconds)` (daemon.py:36) makes the inter-poll gap *at least* interval_seconds but unbounded above. NFR-02 reads 'within twice the configured polling interval' \u2014 strict. The mechanism described does not enforce that bound; it only argues for eventual quiescence.",
+      "defect_category": "missing_mechanism",
+      "severity_class": "MAJOR",
+      "criticality": 5,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a76: \"| **NFR-02** latency \u2264 2\u00d7 interval | One poll catches a change; the next poll's discovery sees the digest delta on the now-projected counterparts and writes nothing further. |\" || daemon.py:29-36 \"while not stop:\\n        try:\\n            changed = syncer.sync_once()\\n            \u2026\\n        time.sleep(interval_seconds)\" (sleep happens after sync_once, so worst-case latency is one full sync_once + one interval + next sync_once = strictly more than 2\u00d7 interval when sync_once is non-trivial) || project_requirements.md NFR-02: \"within twice the configured polling interval\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 372,
+          "line_end": 372
+        },
+        {
+          "file": "src/agents_sync/daemon.py",
+          "line_start": 29,
+          "line_end": 37
+        },
+        {
+          "file": "docs/project_requirements.md",
+          "line_start": 26,
+          "line_end": 26
+        }
+      ],
+      "affected_req": [
+        "NFR-02"
+      ],
+      "affected_components": [
+        "daemon.watch"
+      ]
+    },
+    {
+      "issue_number": 24,
+      "issue_name": "\u00a75 boundary contracts \u00a75.1 omits storage='single_file'/'directory_skill' enum, leaving the storage-shape contract under-specified",
+      "issue_detailed_description": "\u00a75.1 lists the CustomizationTypeIO dataclass fields including `storage: str  # \"single_file\" | \"directory_skill\"`. This is a stringly-typed open enum with no enforced validation in the code. `discovery._enumerate_artifacts` raises `ValueError(f\"Unknown storage shape: {io.storage}\")` only at the moment of enumeration. The \u00a75 'boundary contract' rules 1\u20135 do not mention any constraint on the value of `storage`. The protocol document specifies a typed `file_layout` class hierarchy (AgentFileLayout, SkillFileLayout) that the code does not implement. The contract a new adapter author would read is therefore: 'pick a magic string that discovery happens to recognise'.",
+      "defect_category": "undefined_behavior",
+      "severity_class": "MINOR",
+      "criticality": 4,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a75.1 \"storage: str                    # \\\"single_file\\\" | \\\"directory_skill\\\"\" with no validation rule in the Five rules below || discovery.py:188 \"raise ValueError(f\\\"Unknown storage shape: {io.storage}\\\")\" || agentic_tool_integration_protocol.md: \"`AgentFileLayout(extension: str)`\" / \"`SkillFileLayout(skill_md_name: str)`\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 263,
+          "line_end": 292
+        },
+        {
+          "file": "src/agents_sync/discovery.py",
+          "line_start": 178,
+          "line_end": 188
+        },
+        {
+          "file": "docs/agentic_tool_integration_protocol.md",
+          "line_start": 100,
+          "line_end": 105
+        }
+      ],
+      "affected_components": [
+        "agentic_tool_spec.CustomizationTypeIO"
+      ]
+    },
+    {
+      "issue_number": 25,
+      "issue_name": "Tests for AC-5/AC-6/AC-8 (fail-closed registry init) claimed by traceability without naming a test that exercises pkgutil discovery",
+      "issue_detailed_description": "US-10 AC-5, AC-6, AC-8 are about the daemon's registry initialiser failing closed with structured errors when discovered modules are malformed (duplicate name, missing function, missing AGENTIC_TOOL constant). The \u00a79 traceability row maps `agentic_tool_spec.py` to 'US-10 AC-1, AC-2' but does not claim AC-5/AC-6/AC-8 are carried by anything. The `default_agentic_tools()` function is a hand-rolled factory with no pkgutil walk and no duplicate-name / missing-function / missing-AGENTIC_TOOL detection, so AC-5/AC-6/AC-8 cannot be tested today even if a test were written. The architecture document is silent on this gap \u2014 D-3 mentions the missing discovery but does not connect it to the three specific ACs it makes untestable.",
+      "defect_category": "untestable",
+      "severity_class": "MAJOR",
+      "criticality": 6,
+      "confidence": 5,
+      "evidence": "docs/stories/US-10-extensible-agentic_tool-registry.md AC-5/AC-6/AC-8 (fail-closed on duplicate name, missing function, missing AGENTIC_TOOL) || architecture.md \u00a79 row: \"| `agentic_tool_spec.py` | description goal 5, NFR-11, US-10 AC-1, AC-2 | `tests/test_agentic_tool_spec.py` |\" (AC-5/AC-6/AC-8 not listed) || agentic_tool_spec.py:169-180 default_agentic_tools is a hand-rolled factory with no duplicate-name / missing-AGENTIC_TOOL check",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 442,
+          "line_end": 442
+        },
+        {
+          "file": "docs/stories/US-10-extensible-agentic_tool-registry.md",
+          "line_start": 35,
+          "line_end": 38
+        },
+        {
+          "file": "src/agents_sync/agentic_tool_spec.py",
+          "line_start": 169,
+          "line_end": 180
+        }
+      ],
+      "affected_us": [
+        "US-10 AC-5",
+        "US-10 AC-6",
+        "US-10 AC-8"
+      ],
+      "affected_components": [
+        "agentic_tool_spec.default_agentic_tools"
+      ]
+    },
+    {
+      "issue_number": 26,
+      "issue_name": "\u00a74 module map omits Codex's retained legacy TOML responsibility from codex_io's 'Role'",
+      "issue_detailed_description": "The \u00a74 row for `codex_io.py` lists Role as 'Codex `SKILL.md` (v0.4) + Codex TOML (retained)'. D-4 lists the TOML path as 'dormant' and 'unreachable through the registry'. The \u00a74 row therefore advertises a Role the \u00a711 deviations describe as dormant code. A reader using the module map to understand what the codebase does is told `codex_io.py` is responsible for two things; the deviation page says one of them is dead. The module map should not list dead responsibilities as live ones.",
+      "defect_category": "incoherence",
+      "severity_class": "MINOR",
+      "criticality": 3,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a74: \"| `codex_io.py` | 253 | 3 | Codex `SKILL.md` (v0.4) + Codex TOML (retained) | `canonical` |\" || architecture.md D-4: \"The dormant code is unreachable through the registry.\"",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 232,
+          "line_end": 232
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 524,
+          "line_end": 532
+        }
+      ],
+      "affected_components": [
+        "codex_io.py"
+      ]
+    },
+    {
+      "issue_number": 27,
+      "issue_name": "I-4 'every reported failure is structured' presented as held, with no enforcement",
+      "issue_detailed_description": "\u00a78 invariant I-4 'every reported failure is structured (`pair_id`, `tool`, cause)' is listed as established by NFR-13, verified by 'logging.exception and logging.error call sites everywhere'. 'Call sites everywhere' is not a verification mechanism. NFR-13 demands structured log entries naming the customization_artifact_id, the agentic_tool, and the underlying cause; logging.exception alone emits a Python traceback. There is no test asserting structured-error format, and the architecture document does not flag the absence (D-6 is only about destructive-writes). The invariant is wishful in the same way I-3 is, but without the saving honesty of an admitted deviation.",
+      "defect_category": "missing_mechanism",
+      "severity_class": "MINOR",
+      "criticality": 5,
+      "confidence": 4,
+      "evidence": "architecture.md \u00a78: \"| **I-4: every reported failure is structured** (`pair_id`, `tool`, cause) | NFR-13 | `logging.exception` and `logging.error` call sites everywhere |\" || sync.py:70 \"logging.exception(\\\"Failed to sync pair: pair_id=%s\\\", pair_id)\" (names pair_id but not tool) || sync.py:90 \"logging.exception(\\\"Failed to handle orphan state: pair_id=%s\\\", pair_id)\" (no tool)",
+      "location": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 415,
+          "line_end": 426
+        },
+        {
+          "file": "docs/project_requirements.md",
+          "line_start": 37,
+          "line_end": 37
+        },
+        {
+          "file": "src/agents_sync/sync.py",
+          "line_start": 70,
+          "line_end": 90
+        }
+      ],
+      "affected_req": [
+        "NFR-13"
+      ],
+      "affected_components": [
+        "logging call sites across all modules"
+      ]
+    }
+  ]
+}

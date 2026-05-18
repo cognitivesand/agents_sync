@@ -27,13 +27,16 @@ def _required_config(tmp_path: Path, state_dir: Path) -> dict[str, Any]:
         "claude_agents_dir": str(tmp_path / "unused-ca"),
         "claude_commands_dir": str(tmp_path / "unused-cc"),
         "claude_skills_dir": str(tmp_path / "unused-cs"),
+        "claude_rules_dir": str(tmp_path / "unused-cr"),
         "codex_agents_dir": str(tmp_path / "unused-xa"),
         "codex_prompts_dir": str(tmp_path / "unused-xp"),
         "codex_skills_dir": str(tmp_path / "unused-xs"),
+        "codex_rules_dir": str(tmp_path / "unused-xr"),
         "antigravity_skills_dir": str(tmp_path / "unused-as"),
         "opencode_agents_dir": str(tmp_path / "unused-oa"),
         "opencode_commands_dir": str(tmp_path / "unused-oc"),
         "opencode_skills_dir": str(tmp_path / "unused-os"),
+        "opencode_rules_dir": str(tmp_path / "unused-or"),
     }
 
 

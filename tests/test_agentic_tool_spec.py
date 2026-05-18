@@ -41,13 +41,15 @@ def test_claude_spec_supports_both_customization_types():
         "agent",
         "skill",
         "slash_command",
+        "rules",
     })
     assert spec.config_dir_keys == {
         "agent": "claude_agents_dir",
         "slash_command": "claude_commands_dir",
         "skill": "claude_skills_dir",
+        "rules": "claude_rules_dir",
     }
-    for ct in ("agent", "skill", "slash_command"):
+    for ct in ("agent", "skill", "slash_command", "rules"):
         io = spec.io[ct]
         assert isinstance(io, CustomizationTypeIO)
     assert spec.io["agent"].storage == "single_file"
@@ -56,6 +58,8 @@ def test_claude_spec_supports_both_customization_types():
     assert spec.io["slash_command"].storage == "single_file"
     assert spec.io["slash_command"].file_suffix == ".md"
     assert spec.io["slash_command"].recursive is True
+    assert spec.io["rules"].storage == "single_file"
+    assert spec.io["rules"].fixed_file_name == "CLAUDE.md"
 
 
 def test_codex_spec_supports_agents_and_skills():
@@ -64,11 +68,13 @@ def test_codex_spec_supports_agents_and_skills():
         "agent",
         "skill",
         "slash_command",
+        "rules",
     })
     assert spec.config_dir_keys == {
         "agent": "codex_agents_dir",
         "slash_command": "codex_prompts_dir",
         "skill": "codex_skills_dir",
+        "rules": "codex_rules_dir",
     }
     assert spec.io["agent"].storage == "single_file"
     assert spec.io["agent"].file_suffix == ".toml"
@@ -76,6 +82,7 @@ def test_codex_spec_supports_agents_and_skills():
     assert spec.io["slash_command"].storage == "single_file"
     assert spec.io["slash_command"].file_suffix == ".md"
     assert spec.io["slash_command"].recursive is True
+    assert spec.io["rules"].fixed_file_name == "AGENTS.md"
 
 
 def test_opencode_spec_supports_agents_and_skills_with_disable_key():
@@ -84,11 +91,13 @@ def test_opencode_spec_supports_agents_and_skills_with_disable_key():
         "agent",
         "skill",
         "slash_command",
+        "rules",
     })
     assert spec.config_dir_keys == {
         "agent": "opencode_agents_dir",
         "slash_command": "opencode_commands_dir",
         "skill": "opencode_skills_dir",
+        "rules": "opencode_rules_dir",
     }
     assert spec.disable_config_key == "opencode_enabled"
     assert spec.io["agent"].storage == "single_file"
@@ -104,6 +113,7 @@ def test_opencode_spec_supports_agents_and_skills_with_disable_key():
         "explore",
         "scout",
     })
+    assert spec.io["rules"].fixed_file_name == "AGENTS.md"
 
 
 def test_claude_agent_io_round_trips_through_registry():

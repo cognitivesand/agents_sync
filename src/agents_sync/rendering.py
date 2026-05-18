@@ -145,7 +145,7 @@ def render_to_agentic_tool(
     slugger = io.slugify_name or target_slug
     slug = slugger(canonical["name"])
     if io.storage == "single_file":
-        target = existing_path or (root / f"{slug}{io.file_suffix}")
+        target = existing_path or single_file_target(root, io, slug)
         assert_target_available(target, existing_path)
         atomic_write_text(target, io.render(canonical, prior_text))
         return target
@@ -160,6 +160,12 @@ def render_to_agentic_tool(
             atomic_write_text(target_dir / "SKILL.md", skill_md_text)
         return target_dir
     raise ValueError(f"Unknown storage shape: {io.storage}")
+
+
+def single_file_target(root: Path, io: CustomizationTypeIO, slug: str) -> Path:
+    if io.fixed_file_name is not None:
+        return root / io.fixed_file_name
+    return root / f"{slug}{io.file_suffix}"
 
 
 # ---------- state update ----------
