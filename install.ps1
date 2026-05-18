@@ -125,6 +125,7 @@ function Ensure-Config([string]$ConfigFile, [string]$StateFile) {
   if ((-not (Test-Path $ConfigFile)) -or $Force) {
     $tomlStatePath = Convert-ToTomlPath $StateFile
     $opencodeAgentsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\agents")
+    $opencodeCommandsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\commands")
     $opencodeSkillsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\skills")
     $cfg = @"
 [agents-sync]
@@ -132,9 +133,11 @@ poll_interval_seconds = 2.0
 state_path = "$tomlStatePath"
 
 claude_agents_dir = "~/.claude/agents"
+claude_commands_dir = "~/.claude/commands"
 claude_skills_dir = "~/.claude/skills"
 
 codex_agents_dir = "~/.codex/agents"
+codex_prompts_dir = "~/.codex/prompts"
 codex_skills_dir = "~/.codex/skills"
 
 # Google Antigravity (skills only). Enabled by default once
@@ -144,10 +147,11 @@ codex_skills_dir = "~/.codex/skills"
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
 
-# opencode (agents + skills). Enabled by default once the roots exist or can
+# opencode (agents + commands + skills). Enabled by default once the roots exist or can
 # be created. Some opencode builds report %USERPROFILE%\.config\opencode
 # from opencode debug paths; override these paths if yours does.
 # opencode_agents_dir = "$opencodeAgentsPath"
+# opencode_commands_dir = "$opencodeCommandsPath"
 # opencode_skills_dir = "$opencodeSkillsPath"
 # opencode_enabled = false
 "@

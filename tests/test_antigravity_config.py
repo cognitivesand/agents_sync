@@ -67,13 +67,28 @@ def test_cli_parser_accepts_opencode_flags():
     args = parser.parse_args([
         "--opencode-agents-dir",
         "/agents",
+        "--opencode-commands-dir",
+        "/commands",
         "--opencode-skills-dir",
         "/skills",
         "--no-opencode-enabled",
     ])
     assert args.opencode_agents_dir == "/agents"
+    assert args.opencode_commands_dir == "/commands"
     assert args.opencode_skills_dir == "/skills"
     assert args.opencode_enabled is False
+
+
+def test_cli_parser_accepts_slash_command_root_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--claude-commands-dir",
+        "/claude-commands",
+        "--codex-prompts-dir",
+        "/codex-prompts",
+    ])
+    assert args.claude_commands_dir == "/claude-commands"
+    assert args.codex_prompts_dir == "/codex-prompts"
 
 
 # ---------- merged_config ----------
@@ -83,12 +98,15 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
         config=None,
         interval=None,
         claude_agents_dir=None,
+        claude_commands_dir=None,
         claude_skills_dir=None,
         codex_agents_dir=None,
+        codex_prompts_dir=None,
         codex_skills_dir=None,
         antigravity_skills_dir=None,
         antigravity_enabled=None,
         opencode_agents_dir=None,
+        opencode_commands_dir=None,
         opencode_skills_dir=None,
         opencode_enabled=None,
         state_path=None,
@@ -101,7 +119,7 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
 def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[str, str | float | bool]:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
+    for sub in ("ca", "cc", "cs", "xa", "xp", "xs", "oa", "oc", "os"):
         (tmp_path / sub).mkdir()
     ag_root = tmp_path / "as"
     ag_root.mkdir(exist_ok=True)
@@ -109,12 +127,15 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
+        "claude_commands_dir": str(tmp_path / "cc"),
         "claude_skills_dir": str(tmp_path / "cs"),
         "codex_agents_dir": str(tmp_path / "xa"),
+        "codex_prompts_dir": str(tmp_path / "xp"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "antigravity_skills_dir": str(ag_root),
         "antigravity_enabled": antigravity_enabled,
         "opencode_agents_dir": str(tmp_path / "oa"),
+        "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),
         "opencode_enabled": True,
     }
@@ -125,6 +146,7 @@ def test_merged_config_falls_back_to_default_antigravity_dir():
     assert "antigravity_skills_dir" in config
     assert config["antigravity_enabled"] is True
     assert "opencode_agents_dir" in config
+    assert "opencode_commands_dir" in config
     assert "opencode_skills_dir" in config
     assert config["opencode_enabled"] is True
 

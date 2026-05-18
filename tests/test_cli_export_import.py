@@ -66,18 +66,21 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
     root = tmp_path / label
     state_dir = root / "state"
     state_dir.mkdir(parents=True)
-    for sub in ("ca", "cs", "xa", "xs", "as", "oa", "os"):
+    for sub in ("ca", "cc", "cs", "xa", "xp", "xs", "as", "oa", "oc", "os"):
         (root / sub).mkdir(parents=True)
     cfg = {
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(root / "ca"),
+        "claude_commands_dir": str(root / "cc"),
         "claude_skills_dir": str(root / "cs"),
         "codex_agents_dir": str(root / "xa"),
+        "codex_prompts_dir": str(root / "xp"),
         "codex_skills_dir": str(root / "xs"),
         "antigravity_skills_dir": str(root / "as"),
         "antigravity_enabled": True,
         "opencode_agents_dir": str(root / "oa"),
+        "opencode_commands_dir": str(root / "oc"),
         "opencode_skills_dir": str(root / "os"),
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",

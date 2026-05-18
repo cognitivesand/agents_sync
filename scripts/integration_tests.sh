@@ -77,10 +77,10 @@ step "Creating isolated installs in $WORKSPACE"
 for install in "$SRC_ROOT" "$TARGET_ROOT"; do
   assert_in_workspace "$install"
   mkdir -p "$install/state"
-  mkdir -p "$install/claude/agents" "$install/claude/skills"
-  mkdir -p "$install/codex/agents" "$install/codex/skills"
+  mkdir -p "$install/claude/agents" "$install/claude/commands" "$install/claude/skills"
+  mkdir -p "$install/codex/agents" "$install/codex/prompts" "$install/codex/skills"
   mkdir -p "$install/antigravity/skills"
-  mkdir -p "$install/opencode/agents" "$install/opencode/skills"
+  mkdir -p "$install/opencode/agents" "$install/opencode/commands" "$install/opencode/skills"
 done
 ok "src and target install trees materialised"
 
@@ -101,12 +101,15 @@ write_config() {
 poll_interval_seconds = 1.0
 state_path = '$install_root/state/state.json'
 claude_agents_dir = '$install_root/claude/agents'
+claude_commands_dir = '$install_root/claude/commands'
 claude_skills_dir = '$install_root/claude/skills'
 codex_agents_dir = '$install_root/codex/agents'
+codex_prompts_dir = '$install_root/codex/prompts'
 codex_skills_dir = '$install_root/codex/skills'
 antigravity_skills_dir = '$install_root/antigravity/skills'
 antigravity_enabled = true
 opencode_agents_dir = '$install_root/opencode/agents'
+opencode_commands_dir = '$install_root/opencode/commands'
 opencode_skills_dir = '$install_root/opencode/skills'
 opencode_enabled = true
 import_collision_strategy = "mtime_wins"

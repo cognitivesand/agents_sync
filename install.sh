@@ -74,9 +74,11 @@ poll_interval_seconds = 2.0
 state_path = "~/.local/state/agents-sync/state.json"
 
 claude_agents_dir = "~/.claude/agents"
+claude_commands_dir = "~/.claude/commands"
 claude_skills_dir = "~/.claude/skills"
 
 codex_agents_dir = "~/.codex/agents"
+codex_prompts_dir = "~/.codex/prompts"
 codex_skills_dir = "~/.codex/skills"
 
 # Google Antigravity (skills only). Enabled by default once
@@ -84,9 +86,10 @@ codex_skills_dir = "~/.codex/skills"
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
 
-# opencode (agents + skills). Enabled by default once the roots exist or can
+# opencode (agents + commands + skills). Enabled by default once the roots exist or can
 # be created. To disable, uncomment opencode_enabled.
 # opencode_agents_dir = "~/.config/opencode/agents"
+# opencode_commands_dir = "~/.config/opencode/commands"
 # opencode_skills_dir = "~/.config/opencode/skills"
 # opencode_enabled = false
 EOF

@@ -51,19 +51,22 @@ def _fresh_syncer(tmp_path: Path, label: str) -> Syncer:
     base = tmp_path / label
     state_dir = base / "state"
     state_dir.mkdir(parents=True)
-    for sub in ("ca", "cs", "xa", "xs", "as", "oa", "os"):
+    for sub in ("ca", "cc", "cs", "xa", "xp", "xs", "as", "oa", "oc", "os"):
         (base / sub).mkdir(parents=True)
     return Syncer(
         {
             "poll_interval_seconds": 1.0,
             "state_path": str(state_dir / "state.json"),
             "claude_agents_dir": str(base / "ca"),
+            "claude_commands_dir": str(base / "cc"),
             "claude_skills_dir": str(base / "cs"),
             "codex_agents_dir": str(base / "xa"),
+            "codex_prompts_dir": str(base / "xp"),
             "codex_skills_dir": str(base / "xs"),
             "antigravity_skills_dir": str(base / "as"),
             "antigravity_enabled": True,
             "opencode_agents_dir": str(base / "oa"),
+            "opencode_commands_dir": str(base / "oc"),
             "opencode_skills_dir": str(base / "os"),
             "opencode_enabled": True,
             "import_collision_strategy": "mtime_wins",
