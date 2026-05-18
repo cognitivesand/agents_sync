@@ -25,7 +25,7 @@ def watch(syncer: Syncer, interval_seconds: float) -> None:
     _register_signal_if_available(signal.SIGINT, request_stop)
     if hasattr(signal, "SIGTERM"):
         _register_signal_if_available(signal.SIGTERM, request_stop)
-    logging.info("Watching Claude agents/skills with SHA256 polling")
+    logging.info("Watching configured agent and skill roots with SHA256 polling")
     while not stop:
         try:
             changed = syncer.sync_once()
