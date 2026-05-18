@@ -1,6 +1,7 @@
 """Integration tests for v0.5 slash_command synchronization."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,65 @@ def test_slash_command_syncs_markdown_to_toml_with_namespace(tmp_path: Path):
     assert canonical is not None
     assert canonical["kind"] == "slash_command"
     assert canonical["name"] == "git:commit"
+
+
+def test_slash_command_syncs_toml_to_markdown_preserving_prompt_grammar(
+    tmp_path: Path,
+):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    md_root = tmp_path / "md-commands"
+    toml_root = tmp_path / "toml-commands"
+    config = _required_config(tmp_path, state_dir)
+    config.update({
+        "md_commands_dir": str(md_root),
+        "toml_commands_dir": str(toml_root),
+    })
+    syncer = Syncer(
+        config,
+        agentic_tools={
+            "mdtool": _markdown_tool("mdtool", "md_commands_dir"),
+            "tomltool": _toml_tool("tomltool", "toml_commands_dir"),
+        },
+    )
+
+    body = "Deploy {{args}}.\n!{git status --short}\n@{README.md}\n$ARGUMENTS\n"
+    source = toml_root / "ops" / "deploy.toml"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join([
+            'description = "Deploy service"',
+            '"argument-hint" = "[service]"',
+            '"allowed-tools" = "Shell(git:*), Read"',
+            'mode = "execute"',
+            f"prompt = {json.dumps(body)}",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    assert syncer.sync_once() == 1
+
+    pair_id = extract_pair_id_from_slash_command_toml(
+        source.read_text(encoding="utf-8")
+    )
+    assert pair_id is not None
+    target = md_root / "ops" / "deploy.md"
+    assert target.exists()
+
+    target_canonical = parse_slash_command_markdown(
+        target.read_text(encoding="utf-8"),
+        None,
+        agentic_tool_name="mdtool",
+        artifact_path=target,
+        artifact_root=md_root,
+    )
+    assert target_canonical["pair_id"] == pair_id
+    assert target_canonical["name"] == "ops:deploy"
+    assert target_canonical["description"] == "Deploy service"
+    assert target_canonical["argument_hint"] == "[service]"
+    assert target_canonical["allowed_tools"] == ["Shell(git:*)", "Read"]
+    assert target_canonical["body"] == body
 
 
 def test_reserved_slash_command_name_skips_only_that_target(tmp_path: Path, caplog):

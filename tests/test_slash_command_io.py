@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,73 @@ def test_markdown_slash_command_rejects_non_mapping_frontmatter():
         )
 
 
+def test_markdown_without_frontmatter_generates_identity_from_path(tmp_path: Path):
+    body = "Use {{args}} and $ARGUMENTS.\n!{git status}\n@{README.md}\n"
+    text = f"\ufeff{body}"
+    root = tmp_path / "commands"
+    path = root / "ops" / "deploy.md"
+
+    canonical = parse_slash_command_markdown(
+        text,
+        None,
+        agentic_tool_name="mdtool",
+        artifact_path=path,
+        artifact_root=root,
+    )
+
+    assert canonical["kind"] == "slash_command"
+    assert canonical["name"] == "ops:deploy"
+    assert canonical["body"] == body
+    assert extract_pair_id_from_slash_command_markdown(text) is None
+
+    rendered = render_slash_command_markdown(
+        canonical,
+        None,
+        agentic_tool_name="mdtool",
+    )
+    assert extract_pair_id_from_slash_command_markdown(rendered) == canonical["pair_id"]
+    assert rendered.endswith(body)
+
+
+def test_markdown_render_keeps_tool_specific_fields_isolated():
+    canonical = {
+        "pair_id": PAIR_ID,
+        "kind": "slash_command",
+        "name": "review",
+        "description": "Review a target",
+        "argument_hint": "[target]",
+        "allowed_tools": ["Read", "Bash(git:*)"],
+        "model": "gpt-5",
+        "body": "Review $ARGUMENTS.\n",
+        "per_agentic_tool_only": {
+            "claude": {"agent": "reviewer", "mode": "plan"},
+            "codex": {"mode": "execute"},
+        },
+        "per_agentic_tool_extra": {
+            "claude": {"claude-extra": "private"},
+            "codex": {"codex-extra": "retained"},
+        },
+    }
+
+    rendered = render_slash_command_markdown(
+        canonical,
+        None,
+        agentic_tool_name="codex",
+    )
+    reparsed = parse_slash_command_markdown(
+        rendered,
+        None,
+        agentic_tool_name="codex",
+    )
+
+    assert reparsed["per_agentic_tool_only"]["codex"] == {"mode": "execute"}
+    assert reparsed["per_agentic_tool_extra"]["codex"] == {
+        "codex-extra": "retained",
+    }
+    assert "claude-extra" not in rendered
+    assert "agent: reviewer" not in rendered
+
+
 def test_toml_slash_command_maps_prompt_to_body_and_back(tmp_path: Path):
     body = "Run !{git status}\nOpen @{README.md}\nKeep {{args}}\n"
     text = "\n".join([
@@ -133,6 +201,48 @@ def test_toml_slash_command_maps_prompt_to_body_and_back(tmp_path: Path):
     assert reparsed["per_agentic_tool_extra"]["tomltool"] == {"vendor_field": "keep"}
 
 
+def test_toml_accepts_hyphenated_aliases_and_renders_extra_scalars(tmp_path: Path):
+    body = "Summarize {{args}}.\n"
+    text = "\n".join([
+        f'pair_id = "{PAIR_ID}"',
+        '"argument-hint" = "[topic]"',
+        '"allowed-tools" = "Read, Shell(git:*)"',
+        '"extra key" = true',
+        "retry_count = 3",
+        f"prompt = {json.dumps(body)}",
+        "",
+    ])
+    root = tmp_path / "commands"
+    path = root / "notes" / "summarize.toml"
+
+    canonical = parse_slash_command_toml(
+        text,
+        None,
+        agentic_tool_name="tomltool",
+        artifact_path=path,
+        artifact_root=root,
+    )
+
+    assert canonical["name"] == "notes:summarize"
+    assert canonical["argument_hint"] == "[topic]"
+    assert canonical["allowed_tools"] == ["Read", "Shell(git:*)"]
+    assert canonical["per_agentic_tool_extra"]["tomltool"] == {
+        "extra key": True,
+        "retry_count": 3,
+    }
+
+    rendered = render_slash_command_toml(
+        canonical,
+        None,
+        agentic_tool_name="tomltool",
+    )
+    rendered_data = tomllib.loads(rendered)
+    assert rendered_data["extra key"] is True
+    assert rendered_data["retry_count"] == 3
+    assert rendered_data["prompt"] == body
+
+
 def test_slash_command_slug_converts_namespaces_to_directories():
     assert slash_command_slug("Git:Commit PR") == "git/commit-pr"
     assert slash_command_slug("plan") == "plan"
+    assert slash_command_slug("COM1:Aux!") == "com1-item/aux-item"
