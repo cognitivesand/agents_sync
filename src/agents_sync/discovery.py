@@ -21,7 +21,7 @@ from agents_sync.agentic_tool_spec import (
     CustomizationTypeIO,
     is_reserved_customization_name,
 )
-from agents_sync.canonical import new_pair_id
+from agents_sync.canonical import is_private, new_pair_id
 from agents_sync.config import expand_path
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.rendering import path_collision_key, read_artifact_text
@@ -306,6 +306,8 @@ class DiscoveryWalker:
             artifact_path=source_info.path,
             artifact_root=source_root,
         )
+        if is_private(canonical):
+            return []
         targets: list[Path] = []
         for tool_name in missing:
             spec = self.agentic_tools[tool_name]

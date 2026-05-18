@@ -22,7 +22,7 @@ from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     is_reserved_customization_name,
 )
-from agents_sync.canonical import load_canonical, save_canonical
+from agents_sync.canonical import is_private, load_canonical, save_canonical
 from agents_sync.config import expand_path
 from agents_sync.rendering import (
     read_artifact_text,
@@ -150,6 +150,8 @@ class AdoptionEngine:
             artifact_path=source_info.path,
             artifact_root=source_root,
         )
+        if self._skip_private_canonical(pair_id, source_tool, canonical):
+            return False
         canonical["pair_id"] = pair_id
 
         if not source_info.pair_id_present:
@@ -206,6 +208,8 @@ class AdoptionEngine:
             artifact_path=source_info.path,
             artifact_root=source_root,
         )
+        if self._skip_private_canonical(pair_id, source_tool, canonical):
+            return False
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
 
@@ -262,6 +266,15 @@ class AdoptionEngine:
                             target_info.path, pair_id, type(exc).__name__, exc,
                         )
                         prior_text = None
+                if self._target_is_private(
+                    pair_id,
+                    tool_name,
+                    target_spec,
+                    info.kind,
+                    target_info.path,
+                    prior_text,
+                ):
+                    continue
             if self._is_reserved_target_name(target_spec, info.kind, canonical):
                 logging.warning(
                     "Reserved slash_command name skipped: pair_id=%s tool=%s name=%s",
@@ -343,6 +356,8 @@ class AdoptionEngine:
     ) -> bool:
         """Pick argmax(mtime) over changed tools; archive losers' bytes; project."""
         winner = self._pick_winner(changed_tools, info)
+        if self._winner_is_private(pair_id, winner, info):
+            return False
         for tool in changed_tools:
             if tool == winner:
                 continue
@@ -414,6 +429,45 @@ class AdoptionEngine:
 
     # ---------- internals ----------
 
+    def _target_is_private(
+        self,
+        pair_id: str,
+        tool_name: str,
+        target_spec: AgenticToolSpec,
+        kind: str,
+        target_path: Path,
+        prior_text: str | None,
+    ) -> bool:
+        target_io = target_spec.io[kind]
+        text = prior_text
+        if text is None:
+            try:
+                text = read_artifact_text(target_io, target_path)
+            except (OSError, UnicodeDecodeError) as exc:
+                logging.warning(
+                    "Could not inspect prior text at %s for pair_id=%s; "
+                    "private-artifact exclusion could not be evaluated "
+                    "(%s: %s)",
+                    target_path,
+                    pair_id,
+                    type(exc).__name__,
+                    exc,
+                )
+                return False
+        try:
+            canonical = target_io.parse(text, None, artifact_path=target_path)
+        except Exception as exc:
+            logging.warning(
+                "Could not inspect prior canonical at %s for pair_id=%s; "
+                "private-artifact exclusion could not be evaluated (%s: %s)",
+                target_path,
+                pair_id,
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        return self._skip_private_canonical(pair_id, tool_name, canonical)
+
     def _available_participating_tools(self, kind: str) -> list[str]:
         """Participating tools whose status is currently `available`."""
         return [
@@ -432,3 +486,36 @@ class AdoptionEngine:
         io = spec.io[kind]
         name = str(canonical.get("name", ""))
         return is_reserved_customization_name(io, name)
+
+    def _winner_is_private(
+        self,
+        pair_id: str,
+        winner: str,
+        info: CustomizationArtifactInfo,
+    ) -> bool:
+        prior_canonical = load_canonical(self.state_dir, pair_id)
+        tool_info = info.agentic_tools[winner]
+        tool_io = self.agentic_tools[winner].io[info.kind]
+        text = read_artifact_text(tool_io, tool_info.path)
+        canonical = tool_io.parse(
+            text,
+            prior_canonical,
+            artifact_path=tool_info.path,
+        )
+        return self._skip_private_canonical(pair_id, winner, canonical)
+
+    def _skip_private_canonical(
+        self,
+        pair_id: str,
+        source_tool: str,
+        canonical: dict[str, Any],
+    ) -> bool:
+        if not is_private(canonical):
+            return False
+        logging.info(
+            "Skipped private customization_artifact: pair_id=%s source=%s kind=%s",
+            pair_id,
+            source_tool,
+            canonical.get("kind"),
+        )
+        return True

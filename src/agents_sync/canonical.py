@@ -39,9 +39,15 @@ def empty_canonical(kind: str, pair_id: str | None = None) -> dict[str, Any]:
         "tools": [],
         "disallowed_tools": [],
         "permission_mode": None,
+        "provenance": "user",
+        "private": False,
         "per_agentic_tool_only": {},
         "per_agentic_tool_extra": {},
     }
+
+
+def is_private(canonical: dict[str, Any]) -> bool:
+    return bool(canonical.get("private", False))
 
 
 def canonical_path(state_dir: Path, pair_id: str) -> Path:

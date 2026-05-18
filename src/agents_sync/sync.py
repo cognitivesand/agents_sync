@@ -8,6 +8,7 @@ from typing import Any
 from agents_sync import archive
 from agents_sync.adoption import AdoptionEngine
 from agents_sync.agentic_tool_spec import AgenticToolSpec, default_agentic_tools
+from agents_sync.canonical import is_private
 from agents_sync.config import expand_path, validate_config
 from agents_sync.discovery import DiscoveryWalker
 from agents_sync.rendering import read_artifact_text
@@ -151,6 +152,9 @@ class Syncer:
                     "Reconcile: cannot parse for grouping: pair_id=%s tool=%s path=%s",
                     pair_id, tool_name, tool_info.path,
                 )
+                continue
+            if is_private(canonical):
+                discovery.pop(pair_id, None)
                 continue
             slug = target_slug(canonical["name"])
             groups.setdefault((info.kind, slug), []).append(pair_id)
