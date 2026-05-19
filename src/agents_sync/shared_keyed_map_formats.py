@@ -57,6 +57,7 @@ def get_format(name: str) -> SharedKeyedMapFormat:
 
 
 def _json_deserialize(text: str) -> MutableMapping[str, Any]:
+    text = _without_utf8_bom(text)
     if not text or not text.strip():
         return {}
     try:
@@ -135,6 +136,7 @@ def _emit_toml_table(
 
 
 def _toml_deserialize(text: str) -> MutableMapping[str, Any]:
+    text = _without_utf8_bom(text)
     if not text or not text.strip():
         return {}
     try:
@@ -164,8 +166,12 @@ register_format(
 
 def _normalize_jsonc(text: str) -> str:
     """Strip JSONC comments and trailing commas before stdlib JSON parsing."""
-    without_comments = _strip_jsonc_comments(text)
+    without_comments = _strip_jsonc_comments(_without_utf8_bom(text))
     return _strip_trailing_json_commas(without_comments)
+
+
+def _without_utf8_bom(text: str) -> str:
+    return text.removeprefix("\ufeff")
 
 
 def _strip_jsonc_comments(text: str) -> str:
