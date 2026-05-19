@@ -175,6 +175,7 @@ class AdoptionEngine:
             source_dir=source_dir,
             read_prior_text=False,
         )
+        self._archive_prior_slot_results(pair_id, info.kind, results)
 
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info(
@@ -253,6 +254,7 @@ class AdoptionEngine:
             source_dir=source_dir,
             read_prior_text=True,
         )
+        self._archive_prior_slot_results(pair_id, info.kind, results)
 
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info("Synced from %s: pair_id=%s", source_tool, pair_id)
@@ -380,6 +382,7 @@ class AdoptionEngine:
                 prior_text=None,
                 source_dir=source_dir,
             )
+        self._archive_prior_slot_results(pair_id, info.kind, results)
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info(
             "Extended to newly available tools: pair_id=%s tools=%s",
@@ -403,15 +406,66 @@ class AdoptionEngine:
         for tool in changed_tools:
             if tool == winner:
                 continue
-            archive.archive_copy(
-                self.state_dir, pair_id, tool, info.agentic_tools[tool].path
-            )
+            self._archive_existing_tool_bytes(pair_id, info.kind, tool, info)
         logging.warning(
             "Conflict resolved (%s wins): pair_id=%s mtimes=%s",
             winner, pair_id,
             {t: info.agentic_tools[t].mtime for t in changed_tools},
         )
         return self._sync_from_agentic_tool(pair_id, winner, info, state)
+
+    def _archive_existing_tool_bytes(
+        self,
+        pair_id: str,
+        kind: str,
+        tool: str,
+        info: CustomizationArtifactInfo,
+    ) -> None:
+        """Archive the current bytes for ``tool`` respecting storage shape."""
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        tool_info = info.agentic_tools[tool]
+        tool_io = self.agentic_tools[tool].io[kind]
+        if isinstance(tool_io.file_layout, SharedKeyedMapLayout):
+            prior_text = read_artifact_text(
+                tool_io, tool_info.path, slot=tool_info.slot,
+            )
+            archive.archive_text(
+                self.state_dir, pair_id, tool,
+                slot_name=str(tool_info.slot),
+                extension=tool_io.file_layout.file_suffix,
+                content=prior_text,
+            )
+            return
+        archive.archive_copy(self.state_dir, pair_id, tool, tool_info.path)
+
+    def _archive_prior_slot_results(
+        self,
+        pair_id: str,
+        kind: str,
+        results: dict[str, RenderResult],
+    ) -> None:
+        """Archive keyed-map slots returned by render writes.
+
+        Per-file artifacts keep the historical behaviour. ``RenderResult``
+        only carries prior bytes for ``SharedKeyedMapLayout`` writes, so this
+        helper is intentionally narrow.
+        """
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        for tool, result in results.items():
+            if result.prior_slot_text is None:
+                continue
+            tool_io = self.agentic_tools[tool].io[kind]
+            extension = (
+                tool_io.file_layout.file_suffix
+                if isinstance(tool_io.file_layout, SharedKeyedMapLayout)
+                else result.path.suffix
+            )
+            archive.archive_text(
+                self.state_dir, pair_id, tool,
+                slot_name=str(result.slot),
+                extension=extension or ".json",
+                content=result.prior_slot_text,
+            )
 
     def _pick_winner(
         self, tools: Iterable[str], info: CustomizationArtifactInfo

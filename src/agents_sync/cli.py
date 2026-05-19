@@ -109,6 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Toggle opencode participation in the sync (default: enabled).",
     )
+    parser.add_argument(
+        "--mcp-server-secret-policy",
+        choices=["refuse", "redact", "permissive"],
+        default=None,
+        help=(
+            "How to handle literal secrets in MCP server configs "
+            "(default: refuse)."
+        ),
+    )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
 

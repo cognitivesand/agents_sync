@@ -101,6 +101,7 @@ def platform_defaults(
         "opencode_rules_dir": str(opencode_root),
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",
+        "mcp_server_secret_policy": "refuse",
     }
 
 
@@ -149,6 +150,11 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
     maybe_set(config, "opencode_rules_dir", getattr(args, "opencode_rules_dir", None))
     maybe_set(config, "opencode_enabled", getattr(args, "opencode_enabled", None))
+    maybe_set(
+        config,
+        "mcp_server_secret_policy",
+        getattr(args, "mcp_server_secret_policy", None),
+    )
     maybe_set(config, "state_path", args.state_path)
     return config
 
@@ -204,6 +210,13 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError(
             f"import_collision_strategy must be skip|mtime_wins|overwrite, "
             f"got {strategy!r}"
+        )
+
+    mcp_secret_policy = config.get("mcp_server_secret_policy", "refuse")
+    if mcp_secret_policy not in {"refuse", "redact", "permissive"}:
+        raise ConfigError(
+            "mcp_server_secret_policy must be refuse|redact|permissive, "
+            f"got {mcp_secret_policy!r}"
         )
 
     state_path = expand_path(config["state_path"])

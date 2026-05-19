@@ -46,7 +46,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents, skills, slash commands, and global rules across the tools that expose each customization type.
+`agents_sync` synchronizes user-level agents, skills, slash commands, and global rules across the tools that expose each customization type. The v0.5 MCP server type is implemented in the sync core; tool-specific MCP adapters land separately.
 
 | What you edit | Claude Code | Codex | Antigravity | OpenCode |
 |:---|:---|:---|:---|:---|
@@ -54,6 +54,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
 | Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
 | Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| MCP servers | n/a (adapter PR pending) | n/a (adapter PR pending) | n/a | n/a (adapter PR pending) |
 
 **In plain terms:**
 
@@ -61,6 +62,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 - Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
 - Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, and OpenCode sync them as Markdown files.
 - Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
+- MCP server sync support exists in the core shared-file engine; concrete Claude/Codex/OpenCode adapter wiring is intentionally separate.
 
 ```mermaid
 flowchart LR
@@ -385,12 +387,12 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 
 **Synced roots:**
 
-| Tool | Agents | Slash commands | Skills | Rules |
-|:---|:---|:---|:---|:---|
-| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` |
-| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a |
-| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` |
+| Tool | Agents | Slash commands | Skills | Rules | MCP servers |
+|:---|:---|:---|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` | n/a (adapter PR pending) |
+| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` | n/a (adapter PR pending) |
+| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a | n/a |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` | n/a (adapter PR pending) |
 
 **State layout:**
 
@@ -426,6 +428,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 - Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
 - Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
+- Added the core `mcp_server` customization type for JSON shared keyed-map files, including per-slot archive/removal behaviour and `mcp_server_secret_policy` (`refuse` / `redact` / `permissive`).
 
 ### 0.4.3
 
