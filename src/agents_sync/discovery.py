@@ -240,6 +240,8 @@ class DiscoveryWalker:
         each slot as a per-tool view of one artifact."""
         layout = io.file_layout
         assert isinstance(layout, SharedKeyedMapLayout)  # narrowed by caller
+        if layout.shared_path_config_key not in self.config:
+            return
         shared_path = expand_path(self.config[layout.shared_path_config_key])
         try:
             slots, absent_reason = read_slots(shared_path, layout)

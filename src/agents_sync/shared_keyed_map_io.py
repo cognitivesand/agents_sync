@@ -55,11 +55,14 @@ def read_slots(
         node = node[key]
     if not isinstance(node, dict):
         return {}, "map-not-an-object"
-    return (
-        {str(slot_key): format_handler.serialize(slot_value)
-         for slot_key, slot_value in node.items()},
-        None,
-    )
+    slots: dict[str, str] = {}
+    for slot_key, slot_value in node.items():
+        slot_key_text = str(slot_key)
+        if isinstance(slot_value, dict) and layout.key_field not in slot_value:
+            slot_value = dict(slot_value)
+            slot_value[layout.key_field] = slot_key_text
+        slots[slot_key_text] = format_handler.serialize(slot_value)
+    return slots, None
 
 
 def apply_slot(

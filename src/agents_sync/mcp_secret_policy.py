@@ -9,7 +9,17 @@ from typing import Any
 
 
 ALLOWED_MCP_SECRET_POLICIES = frozenset({"refuse", "redact", "permissive"})
-ENV_REFERENCE_RE = re.compile(r"^\$\{env:[A-Z_][A-Z0-9_]*\}$")
+_ENV_NAME = r"[A-Z_][A-Z0-9_]*"
+_ENV_REFERENCE_TOKEN_RE = re.compile(
+    rf"\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}"
+)
+ENV_REFERENCE_RE = re.compile(
+    rf"^(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}})$"
+)
+_BEARER_ENV_REFERENCE_RE = re.compile(
+    rf"^Bearer\s+(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}})$",
+    re.IGNORECASE,
+)
 SECRET_FIELD_RE = re.compile(r"(?i)(api[_-]?key|token|secret|password)")
 _PERMISSIVE_WARNING_CACHE: set[tuple[str, tuple[str, ...]]] = set()
 
@@ -53,6 +63,47 @@ def validate_mcp_secret_policy(policy: str) -> str:
             f"{'|'.join(sorted(ALLOWED_MCP_SECRET_POLICIES))}, got {policy!r}"
         )
     return policy
+
+
+def env_reference_name(value: str) -> str | None:
+    """Return the env var name for supported native env-reference syntaxes."""
+    match = ENV_REFERENCE_RE.match(value)
+    if match is None:
+        return None
+    return next(group for group in match.groups() if group is not None)
+
+
+def bearer_env_reference_name(value: str) -> str | None:
+    """Return the env var name for ``Bearer <env-ref>`` header values."""
+    match = _BEARER_ENV_REFERENCE_RE.match(value)
+    if match is None:
+        return None
+    return next(group for group in match.groups() if group is not None)
+
+
+def format_env_reference(name: str, *, style: str = "canonical") -> str:
+    """Render an env-reference in the target tool's native syntax."""
+    if style == "canonical":
+        return f"${{env:{name}}}"
+    if style == "claude":
+        return f"${{{name}}}"
+    if style == "opencode":
+        return f"{{env:{name}}}"
+    raise ValueError(f"unknown env reference style: {style!r}")
+
+
+def convert_env_references(value: str, *, style: str) -> str:
+    """Convert every supported env-reference token in ``value`` to ``style``."""
+    def replace(match: re.Match[str]) -> str:
+        name = next(group for group in match.groups() if group is not None)
+        return format_env_reference(name, style=style)
+
+    return _ENV_REFERENCE_TOKEN_RE.sub(replace, value)
+
+
+def is_safe_secret_reference(value: str) -> bool:
+    """Whether a secret-looking field value delegates to the environment."""
+    return env_reference_name(value) is not None or bearer_env_reference_name(value) is not None
 
 
 def apply_mcp_secret_policy(
@@ -131,7 +182,11 @@ def reset_mcp_secret_warning_cache() -> None:
 
 
 def _is_secret_literal(path: tuple[str, ...], key: str, value: str) -> bool:
-    if ENV_REFERENCE_RE.match(value):
+    if is_safe_secret_reference(value):
+        return False
+    if key.lower().endswith(("env_var", "env_vars")):
+        return False
+    if "env_http_headers" in path:
         return False
     if path and path[0] == "env":
         return True
@@ -161,7 +216,12 @@ __all__ = [
     "McpSecretLeakError",
     "SecretFinding",
     "apply_mcp_secret_policy",
+    "bearer_env_reference_name",
+    "convert_env_references",
+    "env_reference_name",
     "find_mcp_secret_literals",
+    "format_env_reference",
+    "is_safe_secret_reference",
     "reset_mcp_secret_warning_cache",
     "validate_mcp_secret_policy",
 ]

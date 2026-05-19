@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable, Protocol
 
 
@@ -231,7 +232,76 @@ def _global_rules_io(
     )
 
 
-def _build_claude_spec() -> AgenticToolSpec:
+def _mcp_server_io(
+    agentic_tool_name: str,
+    shared_path_config_key: str,
+    map_key_path: tuple[str, ...],
+    *,
+    file_format: str,
+    dialect: Any | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> CustomizationTypeIO:
+    from agents_sync.mcp_server_io import (
+        DEFAULT_MCP_SERVER_DIALECT,
+        extract_pair_id_from_mcp_server_json,
+        parse_mcp_server_json,
+        render_mcp_server_json,
+    )
+
+    mcp_dialect = dialect or DEFAULT_MCP_SERVER_DIALECT
+
+    def secret_policy() -> str:
+        if config is None:
+            return "refuse"
+        return str(config.get("mcp_server_secret_policy", "refuse"))
+
+    def parse_mcp_server(
+        text: str,
+        prior_canonical: dict[str, Any] | None,
+        *,
+        artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return parse_mcp_server_json(
+            text,
+            prior_canonical,
+            agentic_tool_name=agentic_tool_name,
+            artifact_path=artifact_path,
+            artifact_root=artifact_root,
+            dialect=mcp_dialect,
+            secret_policy=secret_policy(),
+        )
+
+    def render_mcp_server(
+        canonical: dict[str, Any],
+        prior_text: str | None,
+    ) -> str:
+        return render_mcp_server_json(
+            canonical,
+            prior_text,
+            agentic_tool_name=agentic_tool_name,
+            dialect=mcp_dialect,
+            secret_policy=secret_policy(),
+        )
+
+    def extract_pair_id(text: str) -> str | None:
+        return extract_pair_id_from_mcp_server_json(text, dialect=mcp_dialect)
+
+    return CustomizationTypeIO(
+        parse=parse_mcp_server,
+        render=render_mcp_server,
+        extract_pair_id=extract_pair_id,
+        file_layout=SharedKeyedMapLayout(
+            shared_path_config_key=shared_path_config_key,
+            map_key_path=map_key_path,
+            key_field="name",
+            file_format=file_format,
+        ),
+    )
+
+
+def _build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.claude_io import (
         extract_pair_id_from_md,
         parse_claude_md,
@@ -296,6 +366,7 @@ def _build_claude_spec() -> AgenticToolSpec:
             "skill": "claude_skills_dir",
             "slash_command": "claude_commands_dir",
             "rules": "claude_rules_dir",
+            "mcp_server": "claude_mcp_servers_file",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -322,11 +393,26 @@ def _build_claude_spec() -> AgenticToolSpec:
                 recursive=True,
             ),
             "rules": _global_rules_io("claude", "CLAUDE.md"),
+            "mcp_server": _mcp_server_io(
+                "claude",
+                "claude_mcp_servers_file",
+                ("mcpServers",),
+                file_format="json",
+                config=config,
+                dialect=McpServerDialect(
+                    render_name_field=False,
+                    transport_fields=("type", "transport", "transportType"),
+                    auth_fields=("oauth", "auth"),
+                    auth_render_field="oauth",
+                    env_reference_style="claude",
+                ),
+            ),
         },
     )
 
 
-def _build_codex_spec() -> AgenticToolSpec:
+def _build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.claude_io import extract_pair_id_from_md
     from agents_sync.codex_io import (
         extract_pair_id,
@@ -397,6 +483,7 @@ def _build_codex_spec() -> AgenticToolSpec:
             "skill": "codex_skills_dir",
             "slash_command": "codex_prompts_dir",
             "rules": "codex_rules_dir",
+            "mcp_server": "codex_config_file",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -423,6 +510,22 @@ def _build_codex_spec() -> AgenticToolSpec:
                 recursive=True,
             ),
             "rules": _global_rules_io("codex", "AGENTS.md"),
+            "mcp_server": _mcp_server_io(
+                "codex",
+                "codex_config_file",
+                ("mcp_servers",),
+                file_format="toml",
+                config=config,
+                dialect=McpServerDialect(
+                    render_name_field=False,
+                    render_transport_field=False,
+                    headers_fields=("http_headers", "headers"),
+                    headers_render_field="http_headers",
+                    env_http_headers_field="env_http_headers",
+                    bearer_token_env_var_field="bearer_token_env_var",
+                    auth_render_field=None,
+                ),
+            ),
         },
     )
 
@@ -462,7 +565,8 @@ def _build_antigravity_spec() -> AgenticToolSpec:
     )
 
 
-def _build_opencode_spec() -> AgenticToolSpec:
+def _build_opencode_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.opencode_io import (
         extract_pair_id_from_md,
         opencode_skill_slug,
@@ -537,6 +641,7 @@ def _build_opencode_spec() -> AgenticToolSpec:
             "skill": "opencode_skills_dir",
             "slash_command": "opencode_commands_dir",
             "rules": "opencode_rules_dir",
+            "mcp_server": "opencode_config_file",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -571,12 +676,37 @@ def _build_opencode_spec() -> AgenticToolSpec:
                 }),
             ),
             "rules": _global_rules_io("opencode", "AGENTS.md"),
+            "mcp_server": _mcp_server_io(
+                "opencode",
+                "opencode_config_file",
+                ("mcp",),
+                file_format="json",
+                config=config,
+                dialect=McpServerDialect(
+                    render_name_field=False,
+                    transport_fields=("type", "transport", "transportType"),
+                    auth_fields=("oauth", "auth"),
+                    auth_render_field="oauth",
+                    command_mode="array",
+                    env_fields=("environment", "env"),
+                    disabled_fields=("enabled", "disabled"),
+                    env_reference_style="opencode",
+                    transport_render_values=(
+                        ("stdio", "local"),
+                        ("http", "remote"),
+                        ("sse", "remote"),
+                        ("streamable-http", "remote"),
+                    ),
+                ),
+            ),
         },
         disable_config_key="opencode_enabled",
     )
 
 
-def default_agentic_tools() -> dict[str, AgenticToolSpec]:
+def default_agentic_tools(
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, AgenticToolSpec]:
     """Return the default registry of agentic tools participating in the sync.
 
     Order matters for deterministic discovery iteration and for the §5.5
@@ -585,7 +715,7 @@ def default_agentic_tools() -> dict[str, AgenticToolSpec]:
     """
     return {
         "antigravity": _build_antigravity_spec(),
-        "claude": _build_claude_spec(),
-        "codex": _build_codex_spec(),
-        "opencode": _build_opencode_spec(),
+        "claude": _build_claude_spec(config),
+        "codex": _build_codex_spec(config),
+        "opencode": _build_opencode_spec(config),
     }
