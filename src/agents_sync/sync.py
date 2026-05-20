@@ -85,7 +85,8 @@ class Syncer:
                 continue
             ps = state[pair_id]
             if not any(
-                self.tool_status.is_available(t) for t in ps.agentic_tools
+                self.tool_status.is_kind_available(t, ps.kind)
+                for t in ps.agentic_tools
             ):
                 continue
             try:

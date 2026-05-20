@@ -107,6 +107,27 @@ def test_cli_parser_accepts_rules_dir_flags():
     assert args.codex_rules_dir == "/codex"
 
 
+def test_cli_parser_accepts_copilot_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--copilot-cli-agents-dir",
+        "/copilot/agents",
+        "--copilot-cli-skills-dir",
+        "/copilot/skills",
+        "--copilot-vscode-user-instructions-dir",
+        "/copilot/instructions",
+        "--copilot-vscode-user-prompts-dir",
+        "/copilot/prompts",
+        "--no-copilot-cli-enabled",
+    ])
+
+    assert args.copilot_cli_agents_dir == "/copilot/agents"
+    assert args.copilot_cli_skills_dir == "/copilot/skills"
+    assert args.copilot_vscode_user_instructions_dir == "/copilot/instructions"
+    assert args.copilot_vscode_user_prompts_dir == "/copilot/prompts"
+    assert args.copilot_cli_enabled is False
+
+
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:

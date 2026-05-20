@@ -12,7 +12,7 @@ wiring live in `sync.py`.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -96,6 +96,7 @@ class CustomizationTypeIO:
     slugify_name: SlugifyFn | None = None
     recursive: bool = False
     reserved_names: frozenset[str] = frozenset()
+    accepted_file_suffixes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.file_layout is None:
@@ -135,6 +136,8 @@ class AgenticToolSpec:
     config_dir_keys: dict[str, str]
     io: dict[str, CustomizationTypeIO]
     disable_config_key: str | None = None
+    partial_availability: bool = False
+    kind_disable_config_keys: dict[str, str] = field(default_factory=dict)
 
     @property
     def supported_customization_types(self) -> frozenset[str]:
@@ -539,6 +542,76 @@ def _build_opencode_spec() -> AgenticToolSpec:
     )
 
 
+def _build_copilot_spec() -> AgenticToolSpec:
+    from agents_sync.copilot_io import (
+        copilot_skill_slug,
+        extract_pair_id_from_copilot_agent_md,
+        extract_pair_id_from_copilot_instruction_md,
+        extract_pair_id_from_copilot_prompt_md,
+        extract_pair_id_from_copilot_skill_md,
+        parse_copilot_agent_md,
+        parse_copilot_instruction_md,
+        parse_copilot_prompt_md,
+        parse_copilot_skill_md,
+        render_copilot_agent_md,
+        render_copilot_instruction_md,
+        render_copilot_prompt_md,
+        render_copilot_skill_md,
+    )
+    from agents_sync.slash_command_io import slash_command_slug
+
+    return AgenticToolSpec(
+        name="copilot",
+        config_dir_keys={
+            "agent": "copilot_cli_agents_dir",
+            "skill": "copilot_cli_skills_dir",
+            "rules": "copilot_vscode_user_instructions_dir",
+            "slash_command": "copilot_vscode_user_prompts_dir",
+        },
+        io={
+            "agent": CustomizationTypeIO(
+                parse=parse_copilot_agent_md,
+                render=render_copilot_agent_md,
+                extract_pair_id=extract_pair_id_from_copilot_agent_md,
+                storage="single_file",
+                file_suffix=".agent.md",
+                accepted_file_suffixes=(".agent.md", ".chatmode.md", ".md"),
+            ),
+            "skill": CustomizationTypeIO(
+                parse=parse_copilot_skill_md,
+                render=render_copilot_skill_md,
+                extract_pair_id=extract_pair_id_from_copilot_skill_md,
+                storage="directory_skill",
+                file_suffix="",
+                slugify_name=copilot_skill_slug,
+            ),
+            "rules": CustomizationTypeIO(
+                parse=parse_copilot_instruction_md,
+                render=render_copilot_instruction_md,
+                extract_pair_id=extract_pair_id_from_copilot_instruction_md,
+                file_layout=RulesFileLayout(extension=".instructions.md"),
+            ),
+            "slash_command": CustomizationTypeIO(
+                parse=parse_copilot_prompt_md,
+                render=render_copilot_prompt_md,
+                extract_pair_id=extract_pair_id_from_copilot_prompt_md,
+                storage="single_file",
+                file_suffix=".prompt.md",
+                slugify_name=slash_command_slug,
+                recursive=True,
+            ),
+        },
+        disable_config_key="copilot_enabled",
+        partial_availability=True,
+        kind_disable_config_keys={
+            "agent": "copilot_cli_enabled",
+            "skill": "copilot_cli_enabled",
+            "rules": "copilot_vscode_user_profile_enabled",
+            "slash_command": "copilot_vscode_user_profile_enabled",
+        },
+    )
+
+
 def default_agentic_tools() -> dict[str, AgenticToolSpec]:
     """Return the default registry of agentic tools participating in the sync.
 
@@ -550,5 +623,6 @@ def default_agentic_tools() -> dict[str, AgenticToolSpec]:
         "antigravity": _build_antigravity_spec(),
         "claude": _build_claude_spec(),
         "codex": _build_codex_spec(),
+        "copilot": _build_copilot_spec(),
         "opencode": _build_opencode_spec(),
     }
