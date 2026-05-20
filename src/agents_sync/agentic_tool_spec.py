@@ -2,7 +2,7 @@
 in the sync.
 
 One `AgenticToolSpec` represents one agentic tool (e.g. claude, codex,
-antigravity, opencode). It declares which customization_types the tool
+cursor, antigravity, opencode). It declares which customization_types the tool
 supports (agent and/or skill), where on disk each customization_type lives
 (config keys), and how to parse / render / extract the pair_id for each
 (tool, type) cell via `CustomizationTypeIO`.
@@ -530,6 +530,111 @@ def _build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
     )
 
 
+def _build_cursor_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.cursor_io import (
+        extract_pair_id_from_cursor_agent_md,
+        extract_pair_id_from_cursor_command_md,
+        extract_pair_id_from_cursor_mcp_server_json,
+        extract_pair_id_from_cursor_rule_mdc,
+        extract_pair_id_from_cursor_skill_md,
+        parse_cursor_agent_md,
+        parse_cursor_command_md,
+        parse_cursor_mcp_server_json,
+        parse_cursor_rule_mdc,
+        parse_cursor_skill_md,
+        render_cursor_agent_md,
+        render_cursor_command_md,
+        render_cursor_mcp_server_json,
+        render_cursor_rule_mdc,
+        render_cursor_skill_md,
+    )
+    from agents_sync.slash_command_io import slash_command_slug
+
+    def secret_policy() -> str:
+        if config is None:
+            return "refuse"
+        return str(config.get("mcp_server_secret_policy", "refuse"))
+
+    def parse_mcp_server(
+        text: str,
+        prior_canonical: dict[str, Any] | None,
+        *,
+        artifact_path: Path | None = None,
+        artifact_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return parse_cursor_mcp_server_json(
+            text,
+            prior_canonical,
+            artifact_path=artifact_path,
+            artifact_root=artifact_root,
+            secret_policy=secret_policy(),
+        )
+
+    def render_mcp_server(
+        canonical: dict[str, Any],
+        prior_text: str | None,
+    ) -> str:
+        return render_cursor_mcp_server_json(
+            canonical,
+            prior_text,
+            secret_policy=secret_policy(),
+        )
+
+    return AgenticToolSpec(
+        name="cursor",
+        config_dir_keys={
+            "agent": "cursor_agents_dir",
+            "skill": "cursor_skills_dir",
+            "rules": "cursor_rules_dir",
+            "slash_command": "cursor_commands_dir",
+            "mcp_server": "cursor_mcp_servers_file",
+        },
+        io={
+            "agent": CustomizationTypeIO(
+                parse=parse_cursor_agent_md,
+                render=render_cursor_agent_md,
+                extract_pair_id=extract_pair_id_from_cursor_agent_md,
+                storage="single_file",
+                file_suffix=".md",
+            ),
+            "skill": CustomizationTypeIO(
+                parse=parse_cursor_skill_md,
+                render=render_cursor_skill_md,
+                extract_pair_id=extract_pair_id_from_cursor_skill_md,
+                storage="directory_skill",
+                file_suffix="",
+            ),
+            "rules": CustomizationTypeIO(
+                parse=parse_cursor_rule_mdc,
+                render=render_cursor_rule_mdc,
+                extract_pair_id=extract_pair_id_from_cursor_rule_mdc,
+                file_layout=RulesFileLayout(extension=".mdc"),
+                recursive=True,
+            ),
+            "slash_command": CustomizationTypeIO(
+                parse=parse_cursor_command_md,
+                render=render_cursor_command_md,
+                extract_pair_id=extract_pair_id_from_cursor_command_md,
+                storage="single_file",
+                file_suffix=".md",
+                slugify_name=slash_command_slug,
+                recursive=True,
+            ),
+            "mcp_server": CustomizationTypeIO(
+                parse=parse_mcp_server,
+                render=render_mcp_server,
+                extract_pair_id=extract_pair_id_from_cursor_mcp_server_json,
+                file_layout=SharedKeyedMapLayout(
+                    shared_path_config_key="cursor_mcp_servers_file",
+                    map_key_path=("mcpServers",),
+                    file_format="json",
+                ),
+            ),
+        },
+        disable_config_key="cursor_enabled",
+    )
+
+
 def _build_antigravity_spec() -> AgenticToolSpec:
     from agents_sync.antigravity_io import (
         extract_pair_id_from_md,
@@ -717,5 +822,6 @@ def default_agentic_tools(
         "antigravity": _build_antigravity_spec(),
         "claude": _build_claude_spec(config),
         "codex": _build_codex_spec(config),
+        "cursor": _build_cursor_spec(config),
         "opencode": _build_opencode_spec(config),
     }

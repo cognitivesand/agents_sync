@@ -15,7 +15,7 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents, skills, commands, rules, and MCP servers in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
+`agents_sync` keeps your user-level custom agents, skills, commands, rules, and MCP servers in sync across **Claude Code**, **Codex**, **Cursor**, **Google Antigravity**, and **OpenCode**.
 
 > Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
 
@@ -48,21 +48,21 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 `agents_sync` synchronizes user-level agents, skills, slash commands, global rules, and MCP servers across the tools that expose each customization type.
 
-| What you edit | Claude Code | Codex | Antigravity | OpenCode |
-|:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
-| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
-| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | n/a | `~/.config/opencode/AGENTS.md` |
-| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
+| What you edit | Claude Code | Codex | Cursor | Antigravity | OpenCode |
+|:---|:---|:---|:---|:---|:---|
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.cursor/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.cursor/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | `~/.cursor/commands/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
+| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.cursor/rules/*.mdc` | n/a | `~/.config/opencode/AGENTS.md` |
+| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.cursor/mcp.json[mcpServers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
-- Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
-- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, and OpenCode sync them as Markdown files.
-- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
-- MCP servers sync three ways across Claude Code, Codex, and OpenCode. Project-scoped MCP files remain out of scope.
+- Skills are reusable instruction folders. Claude Code, Codex, Cursor, Antigravity, and OpenCode use `SKILL.md` folders, so skills sync five ways.
+- Agents are reusable AI personas. Claude Code, Codex, Cursor, and OpenCode have per-agent file formats, so agents sync four ways.
+- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, Cursor, and OpenCode sync them as Markdown files.
+- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`; Cursor uses `.mdc` rule files.
+- MCP servers sync across Claude Code, Codex, Cursor, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
 flowchart LR
@@ -70,6 +70,7 @@ flowchart LR
         direction TB
         Claude["Claude Code<br/>agents + commands + skills + rules + MCP"]
         Codex["Codex<br/>agents + prompts + skills + rules + MCP"]
+        Cursor["Cursor<br/>agents + commands + skills + rules + MCP"]
         Antigravity["Antigravity<br/>skills only"]
         Opencode["OpenCode<br/>agents + commands + skills + rules + MCP"]
     end
@@ -80,6 +81,7 @@ flowchart LR
 
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
+    Cursor <-->|changes| Sync
     Antigravity <-->|changes| Sync
     Opencode <-->|changes| Sync
     Sync --> State
@@ -90,14 +92,14 @@ flowchart LR
     classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
     classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
 
-    class Claude,Codex,Antigravity,Opencode side
+    class Claude,Codex,Cursor,Antigravity,Opencode side
     class Sync sync
     class State state
     class Archive archive
 
-    linkStyle 0,1,2,3 stroke:#2da44e,stroke-width:2px
-    linkStyle 4 stroke:#8250df,stroke-width:2px
-    linkStyle 5 stroke:#2da44e,stroke-width:2px
+    linkStyle 0,1,2,3,4 stroke:#2da44e,stroke-width:2px
+    linkStyle 5 stroke:#8250df,stroke-width:2px
+    linkStyle 6 stroke:#2da44e,stroke-width:2px
 ```
 
 ---
@@ -110,9 +112,9 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit an agent in Claude Code, Codex, or OpenCode | The other two agent-capable tools receive matching agent files |
-| Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
-| Create or edit a slash command in Claude Code, Codex, or OpenCode | The other slash-command tools receive matching command files |
+| Create or edit an agent in Claude Code, Codex, Cursor, or OpenCode | The other agent-capable tools receive matching agent files |
+| Create or edit a skill on any tool | The other skill-capable tools receive the matching `SKILL.md` folder |
+| Create or edit a slash command in Claude Code, Codex, Cursor, or OpenCode | The other slash-command tools receive matching command files |
 | Two or more tools edit the same customization simultaneously | The most recently modified copy wins; the losers are archived |
 | Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
@@ -175,9 +177,15 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, and OpenCode into it. Antigravity itself picks up the directory on its next read.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, Cursor, and OpenCode into it. Antigravity itself picks up the directory on its next read.
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
+
+### Enabling Cursor
+
+Cursor is enabled by default. The daemon uses `~/.cursor/agents/`, `~/.cursor/skills/`, `~/.cursor/rules/`, `~/.cursor/commands/`, and `~/.cursor/mcp.json` for user-level syncable files.
+
+To disable Cursor entirely, set `cursor_enabled = false` in your `config.toml`, or pass `--no-cursor-enabled` on the command line. Cursor slash-command identity is stored as a first-line HTML comment because Cursor commands are plain Markdown files.
 
 ### Enabling OpenCode
 
@@ -197,7 +205,7 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, Cursor, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
 ---
 
@@ -391,6 +399,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 |:---|:---|:---|:---|:---|:---|
 | Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` | `~/.claude.json[mcpServers]` |
 | Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` | `~/.codex/config.toml[mcp_servers]` |
+| Cursor | `~/.cursor/agents` | `~/.cursor/commands` | `~/.cursor/skills` | `~/.cursor/rules/*.mdc` | `~/.cursor/mcp.json[mcpServers]` |
 | Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a | n/a |
 | OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json[mcp]` |
 
@@ -414,10 +423,11 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - Removing a synced customization on any one tool archives every surviving tool's copy before removing it.
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
+- **Cursor limitations:** only user-level file surfaces under `~/.cursor/` are synced. Cursor's SQLite/cloud-backed state, including in-app User Rules, Custom Modes, Notepads, memories, account settings, Background Agents, hooks, project `.cursor/` files, and ignore files, is intentionally out of scope. Put syncable global rules in `~/.cursor/rules/*.mdc`.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
-- **MCP scope:** MCP server sync is user-level only. Claude Code project `.mcp.json`, Codex project `.codex/config.toml`, and project `opencode.json` are intentionally outside the default daemon scope.
+- **MCP scope:** MCP server sync is user-level only. Claude Code project `.mcp.json`, Codex project `.codex/config.toml`, Cursor project `.cursor/mcp.json`, and project `opencode.json` are intentionally outside the default daemon scope.
 - **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, `opencode_skills_dir`, `opencode_rules_dir`, and `opencode_config_file`.
-- This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
+- This tool was developed with the support of Claude Code, Codex, Cursor, Google Antigravity, and OpenCode.
 
 ---
 
@@ -427,9 +437,10 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ### Unreleased
 
-- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
-- Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
-- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour and `mcp_server_secret_policy` (`refuse` / `redact` / `permissive`).
+- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), Cursor (`~/.cursor/commands`), and OpenCode (`~/.config/opencode/commands`).
+- Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, `cursor_commands_dir`, and `opencode_commands_dir`.
+- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour and `mcp_server_secret_policy` (`refuse` / `redact` / `permissive`).
+- Added Cursor support for agents, skills, rules, slash commands, and MCP servers under the user-level `~/.cursor/` file surfaces.
 
 ### 0.4.3
 

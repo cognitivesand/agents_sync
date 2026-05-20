@@ -69,6 +69,7 @@ def platform_defaults(
 ) -> dict[str, Any]:
     platform_name = os.name if os_name is None else os_name
     home_dir = _home_dir(home)
+    cursor_root = home_dir / ".cursor"
     if platform_name == "nt":
         opencode_root = _windows_data_dir(
             "APPDATA",
@@ -91,6 +92,12 @@ def platform_defaults(
         "codex_skills_dir": str(home_dir / ".codex" / "skills"),
         "codex_rules_dir": str(home_dir / ".codex"),
         "codex_config_file": str(home_dir / ".codex" / "config.toml"),
+        "cursor_agents_dir": str(cursor_root / "agents"),
+        "cursor_skills_dir": str(cursor_root / "skills"),
+        "cursor_rules_dir": str(cursor_root / "rules"),
+        "cursor_commands_dir": str(cursor_root / "commands"),
+        "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
+        "cursor_enabled": True,
         # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
         # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
         # handles the per-OS separator). Set antigravity_enabled=False to skip
@@ -148,6 +155,16 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(config, "codex_skills_dir", args.codex_skills_dir)
     maybe_set(config, "codex_rules_dir", getattr(args, "codex_rules_dir", None))
     maybe_set(config, "codex_config_file", getattr(args, "codex_config_file", None))
+    maybe_set(config, "cursor_agents_dir", getattr(args, "cursor_agents_dir", None))
+    maybe_set(config, "cursor_skills_dir", getattr(args, "cursor_skills_dir", None))
+    maybe_set(config, "cursor_rules_dir", getattr(args, "cursor_rules_dir", None))
+    maybe_set(config, "cursor_commands_dir", getattr(args, "cursor_commands_dir", None))
+    maybe_set(
+        config,
+        "cursor_mcp_servers_file",
+        getattr(args, "cursor_mcp_servers_file", None),
+    )
+    maybe_set(config, "cursor_enabled", getattr(args, "cursor_enabled", None))
     maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
     maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
     maybe_set(config, "opencode_agents_dir", getattr(args, "opencode_agents_dir", None))
@@ -181,6 +198,17 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "opencode_rules_dir",
 )
 
+OPTIONAL_PATH_KEYS: tuple[str, ...] = (
+    "claude_mcp_servers_file",
+    "codex_config_file",
+    "cursor_agents_dir",
+    "cursor_skills_dir",
+    "cursor_rules_dir",
+    "cursor_commands_dir",
+    "cursor_mcp_servers_file",
+    "opencode_config_file",
+)
+
 
 def validate_config(config: dict[str, Any]) -> None:
     """Structural validation only.
@@ -209,6 +237,10 @@ def validate_config(config: dict[str, Any]) -> None:
         if key not in config:
             raise ConfigError(f"missing required config key: {key}")
         if not isinstance(config[key], (str, Path)):
+            raise ConfigError(f"{key} must be a path string")
+
+    for key in OPTIONAL_PATH_KEYS:
+        if key in config and not isinstance(config[key], (str, Path)):
             raise ConfigError(f"{key} must be a path string")
 
     strategy = config.get("import_collision_strategy", "mtime_wins")

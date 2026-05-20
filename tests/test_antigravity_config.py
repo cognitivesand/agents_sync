@@ -82,6 +82,29 @@ def test_cli_parser_accepts_opencode_flags():
     assert args.opencode_enabled is False
 
 
+def test_cli_parser_accepts_cursor_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--cursor-agents-dir",
+        "/cursor-agents",
+        "--cursor-commands-dir",
+        "/cursor-commands",
+        "--cursor-skills-dir",
+        "/cursor-skills",
+        "--cursor-rules-dir",
+        "/cursor-rules",
+        "--cursor-mcp-servers-file",
+        "/cursor/mcp.json",
+        "--no-cursor-enabled",
+    ])
+    assert args.cursor_agents_dir == "/cursor-agents"
+    assert args.cursor_commands_dir == "/cursor-commands"
+    assert args.cursor_skills_dir == "/cursor-skills"
+    assert args.cursor_rules_dir == "/cursor-rules"
+    assert args.cursor_mcp_servers_file == "/cursor/mcp.json"
+    assert args.cursor_enabled is False
+
+
 def test_cli_parser_accepts_slash_command_root_flags():
     parser = build_parser()
     args = parser.parse_args([
@@ -152,6 +175,7 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "cura", "curc", "curs", "curr",
         "oa", "oc", "os", "or",
     ):
         (tmp_path / sub).mkdir()
@@ -170,6 +194,12 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "codex_skills_dir": str(tmp_path / "xs"),
         "codex_rules_dir": str(tmp_path / "xr"),
         "codex_config_file": str(tmp_path / "codex-config.toml"),
+        "cursor_agents_dir": str(tmp_path / "cura"),
+        "cursor_commands_dir": str(tmp_path / "curc"),
+        "cursor_skills_dir": str(tmp_path / "curs"),
+        "cursor_rules_dir": str(tmp_path / "curr"),
+        "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
+        "cursor_enabled": True,
         "antigravity_skills_dir": str(ag_root),
         "antigravity_enabled": antigravity_enabled,
         "opencode_agents_dir": str(tmp_path / "oa"),
@@ -190,6 +220,11 @@ def test_merged_config_falls_back_to_default_antigravity_dir():
     assert "opencode_skills_dir" in config
     assert "opencode_rules_dir" in config
     assert config["opencode_enabled"] is True
+    assert "cursor_agents_dir" in config
+    assert "cursor_commands_dir" in config
+    assert "cursor_skills_dir" in config
+    assert "cursor_rules_dir" in config
+    assert config["cursor_enabled"] is True
 
 
 def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):

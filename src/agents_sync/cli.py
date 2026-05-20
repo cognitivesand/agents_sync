@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Continuous sync of Claude Code, Codex, Antigravity, "
-            "and opencode customizations."
+            "Continuous sync of Claude Code, Codex, Cursor, "
+            "Antigravity, and opencode customizations."
         ),
     )
     parser.add_argument(
@@ -81,6 +81,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--codex-config-file",
         type=str,
         help="Codex config.toml file containing [mcp_servers.*]. Defaults to ~/.codex/config.toml.",
+    )
+    parser.add_argument(
+        "--cursor-agents-dir",
+        type=str,
+        help="Cursor user subagents root. Defaults to ~/.cursor/agents.",
+    )
+    parser.add_argument(
+        "--cursor-skills-dir",
+        type=str,
+        help="Cursor Agent Skills root. Defaults to ~/.cursor/skills.",
+    )
+    parser.add_argument(
+        "--cursor-rules-dir",
+        type=str,
+        help="Cursor user rules root. Defaults to ~/.cursor/rules.",
+    )
+    parser.add_argument(
+        "--cursor-commands-dir",
+        type=str,
+        help="Cursor slash-command root. Defaults to ~/.cursor/commands.",
+    )
+    parser.add_argument(
+        "--cursor-mcp-servers-file",
+        type=str,
+        help="Cursor MCP config file. Defaults to ~/.cursor/mcp.json.",
+    )
+    parser.add_argument(
+        "--cursor-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle Cursor participation in the sync (default: enabled).",
     )
     parser.add_argument(
         "--antigravity-skills-dir",

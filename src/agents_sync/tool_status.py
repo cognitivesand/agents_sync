@@ -65,6 +65,8 @@ class ToolStatusTracker:
                     resolved = expand_path(self.config[config_key])
                     parent = resolved.parent
                 else:
+                    if config_key not in self.config:
+                        continue
                     resolved = expand_path(self.config[config_key])
                     parent = resolved
                 try:
@@ -140,6 +142,8 @@ class ToolStatusTracker:
                 except OSError as exc:
                     return "unavailable", (str(parent), f"{type(exc).__name__}: {exc}")
                 continue
+            if config_key not in self.config:
+                return "unavailable", (config_key, "config key missing")
             resolved = expand_path(self.config[config_key])
             if not resolved.exists():
                 return "unavailable", (str(resolved), "path does not exist")

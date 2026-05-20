@@ -1,4 +1,4 @@
-"""Integration tests for real Claude/Codex/opencode slash_command adapters."""
+"""Integration tests for real Claude/Codex/Cursor/opencode slash commands."""
 from __future__ import annotations
 
 import os
@@ -87,7 +87,12 @@ def test_claude_slash_command_adopts_to_codex_and_opencode(syncer: Syncer):
         assert canonical["body"] == body
 
     state = load_state(syncer.state_dir)
-    assert set(state[pair_id].agentic_tools) == {"claude", "codex", "opencode"}
+    assert set(state[pair_id].agentic_tools) == {
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+    }
 
 
 def test_duplicate_new_slash_commands_reconcile_by_mtime_before_adoption(
@@ -115,7 +120,12 @@ def test_duplicate_new_slash_commands_reconcile_by_mtime_before_adoption(
     state = load_state(syncer.state_dir)
     assert len(state) == 1
     pair_id = next(iter(state))
-    assert set(state[pair_id].agentic_tools) == {"claude", "codex", "opencode"}
+    assert set(state[pair_id].agentic_tools) == {
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+    }
 
     for tool in ("claude", "codex", "opencode"):
         target = syncer.tool_root(tool, "slash_command") / "ops" / "deploy.md"
@@ -267,6 +277,7 @@ def test_slash_command_delete_on_one_tool_removes_available_counterparts(
     assert pair_id is not None
 
     codex_target = syncer.tool_root("codex", "slash_command") / "cleanup.md"
+    cursor_target = syncer.tool_root("cursor", "slash_command") / "cleanup.md"
     opencode_target = syncer.tool_root("opencode", "slash_command") / "cleanup.md"
     codex_target.unlink()
 
@@ -274,9 +285,10 @@ def test_slash_command_delete_on_one_tool_removes_available_counterparts(
 
     assert not source.exists()
     assert not codex_target.exists()
+    assert not cursor_target.exists()
     assert not opencode_target.exists()
     assert pair_id not in load_state(syncer.state_dir)
-    for tool in ("claude", "opencode"):
+    for tool in ("claude", "cursor", "opencode"):
         archive_dir = syncer.state_dir / "archive" / pair_id / tool
         assert any(archive_dir.glob("*.md.*"))
 
@@ -300,7 +312,7 @@ def test_opencode_reserved_slash_command_name_skips_opencode_only(
     assert "Reserved slash_command name skipped" in caplog.text
 
     state = load_state(syncer.state_dir)
-    assert set(state[pair_id].agentic_tools) == {"claude", "codex"}
+    assert set(state[pair_id].agentic_tools) == {"claude", "codex", "cursor"}
 
 
 def test_namespaced_reserved_slash_command_skips_opencode_by_leaf_name(
@@ -325,5 +337,5 @@ def test_namespaced_reserved_slash_command_skips_opencode_by_leaf_name(
     assert "Reserved slash_command name skipped" in caplog.text
 
     state = load_state(syncer.state_dir)
-    assert set(state[pair_id].agentic_tools) == {"claude", "codex"}
+    assert set(state[pair_id].agentic_tools) == {"claude", "codex", "cursor"}
 

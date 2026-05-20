@@ -23,6 +23,12 @@ def test_linux_defaults_use_home_conventions():
     assert defaults["codex_skills_dir"] == str(home / ".codex" / "skills")
     assert defaults["codex_rules_dir"] == str(home / ".codex")
     assert defaults["codex_config_file"] == str(home / ".codex" / "config.toml")
+    assert defaults["cursor_agents_dir"] == str(home / ".cursor" / "agents")
+    assert defaults["cursor_commands_dir"] == str(home / ".cursor" / "commands")
+    assert defaults["cursor_skills_dir"] == str(home / ".cursor" / "skills")
+    assert defaults["cursor_rules_dir"] == str(home / ".cursor" / "rules")
+    assert defaults["cursor_mcp_servers_file"] == str(home / ".cursor" / "mcp.json")
+    assert defaults["cursor_enabled"] is True
     assert defaults["opencode_agents_dir"] == str(home / ".config" / "opencode" / "agents")
     assert defaults["opencode_commands_dir"] == str(home / ".config" / "opencode" / "commands")
     assert defaults["opencode_skills_dir"] == str(home / ".config" / "opencode" / "skills")
@@ -55,6 +61,21 @@ def test_windows_defaults_prefer_appdata_and_localappdata():
     )
     assert _portable_path(defaults["opencode_config_file"]) == (
         "C:/Users/tester/AppData/Roaming/opencode/opencode.json"
+    )
+    assert _portable_path(defaults["cursor_agents_dir"]) == (
+        "C:/Users/tester/.cursor/agents"
+    )
+    assert _portable_path(defaults["cursor_commands_dir"]) == (
+        "C:/Users/tester/.cursor/commands"
+    )
+    assert _portable_path(defaults["cursor_skills_dir"]) == (
+        "C:/Users/tester/.cursor/skills"
+    )
+    assert _portable_path(defaults["cursor_rules_dir"]) == (
+        "C:/Users/tester/.cursor/rules"
+    )
+    assert _portable_path(defaults["cursor_mcp_servers_file"]) == (
+        "C:/Users/tester/.cursor/mcp.json"
     )
 
 
