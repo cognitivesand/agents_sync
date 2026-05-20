@@ -65,6 +65,43 @@ def test_from_dict_tolerates_missing_last_modified_for_forward_compat():
     assert decoded.last_modified is None
 
 
+def test_agentic_tool_state_omits_slot_when_none():
+    """v3 stays byte-stable for non-keyed-map artifacts: an unset slot does
+    not appear in to_dict, so existing state files are not rewritten with
+    an extra key on the next save cycle."""
+    encoded = AgenticToolState(path="/x.md", last_seen="d", last_written="d").to_dict()
+
+    assert "slot" not in encoded
+
+
+def test_agentic_tool_state_round_trips_slot():
+    """v0.5 keyed-map artifacts (mcp_server) carry a slot key. The field
+    survives to_dict / from_dict without a schema-version bump."""
+    original = AgenticToolState(
+        path="/home/u/.cursor/mcp.json",
+        last_seen="d",
+        last_written="d",
+        slot="github",
+    )
+
+    decoded = AgenticToolState.from_dict(original.to_dict())
+
+    assert decoded.slot == "github"
+    assert decoded.path == "/home/u/.cursor/mcp.json"
+
+
+def test_agentic_tool_state_from_dict_tolerates_missing_slot():
+    """A state file written by an older agents_sync version has no slot
+    field; load it as None rather than rejecting."""
+    decoded = AgenticToolState.from_dict({
+        "path": "/x.md",
+        "last_seen": "d",
+        "last_written": "d",
+    })
+
+    assert decoded.slot is None
+
+
 def test_from_dict_rejects_non_numeric_last_modified():
     encoded = {
         "customization_type": "skill",

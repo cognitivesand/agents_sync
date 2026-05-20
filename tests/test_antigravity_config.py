@@ -107,6 +107,13 @@ def test_cli_parser_accepts_rules_dir_flags():
     assert args.codex_rules_dir == "/codex"
 
 
+def test_cli_parser_accepts_mcp_server_secret_policy_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--mcp-server-secret-policy", "redact"])
+
+    assert args.mcp_server_secret_policy == "redact"
+
+
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:
@@ -117,17 +124,21 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
         claude_commands_dir=None,
         claude_skills_dir=None,
         claude_rules_dir=None,
+        claude_mcp_servers_file=None,
         codex_agents_dir=None,
         codex_prompts_dir=None,
         codex_skills_dir=None,
         codex_rules_dir=None,
+        codex_config_file=None,
         antigravity_skills_dir=None,
         antigravity_enabled=None,
         opencode_agents_dir=None,
         opencode_commands_dir=None,
         opencode_skills_dir=None,
         opencode_rules_dir=None,
+        opencode_config_file=None,
         opencode_enabled=None,
+        mcp_server_secret_policy=None,
         state_path=None,
         verbose=False,
     )
@@ -153,16 +164,19 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "claude_commands_dir": str(tmp_path / "cc"),
         "claude_skills_dir": str(tmp_path / "cs"),
         "claude_rules_dir": str(tmp_path / "cr"),
+        "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_agents_dir": str(tmp_path / "xa"),
         "codex_prompts_dir": str(tmp_path / "xp"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "codex_rules_dir": str(tmp_path / "xr"),
+        "codex_config_file": str(tmp_path / "codex-config.toml"),
         "antigravity_skills_dir": str(ag_root),
         "antigravity_enabled": antigravity_enabled,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),
         "opencode_rules_dir": str(tmp_path / "or"),
+        "opencode_config_file": str(tmp_path / "opencode.json"),
         "opencode_enabled": True,
     }
 
@@ -187,6 +201,11 @@ def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
 def test_merged_config_honors_cli_disable_flag():
     config = merged_config(_minimal_args(antigravity_enabled=False))
     assert config["antigravity_enabled"] is False
+
+
+def test_merged_config_honors_mcp_secret_policy_override():
+    config = merged_config(_minimal_args(mcp_server_secret_policy="permissive"))
+    assert config["mcp_server_secret_policy"] == "permissive"
 
 
 # ---------- Syncer status for antigravity ----------

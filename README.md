@@ -15,7 +15,7 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
+`agents_sync` keeps your user-level custom agents, skills, commands, rules, and MCP servers in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
 
 > Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
 
@@ -46,7 +46,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents, skills, slash commands, and global rules across the tools that expose each customization type.
+`agents_sync` synchronizes user-level agents, skills, slash commands, global rules, and MCP servers across the tools that expose each customization type.
 
 | What you edit | Claude Code | Codex | Antigravity | OpenCode |
 |:---|:---|:---|:---|:---|
@@ -54,6 +54,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
 | Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
 | Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
 
 **In plain terms:**
 
@@ -61,15 +62,16 @@ The daemon runs quietly in the background, protects your content with archives, 
 - Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
 - Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, and OpenCode sync them as Markdown files.
 - Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
+- MCP servers sync three ways across Claude Code, Codex, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
 flowchart LR
     subgraph Tools["Tools"]
         direction TB
-        Claude["Claude Code<br/>agents + commands + skills + rules"]
-        Codex["Codex<br/>agents + prompts + skills + rules"]
+        Claude["Claude Code<br/>agents + commands + skills + rules + MCP"]
+        Codex["Codex<br/>agents + prompts + skills + rules + MCP"]
         Antigravity["Antigravity<br/>skills only"]
-        Opencode["OpenCode<br/>agents + commands + skills + rules"]
+        Opencode["OpenCode<br/>agents + commands + skills + rules + MCP"]
     end
 
     Sync["agents_sync<br/>watch + match + sync"]
@@ -195,7 +197,7 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove agents and skills from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
 ---
 
@@ -385,12 +387,12 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 
 **Synced roots:**
 
-| Tool | Agents | Slash commands | Skills | Rules |
-|:---|:---|:---|:---|:---|
-| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` |
-| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a |
-| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` |
+| Tool | Agents | Slash commands | Skills | Rules | MCP servers |
+|:---|:---|:---|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` | `~/.claude.json[mcpServers]` |
+| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` | `~/.codex/config.toml[mcp_servers]` |
+| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a | n/a |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json[mcp]` |
 
 **State layout:**
 
@@ -413,7 +415,8 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
-- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, and `opencode_skills_dir`.
+- **MCP scope:** MCP server sync is user-level only. Claude Code project `.mcp.json`, Codex project `.codex/config.toml`, and project `opencode.json` are intentionally outside the default daemon scope.
+- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, `opencode_skills_dir`, `opencode_rules_dir`, and `opencode_config_file`.
 - This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
 
 ---
@@ -426,6 +429,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 - Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
 - Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
+- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour and `mcp_server_secret_policy` (`refuse` / `redact` / `permissive`).
 
 ### 0.4.3
 

@@ -54,6 +54,29 @@ def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
     return target
 
 
+def archive_text(
+    state_dir: Path,
+    pair_id: str,
+    side: str,
+    slot_name: str,
+    extension: str,
+    content: str,
+) -> Path:
+    """Archive a literal text payload (used for SharedKeyedMapLayout slots,
+    where the prior bytes are an in-memory serialisation of one map entry,
+    not a file on disk).
+
+    Stored at ``archive/<pair_id>/<side>/<slot_name><extension>.<ts>`` so
+    per-slot granularity matches the existing per-file convention.
+    """
+    validate_pair_id(pair_id)
+    target_dir = archive_dir_for(state_dir, pair_id, side)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{slot_name}{extension}.{iso_timestamp()}"
+    target.write_text(content, encoding="utf-8")
+    return target
+
+
 def archive_move(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
     """Move `source` into the per-pair archive; original is gone afterwards.
 
