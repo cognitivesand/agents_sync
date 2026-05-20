@@ -161,6 +161,7 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
         "antigravity": "unavailable",
         "claude": "unavailable",
         "codex": "unavailable",
+        "gemini_cli": "disabled",
         "opencode": "unavailable",
     }
 

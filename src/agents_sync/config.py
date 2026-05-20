@@ -95,6 +95,11 @@ def platform_defaults(
         # registration entirely.
         "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
         "antigravity_enabled": True,
+        "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
+        "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
+        "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
+        "gemini_cli_rules_dir": str(home_dir / ".gemini"),
+        "gemini_cli_enabled": True,
         "opencode_agents_dir": str(opencode_root / "agents"),
         "opencode_commands_dir": str(opencode_root / "commands"),
         "opencode_skills_dir": str(opencode_root / "skills"),
@@ -144,6 +149,11 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(config, "codex_rules_dir", getattr(args, "codex_rules_dir", None))
     maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
     maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
+    maybe_set(config, "gemini_cli_agents_dir", getattr(args, "gemini_cli_agents_dir", None))
+    maybe_set(config, "gemini_cli_commands_dir", getattr(args, "gemini_cli_commands_dir", None))
+    maybe_set(config, "gemini_cli_skills_dir", getattr(args, "gemini_cli_skills_dir", None))
+    maybe_set(config, "gemini_cli_rules_dir", getattr(args, "gemini_cli_rules_dir", None))
+    maybe_set(config, "gemini_cli_enabled", getattr(args, "gemini_cli_enabled", None))
     maybe_set(config, "opencode_agents_dir", getattr(args, "opencode_agents_dir", None))
     maybe_set(config, "opencode_commands_dir", getattr(args, "opencode_commands_dir", None))
     maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
@@ -163,6 +173,10 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "codex_skills_dir",
     "codex_rules_dir",
     "antigravity_skills_dir",
+    "gemini_cli_agents_dir",
+    "gemini_cli_commands_dir",
+    "gemini_cli_skills_dir",
+    "gemini_cli_rules_dir",
     "opencode_agents_dir",
     "opencode_commands_dir",
     "opencode_skills_dir",

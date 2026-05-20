@@ -70,6 +70,7 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
         "as",
+        "ga", "gc", "gs", "gr",
         "oa", "oc", "os", "or",
     ):
         (root / sub).mkdir(parents=True)
@@ -86,6 +87,11 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "codex_rules_dir": str(root / "xr"),
         "antigravity_skills_dir": str(root / "as"),
         "antigravity_enabled": True,
+        "gemini_cli_agents_dir": str(root / "ga"),
+        "gemini_cli_commands_dir": str(root / "gc"),
+        "gemini_cli_skills_dir": str(root / "gs"),
+        "gemini_cli_rules_dir": str(root / "gr"),
+        "gemini_cli_enabled": False,
         "opencode_agents_dir": str(root / "oa"),
         "opencode_commands_dir": str(root / "oc"),
         "opencode_skills_dir": str(root / "os"),

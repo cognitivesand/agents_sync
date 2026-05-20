@@ -123,6 +123,11 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
         codex_rules_dir=None,
         antigravity_skills_dir=None,
         antigravity_enabled=None,
+        gemini_cli_agents_dir=None,
+        gemini_cli_commands_dir=None,
+        gemini_cli_skills_dir=None,
+        gemini_cli_rules_dir=None,
+        gemini_cli_enabled=None,
         opencode_agents_dir=None,
         opencode_commands_dir=None,
         opencode_skills_dir=None,
@@ -141,6 +146,7 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "ga", "gc", "gs", "gr",
         "oa", "oc", "os", "or",
     ):
         (tmp_path / sub).mkdir()
@@ -159,6 +165,11 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "codex_rules_dir": str(tmp_path / "xr"),
         "antigravity_skills_dir": str(ag_root),
         "antigravity_enabled": antigravity_enabled,
+        "gemini_cli_agents_dir": str(tmp_path / "ga"),
+        "gemini_cli_commands_dir": str(tmp_path / "gc"),
+        "gemini_cli_skills_dir": str(tmp_path / "gs"),
+        "gemini_cli_rules_dir": str(tmp_path / "gr"),
+        "gemini_cli_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),
@@ -176,6 +187,11 @@ def test_merged_config_falls_back_to_default_antigravity_dir():
     assert "opencode_skills_dir" in config
     assert "opencode_rules_dir" in config
     assert config["opencode_enabled"] is True
+    assert "gemini_cli_agents_dir" in config
+    assert "gemini_cli_commands_dir" in config
+    assert "gemini_cli_skills_dir" in config
+    assert "gemini_cli_rules_dir" in config
+    assert config["gemini_cli_enabled"] is True
 
 
 def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):

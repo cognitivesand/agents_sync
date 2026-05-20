@@ -34,6 +34,7 @@ Examples:
 ```
 src/agents_sync/agentic_tools/claude.py
 src/agents_sync/agentic_tools/codex.py
+src/agents_sync/agentic_tools/gemini_cli.py
 src/agents_sync/agentic_tools/antigravity.py
 src/agents_sync/agentic_tools/opencode.py
 ```

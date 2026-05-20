@@ -21,6 +21,11 @@ def test_linux_defaults_use_home_conventions():
     assert defaults["codex_prompts_dir"] == str(home / ".codex" / "prompts")
     assert defaults["codex_skills_dir"] == str(home / ".codex" / "skills")
     assert defaults["codex_rules_dir"] == str(home / ".codex")
+    assert defaults["gemini_cli_agents_dir"] == str(home / ".gemini" / "agents")
+    assert defaults["gemini_cli_commands_dir"] == str(home / ".gemini" / "commands")
+    assert defaults["gemini_cli_skills_dir"] == str(home / ".gemini" / "skills")
+    assert defaults["gemini_cli_rules_dir"] == str(home / ".gemini")
+    assert defaults["gemini_cli_enabled"] is True
     assert defaults["opencode_agents_dir"] == str(home / ".config" / "opencode" / "agents")
     assert defaults["opencode_commands_dir"] == str(home / ".config" / "opencode" / "commands")
     assert defaults["opencode_skills_dir"] == str(home / ".config" / "opencode" / "skills")
@@ -50,6 +55,19 @@ def test_windows_defaults_prefer_appdata_and_localappdata():
     assert _portable_path(defaults["opencode_rules_dir"]) == (
         "C:/Users/tester/AppData/Roaming/opencode"
     )
+    assert _portable_path(defaults["gemini_cli_agents_dir"]) == (
+        "C:/Users/tester/.gemini/agents"
+    )
+    assert _portable_path(defaults["gemini_cli_commands_dir"]) == (
+        "C:/Users/tester/.gemini/commands"
+    )
+    assert _portable_path(defaults["gemini_cli_skills_dir"]) == (
+        "C:/Users/tester/.gemini/skills"
+    )
+    assert _portable_path(defaults["gemini_cli_rules_dir"]) == (
+        "C:/Users/tester/.gemini"
+    )
+    assert defaults["gemini_cli_enabled"] is True
 
 
 def test_windows_defaults_fallback_to_profile_when_env_missing():
