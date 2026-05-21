@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Continuous sync of Claude Code, Codex, Antigravity, "
-            "and opencode customizations."
+            "Continuous sync of Claude Code, Codex, Cursor, "
+            "Antigravity, and opencode customizations."
         ),
     )
     parser.add_argument(
@@ -60,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="Claude Code rules root. Defaults to ~/.claude, containing CLAUDE.md.",
     )
+    parser.add_argument(
+        "--claude-mcp-servers-file",
+        type=str,
+        help="Claude Code user MCP config file. Defaults to ~/.claude.json.",
+    )
     parser.add_argument("--codex-agents-dir", type=str)
     parser.add_argument(
         "--codex-prompts-dir",
@@ -71,6 +76,42 @@ def build_parser() -> argparse.ArgumentParser:
         "--codex-rules-dir",
         type=str,
         help="Codex rules root. Defaults to ~/.codex, containing AGENTS.md.",
+    )
+    parser.add_argument(
+        "--codex-config-file",
+        type=str,
+        help="Codex config.toml file containing [mcp_servers.*]. Defaults to ~/.codex/config.toml.",
+    )
+    parser.add_argument(
+        "--cursor-agents-dir",
+        type=str,
+        help="Cursor user subagents root. Defaults to ~/.cursor/agents.",
+    )
+    parser.add_argument(
+        "--cursor-skills-dir",
+        type=str,
+        help="Cursor Agent Skills root. Defaults to ~/.cursor/skills.",
+    )
+    parser.add_argument(
+        "--cursor-rules-dir",
+        type=str,
+        help="Cursor user rules root. Defaults to ~/.cursor/rules.",
+    )
+    parser.add_argument(
+        "--cursor-commands-dir",
+        type=str,
+        help="Cursor slash-command root. Defaults to ~/.cursor/commands.",
+    )
+    parser.add_argument(
+        "--cursor-mcp-servers-file",
+        type=str,
+        help="Cursor MCP config file. Defaults to ~/.cursor/mcp.json.",
+    )
+    parser.add_argument(
+        "--cursor-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle Cursor participation in the sync (default: enabled).",
     )
     parser.add_argument(
         "--antigravity-skills-dir",
@@ -104,10 +145,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="opencode rules root. Defaults to ~/.config/opencode on POSIX and APPDATA\\opencode on Windows, containing AGENTS.md.",
     )
     parser.add_argument(
+        "--opencode-config-file",
+        type=str,
+        help="opencode JSON/JSONC config file containing mcp. Defaults to opencode.json in the opencode config root.",
+    )
+    parser.add_argument(
         "--opencode-enabled",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Toggle opencode participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--mcp-server-secret-policy",
+        choices=["refuse", "redact", "permissive"],
+        default=None,
+        help=(
+            "How to handle literal secrets in MCP server configs "
+            "(default: refuse)."
+        ),
     )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
@@ -176,7 +231,7 @@ def _run_import(args: argparse.Namespace, config: dict) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
     strategy = args.collision_strategy or config["import_collision_strategy"]
-    agentic_tools = default_agentic_tools()
+    agentic_tools = default_agentic_tools(config)
     try:
         report = import_from_zip(
             state_dir,

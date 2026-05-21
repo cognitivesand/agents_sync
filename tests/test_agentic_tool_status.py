@@ -150,6 +150,8 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     shutil.rmtree(syncer.tool_root("claude", "skill"))
     shutil.rmtree(syncer.tool_root("codex", "agent"))
     shutil.rmtree(syncer.tool_root("codex", "skill"))
+    shutil.rmtree(syncer.tool_root("cursor", "agent"))
+    shutil.rmtree(syncer.tool_root("cursor", "skill"))
     shutil.rmtree(syncer.tool_root("opencode", "agent"))
     shutil.rmtree(syncer.tool_root("opencode", "skill"))
     shutil.rmtree(tmp_path / "as")
@@ -161,6 +163,7 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
         "antigravity": "unavailable",
         "claude": "unavailable",
         "codex": "unavailable",
+        "cursor": "unavailable",
         "opencode": "unavailable",
     }
 

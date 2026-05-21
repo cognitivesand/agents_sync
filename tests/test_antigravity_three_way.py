@@ -97,7 +97,13 @@ def test_claude_skill_edit_propagates_to_codex_and_antigravity(syncer: Syncer):
     claude_dir = _write_skill(syncer.tool_root("claude", "skill"), "fmt", description="original")
     syncer.sync_once()
     _, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "antigravity",
+        "opencode",
+    }
 
     _replace_in_skill_md(claude_dir, "original", "EDITED")
     syncer.sync_once()
@@ -286,7 +292,13 @@ def test_first_boot_adoption_of_antigravity_only_skill(syncer: Syncer):
     syncer.sync_once()
 
     pair_id, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "antigravity",
+        "opencode",
+    }
     claude_md = Path(entry["agentic_tools"]["claude"]["path"]) / "SKILL.md"
     codex_md = Path(entry["agentic_tools"]["codex"]["path"]) / "SKILL.md"
     assert "from-antigravity" in claude_md.read_text()
@@ -303,6 +315,7 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "cura", "curc", "curs", "curr",
         "oa", "oc", "os", "or",
     ):
         (tmp_path / sub).mkdir()
@@ -319,6 +332,12 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
         "codex_prompts_dir": str(tmp_path / "xp"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "codex_rules_dir": str(tmp_path / "xr"),
+        "cursor_agents_dir": str(tmp_path / "cura"),
+        "cursor_commands_dir": str(tmp_path / "curc"),
+        "cursor_skills_dir": str(tmp_path / "curs"),
+        "cursor_rules_dir": str(tmp_path / "curr"),
+        "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
+        "cursor_enabled": True,
         "antigravity_skills_dir": str(tmp_path / "as"),  # doesn't exist yet
         "antigravity_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
@@ -331,9 +350,14 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     _write_skill(syncer.tool_root("claude", "skill"), "fmt")
     syncer.sync_once()
 
-    # State currently has {claude, codex, opencode} only.
+    # State currently has {claude, codex, cursor, opencode} only.
     _, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+    }
 
     # Now provision the antigravity dir and re-enable.
     (tmp_path / "as").mkdir()
@@ -343,7 +367,13 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     syncer2.sync_once()
 
     _, entry2 = _the_only_pair(syncer2)
-    assert set(entry2["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
+    assert set(entry2["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "antigravity",
+        "opencode",
+    }
     ag_path = Path(entry2["agentic_tools"]["antigravity"]["path"])
     assert (ag_path / "SKILL.md").exists()
 
@@ -364,7 +394,13 @@ def test_three_tool_new_duplicate_with_drifted_content_merges(syncer: Syncer):
     syncer.sync_once()
 
     pair_id, entry = _the_only_pair(syncer)
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "antigravity",
+        "opencode",
+    }
     # Antigravity won (latest mtime); all three converge to "antigravity-version".
     for tool in ("claude", "codex", "antigravity"):
         path = Path(entry["agentic_tools"][tool]["path"]) / "SKILL.md"
@@ -417,7 +453,13 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
 
     assert set(by_name.keys()) == {"A", "B", "C", "D"}
     for name, entry in by_name.items():
-        assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "antigravity", "opencode"}
+        assert set(entry["agentic_tools"].keys()) == {
+            "claude",
+            "codex",
+            "cursor",
+            "antigravity",
+            "opencode",
+        }
 
     # B converged to codex content (codex won mtime); C converged to antigravity content.
     b_claude_text = (Path(by_name["B"]["agentic_tools"]["claude"]["path"]) / "SKILL.md").read_text()
@@ -428,7 +470,7 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
 
 # ---------- agent customization_type excludes Antigravity ----------
 
-def test_agent_customization_type_syncs_claude_codex_opencode(syncer: Syncer):
+def test_agent_customization_type_syncs_claude_codex_cursor_opencode(syncer: Syncer):
     """In v0.4, only claude supports the agent customization_type. Codex
     uses a single AGENTS.md file (not per-agent files), and Antigravity
     has no stable per-agent format. A claude agent adopts with paths
@@ -440,10 +482,17 @@ def test_agent_customization_type_syncs_claude_codex_opencode(syncer: Syncer):
 
     _, entry = _the_only_pair(syncer)
     assert entry["customization_type"] == "agent"
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+    }
     assert (syncer.tool_root("codex", "agent") / "foo.toml").exists()
+    assert (syncer.tool_root("cursor", "agent") / "foo.md").exists()
     assert (syncer.tool_root("opencode", "agent") / "foo.md").exists()
     # Skills roots are not touched by the agent flow.
     assert list(syncer.tool_root("codex", "skill").iterdir()) == []
+    assert list(syncer.tool_root("cursor", "skill").iterdir()) == []
     assert list(Path(syncer.config["antigravity_skills_dir"]).iterdir()) == []
     assert list(syncer.tool_root("opencode", "skill").iterdir()) == []

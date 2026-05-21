@@ -192,10 +192,10 @@ def test_unreadable_prior_text_logs_warning_and_continues(
     import agents_sync.adoption as adoption_mod
     original_read = adoption_mod.read_artifact_text
 
-    def patched_read(io, path: Path) -> str:
+    def patched_read(io, path: Path, slot: str | None = None) -> str:
         if Path(path) == codex_dir:
             raise OSError("simulated prior-text read failure")
-        return original_read(io, path)
+        return original_read(io, path, slot=slot)
 
     monkeypatch.setattr(adoption_mod, "read_artifact_text", patched_read)
 

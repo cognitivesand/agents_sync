@@ -1,4 +1,4 @@
-"""v0.4.1 integration matrix for Codex agents and opencode."""
+"""Integration matrix for Codex, Cursor, and opencode adapters."""
 from __future__ import annotations
 
 import json
@@ -58,10 +58,16 @@ def test_opencode_agent_adopts_to_claude_and_codex(syncer: Syncer):
 
     pair_id, entry = _the_only_pair(syncer)
     assert entry["customization_type"] == "agent"
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+    }
     assert f"pair_id: {pair_id}" in opencode_agent.read_text()
     assert "name: reviewer" in (syncer.tool_root("claude", "agent") / "reviewer.md").read_text()
     assert 'name = "reviewer"' in (syncer.tool_root("codex", "agent") / "reviewer.toml").read_text()
+    assert "name: reviewer" in (syncer.tool_root("cursor", "agent") / "reviewer.md").read_text()
 
 
 def test_codex_agent_adopts_to_claude_and_opencode(syncer: Syncer):
@@ -71,12 +77,18 @@ def test_codex_agent_adopts_to_claude_and_opencode(syncer: Syncer):
 
     pair_id, entry = _the_only_pair(syncer)
     assert entry["customization_type"] == "agent"
-    assert set(entry["agentic_tools"].keys()) == {"claude", "codex", "opencode"}
+    assert set(entry["agentic_tools"].keys()) == {
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+    }
     codex_text = codex_agent.read_text()
     assert f'pair_id = "{pair_id}"' in codex_text
     assert "nickname_candidates" in codex_text
     assert "[mcp_servers.docs]" in codex_text
     assert "name: pr_reviewer" in (syncer.tool_root("claude", "agent") / "pr_reviewer.md").read_text()
+    assert "name: pr_reviewer" in (syncer.tool_root("cursor", "agent") / "pr_reviewer.md").read_text()
     opencode_text = (syncer.tool_root("opencode", "agent") / "pr_reviewer.md").read_text()
     assert "description: from codex" in opencode_text
     assert "sandbox_mode" not in opencode_text
@@ -94,11 +106,12 @@ def test_opencode_skill_adopts_to_all_skill_tools(syncer: Syncer):
     assert set(entry["agentic_tools"].keys()) == {
         "claude",
         "codex",
+        "cursor",
         "antigravity",
         "opencode",
     }
     assert f"pair_id: {pair_id}" in (opencode_skill / "SKILL.md").read_text()
-    for tool in ("claude", "codex", "antigravity"):
+    for tool in ("claude", "codex", "cursor", "antigravity"):
         assert "from opencode" in (
             Path(entry["agentic_tools"][tool]["path"]) / "SKILL.md"
         ).read_text()

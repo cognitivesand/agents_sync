@@ -40,16 +40,18 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agents_sync import archive
-from agents_sync.agentic_tool_spec import AgenticToolSpec
+from agents_sync.agentic_tool_spec import AgenticToolSpec, SharedKeyedMapLayout
 from agents_sync.canonical import canonical_path, load_canonical, save_canonical
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.rendering import render_to_agentic_tool, update_state_n_way
+from agents_sync.shared_keyed_map_io import apply_slot, read_slots
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,
     save_state,
     target_slug,
 )
+from agents_sync.sync_types import RenderResult
 from agents_sync.tool_status import ToolStatusTracker
 
 
@@ -333,6 +335,7 @@ def _classify(
 def _archive_displaced_tool_files(
     state_dir: Path,
     state: dict[str, CustomizationArtifactState],
+    agentic_tools: dict[str, AgenticToolSpec],
     local_pair_id: str,
     *,
     move: bool,
@@ -354,6 +357,29 @@ def _archive_displaced_tool_files(
     for tool_name, at in ps.agentic_tools.items():
         path = Path(at.path)
         if not path.exists():
+            continue
+        spec = agentic_tools.get(tool_name)
+        io = spec.io.get(ps.kind) if spec is not None else None
+        if (
+            io is not None
+            and isinstance(io.file_layout, SharedKeyedMapLayout)
+            and at.slot is not None
+        ):
+            slots, _ = read_slots(path, io.file_layout)
+            slot_text = slots.get(at.slot)
+            if slot_text is None:
+                continue
+            archive.archive_text(
+                state_dir,
+                local_pair_id,
+                tool_name,
+                slot_name=at.slot,
+                extension=io.file_layout.file_suffix,
+                content=slot_text,
+            )
+            if move:
+                apply_slot(path, io.file_layout, at.slot, None)
+            archived.append((local_pair_id, tool_name))
             continue
         if move:
             archive.archive_move(state_dir, local_pair_id, tool_name, path)
@@ -431,6 +457,7 @@ def import_from_zip(
             archived = _archive_displaced_tool_files(
                 state_dir,
                 state,
+                agentic_tools,
                 decision.displaces_local_pair_id,
                 move=slug_displacement,
             )
@@ -449,17 +476,20 @@ def import_from_zip(
         kind = decision.canonical["kind"]
         save_canonical(state_dir, decision.pair_id, decision.canonical)
 
-        paths: dict[str, Path] = {}
+        results: dict[str, RenderResult] = {}
         for tool_name, spec in _participating_tools(
             kind, config, agentic_tools, tool_status
         ):
             existing_path = None
+            existing_slot = None
             if (
                 decision.pair_id in state
                 and tool_name in state[decision.pair_id].agentic_tools
             ):
-                existing_path = Path(state[decision.pair_id].agentic_tools[tool_name].path)
-            target = render_to_agentic_tool(
+                existing = state[decision.pair_id].agentic_tools[tool_name]
+                existing_path = Path(existing.path)
+                existing_slot = existing.slot
+            result = render_to_agentic_tool(
                 config,
                 spec,
                 kind,
@@ -467,10 +497,11 @@ def import_from_zip(
                 existing_path=existing_path,
                 prior_text=None,
                 source_dir=None,
+                existing_slot=existing_slot,
             )
-            paths[tool_name] = target
+            results[tool_name] = result
 
-        update_state_n_way(state, decision.pair_id, kind, paths, agentic_tools)
+        update_state_n_way(state, decision.pair_id, kind, results, agentic_tools)
         # Adoption stamps last_modified = time.time(); we overwrite with
         # the imported value so cross-host equality and the mtime_wins
         # comparison stay consistent (a re-export from this host carries
@@ -480,7 +511,7 @@ def import_from_zip(
         report.accepted.append(decision.pair_id)
         logging.info(
             "Import accepted: pair_id=%s strategy=%s projected_tools=%s",
-            decision.pair_id, strategy, sorted(paths.keys()),
+            decision.pair_id, strategy, sorted(results.keys()),
         )
 
     save_state(state_dir, state)

@@ -13,6 +13,7 @@ Two flavours:
 from __future__ import annotations
 
 import datetime as _dt
+import re
 import shutil
 from pathlib import Path
 
@@ -44,6 +45,11 @@ def _archive_target(state_dir: Path, pair_id: str, side: str, source: Path) -> P
     return target_dir / f"{source.name}.{iso_timestamp()}"
 
 
+def _safe_archive_stem(value: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
+    return stem or "slot"
+
+
 def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
     """Copy `source` into the per-pair archive; original remains in place."""
     target = _archive_target(state_dir, pair_id, side, source)
@@ -51,6 +57,30 @@ def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
         shutil.copytree(source, target, ignore=lambda _dir, names: ignored_tree_names(names))
     else:
         shutil.copy2(source, target)
+    return target
+
+
+def archive_text(
+    state_dir: Path,
+    pair_id: str,
+    side: str,
+    slot_name: str,
+    extension: str,
+    content: str,
+) -> Path:
+    """Archive a literal text payload (used for SharedKeyedMapLayout slots,
+    where the prior bytes are an in-memory serialisation of one map entry,
+    not a file on disk).
+
+    Stored at ``archive/<pair_id>/<side>/<slot_name><extension>.<ts>`` so
+    per-slot granularity matches the existing per-file convention.
+    """
+    validate_pair_id(pair_id)
+    target_dir = archive_dir_for(state_dir, pair_id, side)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    safe_slot_name = _safe_archive_stem(slot_name)
+    target = target_dir / f"{safe_slot_name}{extension}.{iso_timestamp()}"
+    target.write_text(content, encoding="utf-8")
     return target
 
 

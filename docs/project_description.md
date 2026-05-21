@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`agents_sync` keeps user-authored agents and skills in sync across multiple agentic_tools (for example Claude Code, Codex, Google Antigravity, and opencode) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
+`agents_sync` keeps user-authored agents and skills in sync across multiple agentic_tools (for example Claude Code, Codex, Cursor, Google Antigravity, and opencode) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
 
 ## Problem statement
 
@@ -10,6 +10,7 @@ Every agentic_tool stores its agents and skills under its own filesystem layout.
 
 - Claude Code: user-level agents at `~/.claude/agents/*.md`; user-level skills at `~/.claude/skills/<name>/SKILL.md`.
 - Codex: user-level agents at `~/.codex/agents/*.toml`; user-level skills at `~/.codex/skills/<name>/SKILL.md`.
+- Cursor: user-level agents at `~/.cursor/agents/*.md`; user-level skills at `~/.cursor/skills/<name>/SKILL.md`; rules, slash commands, and MCP servers under `~/.cursor/`.
 - Google Antigravity: skills at `~/.gemini/antigravity/skills/<name>/SKILL.md` (no per-agent file format as of v0.4 release).
 - opencode: user-level agents at `~/.config/opencode/agents/*.md`; user-level skills at `~/.config/opencode/skills/<name>/SKILL.md`.
 
@@ -106,7 +107,7 @@ The tool does not use an on-disk lock; concurrency safety is achieved by atomic 
 
 Each entry pairs the technical identifier used in code, configs, ACs, and schemas with the first-person prose form used in user stories and the README.
 
-- **`agentic_tool`** (prose: "my agentic_tools") — an external application that consumes user-authored, reusable files (e.g. Claude Code, Codex, Google Antigravity, opencode). The user installs and uses agentic_tools directly; `agents_sync` does not modify them. In this codebase, the integration module for a given agentic_tool is itself called an `agentic_tool` — a 1:1 correspondence with the external tool, with no separate "side" or "peer" abstraction.
+- **`agentic_tool`** (prose: "my agentic_tools") — an external application that consumes user-authored, reusable files (e.g. Claude Code, Codex, Cursor, Google Antigravity, opencode). The user installs and uses agentic_tools directly; `agents_sync` does not modify them. In this codebase, the integration module for a given agentic_tool is itself called an `agentic_tool` — a 1:1 correspondence with the external tool, with no separate "side" or "peer" abstraction.
 - **`agentic_tool` status** (prose: "available / unavailable / disabled") — at a given poll: `available` (configured, enabled, root reachable), `unavailable` (configured, enabled, root missing or unreadable), or `disabled` (turned off in config).
 - **`user_customization`** (prose: "my customizations") — the umbrella term for the domain of user-authored customizations that `agents_sync` manages, across every `customization_type`. Used in user-facing prose and as a global concept. The concrete unit of synchronisation is the `customization_artifact` (below); a `user_customization` is what you mean colloquially when you say "I'm customising my agentic_tools."
 - **`customization_artifact`** (prose: "a customization", "my agent", "my skill") — a specific managed instance: a user-authored customization identified by a UUIDv4 `customization_artifact_id` and present on N agentic_tools (N ≥ 1) as N renditions of the same content. It is the technical unit of synchronisation: every poll, sync, conflict, removal, and reconciliation operates over customization_artifacts.

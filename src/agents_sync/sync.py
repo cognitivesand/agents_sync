@@ -11,7 +11,9 @@ from agents_sync.agentic_tool_spec import AgenticToolSpec, default_agentic_tools
 from agents_sync.canonical import is_private
 from agents_sync.config import expand_path, validate_config
 from agents_sync.discovery import DiscoveryWalker
+from agents_sync.mcp_secret_policy import reset_mcp_secret_warning_cache
 from agents_sync.rendering import read_artifact_text
+from agents_sync.rendering import slot_aware_collision_key
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,
@@ -30,7 +32,8 @@ class Syncer:
     ) -> None:
         self.config = dict(config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (
-            agentic_tools if agentic_tools is not None else default_agentic_tools()
+            agentic_tools if agentic_tools is not None
+            else default_agentic_tools(self.config)
         )
         self.state_dir = expand_path(config["state_path"]).parent
         self._blocked_pair_ids: set[str] = set()
@@ -58,6 +61,7 @@ class Syncer:
 
     def sync_once(self) -> int:
         validate_config(self.config)
+        reset_mcp_secret_warning_cache()
         self.tool_status.refresh()
         state = load_state(self.state_dir)
         discovery, self._blocked_pair_ids = self.discovery.discover(state)
@@ -140,7 +144,7 @@ class Syncer:
                 self.config[self.agentic_tools[tool_name].config_dir_keys[info.kind]]
             )
             try:
-                text = read_artifact_text(io, tool_info.path)
+                text = read_artifact_text(io, tool_info.path, slot=tool_info.slot)
                 canonical = io.parse(
                     text,
                     None,
@@ -169,6 +173,19 @@ class Syncer:
             # _block_target_collisions intact.
             tools_in_group = {source_tool_by_pair[p] for p in group_pair_ids}
             if len(tools_in_group) != len(group_pair_ids):
+                continue
+            def group_tool_info(pair_id: str) -> AgenticToolInfo:
+                tool = source_tool_by_pair[pair_id]
+                return discovery[pair_id].agentic_tools[tool]
+
+            storage_targets = {
+                slot_aware_collision_key(
+                    group_tool_info(p).path,
+                    group_tool_info(p).slot,
+                )
+                for p in group_pair_ids
+            }
+            if len(storage_targets) != len(group_pair_ids):
                 continue
             self._merge_new_artifact_group(
                 discovery, kind, slug, group_pair_ids, source_tool_by_pair
@@ -201,11 +218,25 @@ class Syncer:
             if p == winner_pair_id:
                 continue
             loser_tool = source_tool_by_pair[p]
-            loser_path = tool_info_for(p).path
+            loser_info = tool_info_for(p)
+            loser_path = loser_info.path
+            loser_io = self.agentic_tools[loser_tool].io[kind]
             try:
-                archive.archive_copy(
-                    self.state_dir, merged_pair_id, loser_tool, loser_path
-                )
+                from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+                if isinstance(loser_io.file_layout, SharedKeyedMapLayout):
+                    loser_text = read_artifact_text(
+                        loser_io, loser_path, slot=loser_info.slot,
+                    )
+                    archive.archive_text(
+                        self.state_dir, merged_pair_id, loser_tool,
+                        slot_name=str(loser_info.slot),
+                        extension=loser_io.file_layout.file_suffix,
+                        content=loser_text,
+                    )
+                else:
+                    archive.archive_copy(
+                        self.state_dir, merged_pair_id, loser_tool, loser_path
+                    )
             except Exception:
                 logging.exception(
                     "Reconcile: archive failed; aborting merge "

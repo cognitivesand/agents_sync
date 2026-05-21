@@ -19,6 +19,7 @@ from typing import Any
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    SharedKeyedMapLayout,
     is_reserved_customization_name,
 )
 from agents_sync.canonical import is_private, new_pair_id
@@ -28,15 +29,37 @@ from agents_sync.rendering import (
     path_collision_key,
     read_artifact_text,
     single_file_target,
+    slot_aware_collision_key,
 )
+from agents_sync.shared_keyed_map_io import read_slots
 from agents_sync.state import (
     CustomizationArtifactState,
     sha256_file,
+    sha256_text,
     sha256_tree,
     target_slug,
 )
-from agents_sync.sync_types import AgenticToolInfo, CustomizationArtifactInfo
+from agents_sync.sync_types import (
+    AgenticToolInfo,
+    CustomizationArtifactInfo,
+    PlannedTarget,
+)
 from agents_sync.tool_status import ToolStatusTracker
+
+
+def _target_already_exists(target: PlannedTarget) -> bool:
+    """Whether a planned target collides with an existing on-disk entry.
+
+    For per-file targets, existence is filesystem existence. For
+    shared-keyed-map targets, the shared file may exist (it is shared
+    with other entries) — the collision question is whether the slot
+    key is already populated under the configured ``map_key_path``.
+    The slot lookup is handled by ``state_owner_for_path`` for managed
+    occupants and by ``PlannedTarget.preexisting`` for unmanaged slots.
+    """
+    if target.slot is None:
+        return target.path.exists()
+    return target.preexisting
 
 
 class DiscoveryWalker:
@@ -79,6 +102,12 @@ class DiscoveryWalker:
                 continue
             for customization_type in sorted(spec.supported_customization_types):
                 io = spec.io[customization_type]
+                if isinstance(io.file_layout, SharedKeyedMapLayout):
+                    self._discover_shared_keyed_map(
+                        tool_name, customization_type, io,
+                        pairs, blocked_pair_ids, state,
+                    )
+                    continue
                 root = expand_path(self.config[spec.config_dir_keys[customization_type]])
                 if not root.exists():
                     continue
@@ -113,8 +142,8 @@ class DiscoveryWalker:
         Mutates ``discovery`` (pops blocked entries) and returns the set of
         blocked pair_ids so the caller can fold them into the overall block.
         """
-        targets: dict[str, list[str]] = {}
-        target_display: dict[str, Path] = {}
+        targets: dict[tuple[str, str | None], list[str]] = {}
+        target_display: dict[tuple[str, str | None], PlannedTarget] = {}
         blocked: set[str] = set()
 
         for pair_id, info in discovery.items():
@@ -127,31 +156,35 @@ class DiscoveryWalker:
                 blocked.add(pair_id)
                 continue
             for target in planned_targets:
-                target_key = path_collision_key(target)
+                target_key = slot_aware_collision_key(target.path, target.slot)
                 targets.setdefault(target_key, []).append(pair_id)
                 target_display.setdefault(target_key, target)
 
-                owner = self.state_owner_for_path(target, state)
+                owner = self.state_owner_for_path(
+                    target.path, state, slot=target.slot,
+                )
                 if owner is not None and owner != pair_id:
                     logging.error(
-                        "Target path collision with managed pair: "
-                        "pair_id=%s owner_pair_id=%s target=%s",
-                        pair_id, owner, target,
+                        "Target collision with managed pair: "
+                        "pair_id=%s owner_pair_id=%s target=%s slot=%s",
+                        pair_id, owner, target.path, target.slot,
                     )
                     blocked.add(pair_id)
-                elif owner is None and target.exists():
+                elif owner is None and _target_already_exists(target):
                     logging.error(
-                        "Target path collision with unmanaged path: pair_id=%s target=%s",
-                        pair_id, target,
+                        "Target collision with unmanaged entry: "
+                        "pair_id=%s target=%s slot=%s",
+                        pair_id, target.path, target.slot,
                     )
                     blocked.add(pair_id)
 
         for target_key, pair_ids in targets.items():
             if len(pair_ids) <= 1:
                 continue
+            display = target_display[target_key]
             logging.error(
-                "Target path collision: target=%s pair_ids=%s",
-                target_display[target_key], pair_ids,
+                "Target collision: target=%s slot=%s pair_ids=%s",
+                display.path, display.slot, pair_ids,
             )
             blocked.update(pair_ids)
 
@@ -163,16 +196,104 @@ class DiscoveryWalker:
         self,
         path: Path,
         state: dict[str, CustomizationArtifactState],
+        slot: str | None = None,
     ) -> str | None:
-        """Return the pair_id whose state owns `path`, or None."""
-        target_key = path_collision_key(path)
+        """Return the pair_id whose state owns ``(path, slot)``, or None.
+
+        For per-file artifacts, ``slot`` is ``None`` and the comparison
+        matches any state entry whose path normalises to the same key,
+        regardless of that entry's slot field. For keyed-map artifacts,
+        ``slot`` must match the state entry's slot exactly — two slots
+        in the same shared file are distinct artifacts.
+        """
+        target_key = slot_aware_collision_key(path, slot)
         for pair_id, pair_state in state.items():
             for tool_state in pair_state.agentic_tools.values():
-                if path_collision_key(Path(tool_state.path)) == target_key:
+                state_key = slot_aware_collision_key(
+                    Path(tool_state.path), tool_state.slot,
+                )
+                if state_key == target_key:
                     return pair_id
         return None
 
     # ---------- internals ----------
+
+    def _discover_shared_keyed_map(
+        self,
+        tool_name: str,
+        customization_type: str,
+        io: CustomizationTypeIO,
+        pairs: dict[str, CustomizationArtifactInfo],
+        blocked_pair_ids: set[str],
+        state: dict[str, CustomizationArtifactState],
+    ) -> None:
+        """Discovery branch for ``SharedKeyedMapLayout``: read the shared
+        file once, iterate over slots under ``map_key_path``, register
+        each slot as a per-tool view of one artifact."""
+        layout = io.file_layout
+        assert isinstance(layout, SharedKeyedMapLayout)  # narrowed by caller
+        if layout.shared_path_config_key not in self.config:
+            return
+        shared_path = expand_path(self.config[layout.shared_path_config_key])
+        try:
+            slots, absent_reason = read_slots(shared_path, layout)
+        except Exception:
+            logging.exception(
+                "Cannot read shared keyed-map file: tool=%s type=%s path=%s",
+                tool_name, customization_type, shared_path,
+            )
+            return
+        if absent_reason is not None:
+            return
+        try:
+            mtime = shared_path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        for slot_key, slot_text in slots.items():
+            self._add_keyed_map_slot_artifact(
+                tool_name, customization_type, io,
+                shared_path, slot_key, slot_text, mtime,
+                pairs, blocked_pair_ids, state,
+            )
+
+    def _add_keyed_map_slot_artifact(
+        self,
+        tool_name: str,
+        customization_type: str,
+        io: CustomizationTypeIO,
+        shared_path: Path,
+        slot_key: str,
+        slot_text: str,
+        mtime: float,
+        pairs: dict[str, CustomizationArtifactInfo],
+        blocked_pair_ids: set[str],
+        state: dict[str, CustomizationArtifactState],
+    ) -> None:
+        """Register one keyed-map slot as a per-tool view of one artifact."""
+        pair_id = io.extract_pair_id(slot_text)
+        present = pair_id is not None
+        if pair_id is None:
+            pair_id = new_pair_id()
+        else:
+            try:
+                validate_pair_id(pair_id)
+            except InvalidPairId:
+                logging.error(
+                    "Invalid pair_id in %s %s slot: path=%s slot=%s",
+                    tool_name, customization_type, shared_path, slot_key,
+                )
+                self._block_state_owner_slot(
+                    shared_path, slot_key, state, blocked_pair_ids,
+                )
+                return
+        digest = sha256_text(slot_text)
+        info = AgenticToolInfo(
+            shared_path, digest, mtime, present, slot=slot_key,
+        )
+        self._insert_agentic_tool(
+            pair_id, customization_type, tool_name, info,
+            pairs, blocked_pair_ids,
+        )
 
     def _enumerate_artifacts(
         self, root: Path, io: CustomizationTypeIO
@@ -283,17 +404,28 @@ class DiscoveryWalker:
         if owner is not None:
             blocked_pair_ids.add(owner)
 
+    def _block_state_owner_slot(
+        self,
+        path: Path,
+        slot: str,
+        state: dict[str, CustomizationArtifactState],
+        blocked_pair_ids: set[str],
+    ) -> None:
+        owner = self.state_owner_for_path(path, state, slot=slot)
+        if owner is not None:
+            blocked_pair_ids.add(owner)
+
     def _planned_adoption_targets(
         self, info: CustomizationArtifactInfo
-    ) -> list[Path]:
-        """Return target paths adoption would write on tools that don't yet hold
+    ) -> list[PlannedTarget]:
+        """Return targets adoption would write on tools that don't yet hold
         the artifact.
 
-        If every available participating tool already has a copy of the
-        artifact, returns []. Otherwise, parses one present tool's bytes to
-        compute the slug, and builds the slug-derived target for each absent
-        available tool. Disabled / unavailable tools never figure in adoption
-        targets and therefore never participate in collision blocking.
+        Per-file targets carry ``slot=None``; ``SharedKeyedMapLayout``
+        targets carry the slot key derived from the canonical's
+        ``key_field``. Disabled / unavailable tools never figure in
+        adoption targets and therefore never participate in collision
+        blocking.
         """
         participating = self._available_participating_tools(info.kind)
         missing = [t for t in participating if t not in info.agentic_tools]
@@ -301,14 +433,21 @@ class DiscoveryWalker:
             return []
         if not info.agentic_tools:
             return []
-        # Deterministic source pick: alphabetical first present tool.
         source_tool = sorted(info.agentic_tools.keys())[0]
         source_info = info.agentic_tools[source_tool]
         source_io = self.agentic_tools[source_tool].io[info.kind]
-        source_root = expand_path(
-            self.config[self.agentic_tools[source_tool].config_dir_keys[info.kind]]
-        )
-        text = read_artifact_text(source_io, source_info.path)
+        source_spec = self.agentic_tools[source_tool]
+        if isinstance(source_io.file_layout, SharedKeyedMapLayout):
+            source_root = expand_path(
+                self.config[source_io.file_layout.shared_path_config_key]
+            )
+            slots, _ = read_slots(source_info.path, source_io.file_layout)
+            text = slots.get(source_info.slot or "", "")
+        else:
+            source_root = expand_path(
+                self.config[source_spec.config_dir_keys[info.kind]]
+            )
+            text = read_artifact_text(source_io, source_info.path)
         canonical = source_io.parse(
             text,
             None,
@@ -317,19 +456,41 @@ class DiscoveryWalker:
         )
         if is_private(canonical):
             return []
-        targets: list[Path] = []
+        targets: list[PlannedTarget] = []
         for tool_name in missing:
             spec = self.agentic_tools[tool_name]
             io = spec.io[info.kind]
             if self._is_reserved_target_name(spec, info.kind, canonical):
                 continue
+            if isinstance(io.file_layout, SharedKeyedMapLayout):
+                layout = io.file_layout
+                shared_path = expand_path(
+                    self.config[layout.shared_path_config_key]
+                )
+                slot_key = str(canonical.get(layout.key_field, ""))
+                if not slot_key:
+                    continue
+                target_slots, absent_reason = read_slots(shared_path, layout)
+                if absent_reason == "map-not-an-object":
+                    raise ValueError(
+                        "shared keyed-map target path must be an object: "
+                        f"{shared_path}"
+                    )
+                targets.append(
+                    PlannedTarget(
+                        path=shared_path,
+                        slot=slot_key,
+                        preexisting=slot_key in target_slots,
+                    )
+                )
+                continue
             root = expand_path(self.config[spec.config_dir_keys[info.kind]])
             slugger = io.slugify_name or target_slug
             slug = slugger(canonical["name"])
             if io.storage == "single_file":
-                targets.append(single_file_target(root, io, slug))
+                targets.append(PlannedTarget(path=single_file_target(root, io, slug)))
             else:
-                targets.append(root / slug)
+                targets.append(PlannedTarget(path=root / slug))
         return targets
 
     def _available_participating_tools(self, kind: str) -> list[str]:

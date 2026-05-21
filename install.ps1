@@ -143,6 +143,14 @@ codex_prompts_dir = "~/.codex/prompts"
 codex_skills_dir = "~/.codex/skills"
 codex_rules_dir = "~/.codex"
 
+# Cursor. Enabled by default for user-level file surfaces.
+# cursor_agents_dir = "~/.cursor/agents"
+# cursor_commands_dir = "~/.cursor/commands"
+# cursor_skills_dir = "~/.cursor/skills"
+# cursor_rules_dir = "~/.cursor/rules"
+# cursor_mcp_servers_file = "~/.cursor/mcp.json"
+# cursor_enabled = false
+
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
 # On Antigravity v1.19.6 the directory is "global_skills" not "skills";
@@ -186,7 +194,7 @@ function Register-AgentsSyncTask([string]$Name, [string]$HiddenLauncherFile) {
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description "Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations" `
+    -Description "Bidirectional sync of Claude Code, Codex, Cursor, Antigravity, and opencode customizations" `
     -Force | Out-Null
 
   Start-ScheduledTask -TaskName $Name

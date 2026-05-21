@@ -15,6 +15,7 @@ def syncer(tmp_path: Path) -> Syncer:
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "cura", "curc", "curs", "curr",
         "as",
         "oa", "oc", "os", "or",
     ):
@@ -27,16 +28,25 @@ def syncer(tmp_path: Path) -> Syncer:
         "claude_commands_dir": str(tmp_path / "cc"),
         "claude_skills_dir": str(tmp_path / "cs"),
         "claude_rules_dir": str(tmp_path / "cr"),
+        "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_agents_dir": str(tmp_path / "xa"),
         "codex_prompts_dir": str(tmp_path / "xp"),
         "codex_skills_dir": str(tmp_path / "xs"),
         "codex_rules_dir": str(tmp_path / "xr"),
+        "codex_config_file": str(tmp_path / "codex-config.toml"),
+        "cursor_agents_dir": str(tmp_path / "cura"),
+        "cursor_commands_dir": str(tmp_path / "curc"),
+        "cursor_skills_dir": str(tmp_path / "curs"),
+        "cursor_rules_dir": str(tmp_path / "curr"),
+        "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
+        "cursor_enabled": True,
         "antigravity_skills_dir": str(tmp_path / "as"),
         "antigravity_enabled": True,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),
         "opencode_rules_dir": str(tmp_path / "or"),
+        "opencode_config_file": str(tmp_path / "opencode.json"),
         "opencode_enabled": True,
     }
     return Syncer(config)
