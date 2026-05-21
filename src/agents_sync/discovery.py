@@ -54,20 +54,12 @@ def _target_already_exists(target: PlannedTarget) -> bool:
     shared-keyed-map targets, the shared file may exist (it is shared
     with other entries) — the collision question is whether the slot
     key is already populated under the configured ``map_key_path``.
-    The slot lookup is handled by ``state_owner_for_path`` for the
-    managed case; this helper covers only unmanaged occupants. We do
-    not parse the shared file here (we already parsed it during
-    discovery); a False here just means "no managed owner conflict",
-    consistent with the historical behaviour for missing files.
+    The slot lookup is handled by ``state_owner_for_path`` for managed
+    occupants and by ``PlannedTarget.preexisting`` for unmanaged slots.
     """
     if target.slot is None:
         return target.path.exists()
-    # For keyed-map targets, the shared file's existence is not itself a
-    # collision — siblings legitimately share the file. An unmanaged-slot
-    # collision is surfaced later during apply_slot (it would refuse to
-    # overwrite a slot whose pair_id does not match), so we return False
-    # here.
-    return False
+    return target.preexisting
 
 
 class DiscoveryWalker:
@@ -478,7 +470,19 @@ class DiscoveryWalker:
                 slot_key = str(canonical.get(layout.key_field, ""))
                 if not slot_key:
                     continue
-                targets.append(PlannedTarget(path=shared_path, slot=slot_key))
+                target_slots, absent_reason = read_slots(shared_path, layout)
+                if absent_reason == "map-not-an-object":
+                    raise ValueError(
+                        "shared keyed-map target path must be an object: "
+                        f"{shared_path}"
+                    )
+                targets.append(
+                    PlannedTarget(
+                        path=shared_path,
+                        slot=slot_key,
+                        preexisting=slot_key in target_slots,
+                    )
+                )
                 continue
             root = expand_path(self.config[spec.config_dir_keys[info.kind]])
             slugger = io.slugify_name or target_slug

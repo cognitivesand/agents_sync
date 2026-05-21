@@ -9,6 +9,7 @@ archive) lives in test_mcp_server_sync.py.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,7 @@ from agents_sync.shared_keyed_map_formats import (
     get_format,
     register_format,
 )
+from agents_sync.shared_keyed_map_io import apply_slot
 
 
 def test_layout_reports_shared_keyed_map_storage():
@@ -68,6 +70,26 @@ def test_json_format_rejects_non_object_root():
 
     with pytest.raises(ValueError, match="must be a JSON object"):
         fmt.deserialize("[]")
+
+
+def test_apply_slot_refuses_non_object_map_path(tmp_path: Path):
+    shared_file = tmp_path / "mcp.json"
+    original = '{"mcpServers": []}\n'
+    shared_file.write_text(original, encoding="utf-8")
+    layout = SharedKeyedMapLayout(
+        shared_path_config_key="mcp_servers_file",
+        map_key_path=("mcpServers",),
+    )
+
+    with pytest.raises(ValueError, match="must be an object"):
+        apply_slot(
+            shared_file,
+            layout,
+            "github",
+            '{"name": "github", "command": "gh-mcp"}',
+        )
+
+    assert shared_file.read_text(encoding="utf-8") == original
 
 
 def test_unknown_format_name_raises_with_known_list():

@@ -314,7 +314,6 @@ def test_opencode_reserved_slash_command_name_skips_opencode_only(
     state = load_state(syncer.state_dir)
     assert set(state[pair_id].agentic_tools) == {"claude", "codex", "cursor"}
 
-
 def test_namespaced_reserved_slash_command_skips_opencode_by_leaf_name(
     syncer: Syncer,
     caplog,

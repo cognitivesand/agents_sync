@@ -71,6 +71,32 @@ def assert_target_available(target: Path, existing_path: Path | None) -> None:
         raise FileExistsError(f"Refusing to overwrite unowned target path: {target}")
 
 
+def assert_slot_target_available(
+    shared_path: Path,
+    layout: SharedKeyedMapLayout,
+    slot_key: str,
+    existing_path: Path | None,
+    existing_slot: str | None,
+) -> None:
+    """Refuse to overwrite a shared-map slot not already owned by this pair."""
+    if (
+        existing_path is not None
+        and existing_slot is not None
+        and slot_key == existing_slot
+        and path_collision_key(shared_path) == path_collision_key(existing_path)
+    ):
+        return
+    slots, absent_reason = read_slots(shared_path, layout)
+    if absent_reason == "map-not-an-object":
+        dotted = ".".join(layout.map_key_path)
+        raise ValueError(f"shared keyed-map path {dotted!r} must be an object")
+    if slot_key in slots:
+        raise FileExistsError(
+            "Refusing to overwrite unowned shared keyed-map slot: "
+            f"{shared_path}[{slot_key}]"
+        )
+
+
 # ---------- directory-skill atomic staging ----------
 
 def _clear_stale_paths(*paths: Path) -> None:
@@ -196,6 +222,9 @@ def render_to_agentic_tool(
         layout = io.file_layout
         shared_path = expand_path(config[layout.shared_path_config_key])
         slot_key = existing_slot or str(canonical.get(layout.key_field, slug))
+        assert_slot_target_available(
+            shared_path, layout, slot_key, existing_path, existing_slot,
+        )
         slot_text = io.render(canonical, prior_text)
         prior_slot_text = apply_slot(shared_path, layout, slot_key, slot_text)
         return RenderResult(

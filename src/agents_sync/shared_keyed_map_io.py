@@ -134,9 +134,16 @@ def _navigate_or_create(
     map_key_path: tuple[str, ...],
 ) -> MutableMapping[str, Any]:
     node: Any = root
+    walked: list[str] = []
     for key in map_key_path:
-        if key not in node or not isinstance(node[key], dict):
+        walked.append(key)
+        if key not in node:
             node[key] = {}
+        elif not isinstance(node[key], dict):
+            dotted = ".".join(walked)
+            raise ValueError(
+                f"shared keyed-map path {dotted!r} must be an object"
+            )
         node = node[key]
     return node
 

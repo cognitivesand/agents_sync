@@ -42,6 +42,7 @@ class PlannedTarget:
     """
     path: Path
     slot: str | None = None
+    preexisting: bool = False
 
 
 @dataclass(frozen=True)

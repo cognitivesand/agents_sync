@@ -13,6 +13,7 @@ Two flavours:
 from __future__ import annotations
 
 import datetime as _dt
+import re
 import shutil
 from pathlib import Path
 
@@ -44,6 +45,11 @@ def _archive_target(state_dir: Path, pair_id: str, side: str, source: Path) -> P
     return target_dir / f"{source.name}.{iso_timestamp()}"
 
 
+def _safe_archive_stem(value: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
+    return stem or "slot"
+
+
 def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
     """Copy `source` into the per-pair archive; original remains in place."""
     target = _archive_target(state_dir, pair_id, side, source)
@@ -72,7 +78,8 @@ def archive_text(
     validate_pair_id(pair_id)
     target_dir = archive_dir_for(state_dir, pair_id, side)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{slot_name}{extension}.{iso_timestamp()}"
+    safe_slot_name = _safe_archive_stem(slot_name)
+    target = target_dir / f"{safe_slot_name}{extension}.{iso_timestamp()}"
     target.write_text(content, encoding="utf-8")
     return target
 

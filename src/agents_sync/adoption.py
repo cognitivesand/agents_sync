@@ -507,7 +507,16 @@ class AdoptionEngine:
                 if slot_key is None:
                     continue
                 try:
-                    prior_slot_text = apply_slot(
+                    prior_slot_text = read_artifact_text(
+                        survivor_io, survivor_info.path, slot=slot_key,
+                    )
+                    archive.archive_text(
+                        self.state_dir, pair_id, tool,
+                        slot_name=slot_key,
+                        extension=survivor_io.file_layout.file_suffix,
+                        content=prior_slot_text,
+                    )
+                    apply_slot(
                         survivor_info.path, survivor_io.file_layout,
                         slot_key, new_slot_text=None,
                     )
@@ -517,13 +526,6 @@ class AdoptionEngine:
                         pair_id, tool, slot_key,
                     )
                     return False
-                if prior_slot_text is not None:
-                    archive.archive_text(
-                        self.state_dir, pair_id, tool,
-                        slot_name=slot_key,
-                        extension=survivor_io.file_layout.file_suffix,
-                        content=prior_slot_text,
-                    )
                 continue
             survivor_path = survivor_info.path
             if not survivor_path.exists():
