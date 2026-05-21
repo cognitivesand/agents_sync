@@ -4,7 +4,46 @@ import argparse
 import os
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
+
+
+class AgentsSyncConfig(TypedDict, total=False):
+    """Shape of the merged config dict after ``merged_config``.
+
+    Documents the keys ``Syncer`` and its collaborators consume. Used as a
+    hint at function boundaries (``dict[str, Any]`` stays in place for
+    interior code that constructs / mutates the dict, since TypedDicts do
+    not compose well with ``dict.update`` and our config-loading is union-
+    based by design).
+    """
+
+    poll_interval_seconds: float
+    state_path: str
+    # Claude
+    claude_agents_dir: str
+    claude_commands_dir: str
+    claude_skills_dir: str
+    claude_rules_dir: str
+    claude_mcp_servers_file: str
+    # Codex
+    codex_agents_dir: str
+    codex_prompts_dir: str
+    codex_skills_dir: str
+    codex_rules_dir: str
+    codex_config_file: str
+    # Antigravity
+    antigravity_skills_dir: str
+    antigravity_enabled: bool
+    # opencode
+    opencode_agents_dir: str
+    opencode_commands_dir: str
+    opencode_skills_dir: str
+    opencode_rules_dir: str
+    opencode_config_file: str
+    opencode_enabled: bool
+    # Cross-cutting
+    mcp_server_secret_policy: Literal["refuse", "redact", "permissive"]
+    import_collision_strategy: Literal["skip", "mtime_wins", "overwrite"]
 
 
 def _home_dir(home: Path | None = None) -> Path:

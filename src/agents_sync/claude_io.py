@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
+from agents_sync.field_names import CanonicalField, ClaudeField
 from agents_sync.yaml_frontmatter import (
     FRONTMATTER_RE,
     extract_pair_id_from_md,
@@ -24,16 +25,16 @@ from agents_sync.yaml_frontmatter import (
 # in canonical["per_agentic_tool_extra"]["claude"] so user-set fields we don't
 # yet model are not silently dropped.
 KNOWN_CLAUDE_FIELDS = {
-    "pair_id",
-    "name",
-    "description",
-    "model",
-    "effort",
-    "tools",
-    "disallowedTools",
-    "permissionMode",
-    "hooks",
-    "mcpServers",
+    CanonicalField.PAIR_ID,
+    CanonicalField.NAME,
+    CanonicalField.DESCRIPTION,
+    CanonicalField.MODEL,
+    CanonicalField.EFFORT,
+    CanonicalField.TOOLS,
+    ClaudeField.DISALLOWED_TOOLS,
+    ClaudeField.PERMISSION_MODE,
+    ClaudeField.HOOKS,
+    ClaudeField.MCP_SERVERS,
 }
 
 
@@ -72,20 +73,22 @@ def parse_claude_md(text: str, prior_canonical: dict[str, Any] | None = None,
             list(raw_tools) if isinstance(raw_tools, list) else _split_csv(raw_tools)
         )
 
-    raw_dis = frontmatter_data.get("disallowedTools")
+    raw_dis = frontmatter_data.get(ClaudeField.DISALLOWED_TOOLS)
     if raw_dis is not None:
-        canonical["disallowed_tools"] = (
+        canonical[CanonicalField.DISALLOWED_TOOLS] = (
             list(raw_dis) if isinstance(raw_dis, list) else _split_csv(raw_dis)
         )
 
-    if "permissionMode" in frontmatter_data:
-        canonical["permission_mode"] = str(frontmatter_data["permissionMode"])
+    if ClaudeField.PERMISSION_MODE in frontmatter_data:
+        canonical[CanonicalField.PERMISSION_MODE] = str(
+            frontmatter_data[ClaudeField.PERMISSION_MODE]
+        )
 
     claude_only: dict[str, Any] = {}
-    if "hooks" in frontmatter_data:
-        claude_only["hooks"] = frontmatter_data["hooks"]
-    if "mcpServers" in frontmatter_data:
-        claude_only["mcp_servers"] = frontmatter_data["mcpServers"]
+    if ClaudeField.HOOKS in frontmatter_data:
+        claude_only[ClaudeField.HOOKS] = frontmatter_data[ClaudeField.HOOKS]
+    if ClaudeField.MCP_SERVERS in frontmatter_data:
+        claude_only[CanonicalField.MCP_SERVERS] = frontmatter_data[ClaudeField.MCP_SERVERS]
     per_agentic_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
     per_agentic_tool_only["claude"] = claude_only
     canonical["per_agentic_tool_only"] = per_agentic_tool_only
@@ -126,16 +129,16 @@ def render_claude_md(canonical: dict[str, Any], prior_text: str | None = None) -
         frontmatter["effort"] = canonical["effort"]
     if canonical.get("tools"):
         frontmatter["tools"] = canonical["tools"]
-    if canonical.get("disallowed_tools"):
-        frontmatter["disallowedTools"] = canonical["disallowed_tools"]
-    if canonical.get("permission_mode") is not None:
-        frontmatter["permissionMode"] = canonical["permission_mode"]
+    if canonical.get(CanonicalField.DISALLOWED_TOOLS):
+        frontmatter[ClaudeField.DISALLOWED_TOOLS] = canonical[CanonicalField.DISALLOWED_TOOLS]
+    if canonical.get(CanonicalField.PERMISSION_MODE) is not None:
+        frontmatter[ClaudeField.PERMISSION_MODE] = canonical[CanonicalField.PERMISSION_MODE]
 
-    claude_only = canonical.get("per_agentic_tool_only", {}).get("claude", {})
-    if "hooks" in claude_only:
-        frontmatter["hooks"] = claude_only["hooks"]
-    if "mcp_servers" in claude_only:
-        frontmatter["mcpServers"] = claude_only["mcp_servers"]
+    claude_only = canonical.get(CanonicalField.PER_AGENTIC_TOOL_ONLY, {}).get("claude", {})
+    if ClaudeField.HOOKS in claude_only:
+        frontmatter[ClaudeField.HOOKS] = claude_only[ClaudeField.HOOKS]
+    if CanonicalField.MCP_SERVERS in claude_only:
+        frontmatter[ClaudeField.MCP_SERVERS] = claude_only[CanonicalField.MCP_SERVERS]
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get("claude", {}).items():
         frontmatter[key] = value

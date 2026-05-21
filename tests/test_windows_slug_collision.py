@@ -36,9 +36,9 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
             kind="skill",
             agentic_tools={
                 "claude": AgenticToolState(
-                    path=str(syncer.tool_root("claude", "skill") / "alpha"),
+                    path=syncer.tool_root("claude", "skill") / "alpha",
                 ),
-                "codex": AgenticToolState(path=str(codex_path)),
+                "codex": AgenticToolState(path=codex_path),
             },
         )
     }

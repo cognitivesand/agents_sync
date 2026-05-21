@@ -209,10 +209,17 @@ def test_unreadable_prior_text_logs_warning_and_skips_target(
     with caplog.at_level("WARNING", logger="root"):
         syncer.sync_once()
 
+    # Audit slice 10 · CQ-07: assert on the structured ``event`` extra field
+    # rather than a substring of the human-readable log message — the
+    # contract is "the prior_text_unreadable event fired", not "the log
+    # string contained these specific words".
     assert any(
-        "Could not read prior text" in record.getMessage()
+        getattr(record, "event", None) == "prior_text_unreadable"
         for record in caplog.records
-    ), f"expected warning not logged; got: {[r.getMessage() for r in caplog.records]}"
+    ), (
+        "expected prior_text_unreadable event not logged; got: "
+        f"{[(r.levelname, getattr(r, 'event', None), r.getMessage()) for r in caplog.records]}"
+    )
     # Target was NOT overwritten — privacy gate failed closed.
     assert (codex_dir / "SKILL.md").read_text() == pre_overwrite_bytes
 

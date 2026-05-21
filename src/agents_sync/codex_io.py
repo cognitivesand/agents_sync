@@ -193,7 +193,29 @@ def extract_pair_id(toml_text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _strip_legacy_review_metadata(body: str) -> str:
+def _strip_legacy_review_metadata(
+    body: str, *, prior_canonical: dict[str, Any] | None,
+) -> str:
+    """Strip the v0.1-era 'Converted Claude-specific metadata for manual review'
+    block from a body — but only when the prior canonical is older than v0.4
+    (schema_version < 4) or absent (first sight of the artifact).
+
+    The marker is a free-text 75-char string a user could legitimately type
+    into a v0.4+ body. Version-gating the strip (audit slice 07 · CQ-16)
+    keeps the migration behaviour for legacy artifacts while letting a v0.4+
+    body contain the same prose without surprise truncation.
+    """
+    if prior_canonical is not None:
+        from agents_sync.canonical import SCHEMA_VERSION
+
+        prior_version = prior_canonical.get("schema_version", SCHEMA_VERSION)
+        try:
+            if int(prior_version) >= 4:
+                return body
+        except (TypeError, ValueError):
+            # Unparseable schema_version is treated as "modern" — refuse to
+            # truncate user data we cannot positively identify as legacy.
+            return body
     idx = body.find(_LEGACY_REVIEW_MARKER)
     return body[:idx] if idx >= 0 else body
 
@@ -263,7 +285,8 @@ def parse_codex_agent_toml(
         canonical["description"] = str(data["description"])
     if "developer_instructions" in data:
         canonical["body"] = _strip_legacy_review_metadata(
-            str(data["developer_instructions"])
+            str(data["developer_instructions"]),
+            prior_canonical=prior_canonical,
         )
     if "model" in data:
         canonical["model"] = data["model"]

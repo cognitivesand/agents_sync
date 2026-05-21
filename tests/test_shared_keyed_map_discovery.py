@@ -188,7 +188,7 @@ def test_state_owner_for_path_is_slot_aware(tmp_path: Path):
             kind="mcp_server",
             agentic_tools={
                 "alpha": AgenticToolState(
-                    path=str(shared_file),
+                    path=shared_file,
                     slot="github",
                 ),
             },

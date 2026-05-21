@@ -277,7 +277,7 @@ def update_state_n_way(
         else:
             digest = sha256_tree(result.path)
         ps.agentic_tools[tool_name] = AgenticToolState(
-            path=str(result.path),
+            path=result.path,
             last_seen=digest,
             last_written=digest,
             slot=result.slot,

@@ -12,6 +12,7 @@ from agents_sync.portable_archive import (
     PortableArchiveError,
     export_to_zip,
     import_from_zip,
+    preview_import,
 )
 from agents_sync.sync import Syncer
 
@@ -162,6 +163,16 @@ def build_parser() -> argparse.ArgumentParser:
             "invocation only."
         ),
     )
+    import_parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Required for the 'overwrite' strategy (and for 'mtime_wins' "
+            "when the snapshot would replace local pairs). Without --force "
+            "those strategies abort and print the pairs they would overwrite "
+            "so you can confirm before running again with --force."
+        ),
+    )
 
     return parser
 
@@ -198,6 +209,30 @@ def _run_import(args: argparse.Namespace, config: dict) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
     strategy = args.collision_strategy or config["import_collision_strategy"]
+    force = bool(getattr(args, "force", False))
+
+    # Audit slice 08 · CQ-07: ``mtime_wins`` and ``overwrite`` can silently
+    # replace local user content. Compute a preview of the displacements
+    # before committing to disk; require --force if any local pair would
+    # be overwritten so the user has a chance to confirm.
+    try:
+        would_overwrite, _would_skip = preview_import(
+            state_dir, args.input, strategy=strategy,
+        )
+    except PortableArchiveError:
+        logging.exception("Import rejected")
+        return 1
+    except OSError:
+        logging.exception("Import failed")
+        return 1
+    if would_overwrite and not force:
+        logging.error(
+            "Import would overwrite %d local pair(s) under strategy=%s. "
+            "Re-run with --force to proceed. Affected pair_ids: %s",
+            len(would_overwrite), strategy, ", ".join(sorted(set(would_overwrite))),
+        )
+        return 2
+
     agentic_tools = default_agentic_tools(config)
     try:
         report = import_from_zip(

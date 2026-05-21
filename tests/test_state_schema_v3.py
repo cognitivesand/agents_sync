@@ -30,7 +30,7 @@ def test_to_dict_serialises_last_modified():
     ps = CustomizationArtifactState(
         kind="skill",
         last_modified=1234567890.5,
-        agentic_tools={"claude": AgenticToolState(path="/x", last_seen="d", last_written="d")},
+        agentic_tools={"claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d")},
     )
 
     encoded = ps.to_dict()
@@ -44,7 +44,7 @@ def test_from_dict_round_trip_preserves_last_modified():
     original = CustomizationArtifactState(
         kind="agent",
         last_modified=42.0,
-        agentic_tools={"claude": AgenticToolState(path="/a.md")},
+        agentic_tools={"claude": AgenticToolState(path=Path("/a.md"))},
     )
 
     decoded = CustomizationArtifactState.from_dict(original.to_dict())
@@ -69,7 +69,7 @@ def test_agentic_tool_state_omits_slot_when_none():
     """v3 stays byte-stable for non-keyed-map artifacts: an unset slot does
     not appear in to_dict, so existing state files are not rewritten with
     an extra key on the next save cycle."""
-    encoded = AgenticToolState(path="/x.md", last_seen="d", last_written="d").to_dict()
+    encoded = AgenticToolState(path=Path("/x.md"), last_seen="d", last_written="d").to_dict()
 
     assert "slot" not in encoded
 
@@ -78,7 +78,7 @@ def test_agentic_tool_state_round_trips_slot():
     """v0.5 keyed-map artifacts (mcp_server) carry a slot key. The field
     survives to_dict / from_dict without a schema-version bump."""
     original = AgenticToolState(
-        path="/home/u/.cursor/mcp.json",
+        path=Path("/home/u/.cursor/mcp.json"),
         last_seen="d",
         last_written="d",
         slot="github",
@@ -87,7 +87,7 @@ def test_agentic_tool_state_round_trips_slot():
     decoded = AgenticToolState.from_dict(original.to_dict())
 
     assert decoded.slot == "github"
-    assert decoded.path == "/home/u/.cursor/mcp.json"
+    assert decoded.path == Path("/home/u/.cursor/mcp.json")
 
 
 def test_agentic_tool_state_from_dict_tolerates_missing_slot():
@@ -145,7 +145,7 @@ def test_save_then_load_round_trip(tmp_path: Path):
             kind="skill",
             last_modified=99.5,
             agentic_tools={
-                "claude": AgenticToolState(path="/x", last_seen="d", last_written="d"),
+                "claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d"),
             },
         ),
     }

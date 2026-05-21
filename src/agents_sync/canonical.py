@@ -50,6 +50,95 @@ def is_private(canonical: dict[str, Any]) -> bool:
     return bool(canonical.get("private", False))
 
 
+# Canonical fields whose ordering is semantically irrelevant — sorted to
+# guarantee that two adapters producing the same set of values (in any
+# order) hash identically (audit slice 06 · CQ-01).
+_ORDER_INSENSITIVE_LIST_FIELDS: tuple[str, ...] = (
+    "tools",
+    "disallowed_tools",
+)
+
+
+def canonicalize(canonical: dict[str, Any]) -> dict[str, Any]:
+    """Return a deep-copied, normalised view of ``canonical``.
+
+    The point of this module is to be the lossless intermediate per pair,
+    but the JSON we persist used to depend on the call order of every
+    parser (list ordering, ``None`` vs missing key, trailing whitespace,
+    CRLF vs LF). Two semantically-equal canonicals from two adapters
+    could therefore hash to different SHA-256s, causing the engine to
+    rewrite identical bytes every poll. ``canonicalize`` collapses those
+    irrelevant differences:
+
+    - ``tools`` and ``disallowed_tools`` lists are sorted (set-equality
+      semantics; adapter call order should not matter).
+    - ``name`` / ``description`` strings are stripped of leading and
+      trailing whitespace.
+    - ``body`` line endings are normalised to ``\\n`` (CRLF/CR → LF) and
+      trailing whitespace per line is preserved (markdown-relevant) but
+      a single trailing newline is enforced (no trailing whitespace at
+      EOF).
+    - ``None`` values are kept for nullable fields (``model``, ``effort``,
+      ``permission_mode``) — they are the documented signal for "field
+      not set by user" and must not be elided to absent keys.
+
+    Does *not* normalise ``per_agentic_tool_only`` / ``per_agentic_tool_extra``
+    contents — those are opaque adapter-specific bags whose internal
+    structure each adapter owns.
+
+    Use :func:`canonical_equal` to compare two canonicals semantically;
+    use :func:`save_canonical` to persist (which calls ``canonicalize``
+    internally so the persisted bytes are stable).
+    """
+    import copy
+
+    normalised = copy.deepcopy(canonical)
+
+    for list_field in _ORDER_INSENSITIVE_LIST_FIELDS:
+        value = normalised.get(list_field)
+        if isinstance(value, list):
+            try:
+                normalised[list_field] = sorted(value)
+            except TypeError:
+                # Heterogeneous list (mix of str and dict) — leave order
+                # alone but at least make the bytes deterministic by
+                # converting elements to strings for the sort key.
+                normalised[list_field] = sorted(value, key=str)
+
+    for str_field in ("name", "description"):
+        value = normalised.get(str_field)
+        if isinstance(value, str):
+            normalised[str_field] = value.strip()
+
+    body = normalised.get("body")
+    if isinstance(body, str):
+        normalised["body"] = _normalise_body(body)
+
+    return normalised
+
+
+def _normalise_body(body: str) -> str:
+    """Normalise line endings to LF and force a single trailing newline.
+
+    Inline whitespace inside lines is preserved (Markdown indentation,
+    code blocks). CR-only line endings are mapped to LF; CRLF to LF.
+    """
+    text = body.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.rstrip("\n")
+    return text + "\n" if text else ""
+
+
+def canonical_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Return True if two canonicals are semantically equal.
+
+    Equality is computed by ``canonicalize``-ing both sides and comparing
+    by structural equality of the resulting dicts. Two canonicals that
+    differ only in ``tools`` list order, body line endings, or
+    ``description`` trailing whitespace compare equal.
+    """
+    return canonicalize(a) == canonicalize(b)
+
+
 def canonical_path(state_dir: Path, pair_id: str) -> Path:
     validate_pair_id(pair_id)
     return state_dir / "canonical" / f"{pair_id}.json"
@@ -85,10 +174,19 @@ def load_canonical(state_dir: Path, pair_id: str) -> dict[str, Any] | None:
 
 
 def save_canonical(state_dir: Path, pair_id: str, canonical: dict[str, Any]) -> None:
+    """Persist a canonical to disk, normalising it first.
+
+    Normalisation guarantees byte-stable output: two adapters producing
+    the same canonical (modulo list ordering / line endings) write
+    identical files, so SHA-256 digests are stable across polls and the
+    daemon doesn't churn writing identical bytes (audit slice 06 · CQ-01).
+    """
     path = canonical_path(state_dir, pair_id)
     atomic_write_text(
         path,
-        json.dumps(canonical, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        json.dumps(
+            canonicalize(canonical), indent=2, ensure_ascii=False, sort_keys=True,
+        ) + "\n",
     )
 
 

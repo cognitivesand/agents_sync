@@ -230,7 +230,7 @@ class DiscoveryWalker:
         for pair_id, pair_state in state.items():
             for tool_state in pair_state.agentic_tools.values():
                 state_key = slot_aware_collision_key(
-                    Path(tool_state.path), tool_state.slot,
+                    tool_state.path, tool_state.slot,
                 )
                 if state_key == target_key:
                     return pair_id
@@ -465,7 +465,7 @@ class DiscoveryWalker:
         target_key = path_collision_key(path)
         for pair_id, pair_state in state.items():
             if any(
-                path_collision_key(Path(tool_state.path)) == target_key
+                path_collision_key(tool_state.path) == target_key
                 for tool_state in pair_state.agentic_tools.values()
             ):
                 blocked_pair_ids.add(pair_id)

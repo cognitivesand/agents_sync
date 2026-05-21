@@ -384,7 +384,7 @@ def _archive_displaced_tool_files(
     if ps is None:
         return archived
     for tool_name, at in ps.agentic_tools.items():
-        path = Path(at.path)
+        path = at.path
         if not path.exists():
             continue
         if move:
@@ -416,6 +416,33 @@ def _participating_tools(
             continue
         result.append((tool_name, spec))
     return result
+
+
+def preview_import(
+    state_dir: Path,
+    zip_path: Path,
+    *,
+    strategy: CollisionStrategy,
+) -> tuple[list[str], list[str]]:
+    """Return (would_overwrite, would_skip) pair_ids without touching disk.
+
+    ``would_overwrite`` lists every local pair_id that this import would
+    displace or rewrite. Useful for CLI gating: ``--force`` requirement
+    is only meaningful when this list is non-empty (audit slice 08 ·
+    CQ-07).
+    """
+    manifest, canonicals = _read_zip_entries(zip_path)
+    _validate_manifest_version(manifest)
+    state = load_state(state_dir)
+    decisions = _classify(canonicals, state, state_dir, strategy)
+    would_overwrite: list[str] = []
+    would_skip: list[str] = []
+    for decision in decisions:
+        if decision.accepted and decision.displaces_local_pair_id is not None:
+            would_overwrite.append(decision.displaces_local_pair_id)
+        elif not decision.accepted:
+            would_skip.append(decision.pair_id)
+    return would_overwrite, would_skip
 
 
 def import_from_zip(
@@ -543,7 +570,7 @@ def import_from_zip(
                 decision.pair_id in state
                 and tool_name in state[decision.pair_id].agentic_tools
             ):
-                existing_path = Path(state[decision.pair_id].agentic_tools[tool_name].path)
+                existing_path = state[decision.pair_id].agentic_tools[tool_name].path
             target = render_to_agentic_tool(
                 config,
                 spec,

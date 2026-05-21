@@ -324,6 +324,7 @@ class AdoptionEngine:
                             "rendered output will not preserve existing frontmatter "
                             "formatting (%s: %s)",
                             target_info.path, pair_id, type(exc).__name__, exc,
+                            extra={"event": "prior_text_unreadable"},
                         )
                         prior_text = None
                 if self._target_is_private(
@@ -609,6 +610,7 @@ class AdoptionEngine:
                     pair_id,
                     type(exc).__name__,
                     exc,
+                    extra={"event": "privacy_gate_failed_closed_on_read"},
                 )
                 return True
         try:
@@ -621,6 +623,7 @@ class AdoptionEngine:
                 pair_id,
                 type(exc).__name__,
                 exc,
+                extra={"event": "privacy_gate_failed_closed_on_parse"},
             )
             return True
         return self._skip_private_canonical(pair_id, tool_name, canonical)

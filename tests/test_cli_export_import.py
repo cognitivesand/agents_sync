@@ -159,6 +159,54 @@ def test_cli_import_collision_strategy_flag_overrides_config(
     assert canonical_after == canonical_before  # skip → local untouched
 
 
+def test_cli_import_requires_force_when_mtime_wins_would_overwrite(
+    syncer: Syncer, tmp_path: Path
+):
+    """Audit slice 08 · CQ-07: silent-overwrite gate.
+
+    When mtime_wins would displace a local pair, the import refuses to
+    proceed without --force and lists the affected pair_ids.
+    """
+    skill_dir = syncer.tool_root("claude", "skill") / "foo"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(_skill_md("foo"))
+    syncer.sync_once()
+
+    cfg_path = _write_config(syncer, tmp_path)
+    out_zip = tmp_path / "snapshot.zip"
+    assert main(["--config", str(cfg_path), "export", str(out_zip)]) == 0
+
+    # Force the local last_modified backward so mtime_wins would accept.
+    from agents_sync.state import load_state, save_state
+
+    state = load_state(syncer.state_dir)
+    pair_id = next(iter(state.keys()))
+    state[pair_id].last_modified = 1.0
+    state[pair_id].generation = 0
+    save_state(syncer.state_dir, state)
+
+    # No --force → refuse with exit 2.
+    exit_code = main(
+        [
+            "--config", str(cfg_path),
+            "import", str(out_zip),
+            "--collision-strategy", "mtime_wins",
+        ]
+    )
+    assert exit_code == 2
+
+    # With --force → proceeds and overwrites.
+    exit_code = main(
+        [
+            "--config", str(cfg_path),
+            "import", str(out_zip),
+            "--collision-strategy", "mtime_wins",
+            "--force",
+        ]
+    )
+    assert exit_code == 0
+
+
 def test_cli_import_returns_nonzero_on_malformed_archive(
     syncer: Syncer, tmp_path: Path
 ):

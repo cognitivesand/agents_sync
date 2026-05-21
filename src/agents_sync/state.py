@@ -56,16 +56,22 @@ class AgenticToolState:
     ``path`` is the shared keyed-map file and ``slot`` is the key within
     the map identifying this artifact's entry. When ``None``, ``path``
     is the per-file artifact path as it has been since v0.2.
+
+    ``path`` is a :class:`Path` in memory (it is one everywhere else in
+    the engine — Phase 3.4 removes the legacy ``str`` exception that
+    forced every caller to wrap reads in ``Path(...)``). On-disk
+    serialisation still uses the string form so the JSON schema is
+    unchanged.
     """
 
-    path: str
+    path: Path
     last_seen: str | None = None
     last_written: str | None = None
     slot: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
-            "path": self.path,
+            "path": str(self.path),
             "last_seen": self.last_seen,
             "last_written": self.last_written,
         }
@@ -76,7 +82,7 @@ class AgenticToolState:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgenticToolState":
         return cls(
-            path=data["path"],
+            path=Path(data["path"]),
             last_seen=data.get("last_seen"),
             last_written=data.get("last_written"),
             slot=data.get("slot"),
@@ -273,7 +279,14 @@ def state_path(state_dir: Path) -> Path:
 
 
 def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
-    """Read ``state.json`` (current ``STATE_SCHEMA_VERSION``).
+    """Read ``state.json`` at the current ``STATE_SCHEMA_VERSION`` (v3).
+
+    v0.4.1 introduced schema v3 (per-pair ``last_modified`` + per-tool
+    ``slot``); v0.5 added the monotonic ``generation`` field. Older
+    envelopes (v1, v2) are not migrated — v0.x was a pre-1.0 cutover and
+    state-rebuild was always the documented recovery. This function only
+    accepts the current schema_version constant; mismatches log at INFO
+    and return an empty state.
 
     Anomalies are differentiated so the operator can tell silent rebuilds
     from genuine partial-write recovery:
