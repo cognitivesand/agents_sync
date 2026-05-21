@@ -79,11 +79,9 @@ def extract_pair_id_from_mcp_server_json(
     slot_text: str,
     *,
     dialect: McpServerDialect = DEFAULT_MCP_SERVER_DIALECT,
+    slot_format: str = "json",
 ) -> str | None:
-    try:
-        obj = _loads_slot(slot_text)
-    except (json.JSONDecodeError, tomllib.TOMLDecodeError, ValueError):
-        return None
+    obj = _loads_slot(slot_text, slot_format=slot_format)
     pair_id = obj.get(dialect.pair_id_field)
     return pair_id if isinstance(pair_id, str) else None
 
@@ -96,11 +94,12 @@ def parse_mcp_server_json(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
     dialect: McpServerDialect = DEFAULT_MCP_SERVER_DIALECT,
+    slot_format: str = "json",
     secret_policy: str = "refuse",
 ) -> dict[str, Any]:
     """Parse one JSON slot into the canonical ``mcp_server`` shape."""
     del artifact_root
-    obj = _loads_slot(slot_text)
+    obj = _loads_slot(slot_text, slot_format=slot_format)
     raw_artifact = obj.get(dialect.name_field) or obj.get("name")
     artifact = (
         str(raw_artifact)
@@ -162,10 +161,14 @@ def render_mcp_server_json(
     *,
     agentic_tool_name: str,
     dialect: McpServerDialect = DEFAULT_MCP_SERVER_DIALECT,
+    slot_format: str = "json",
     secret_policy: str = "refuse",
 ) -> str:
     """Render one canonical ``mcp_server`` document as a JSON slot."""
-    prior_obj = _loads_slot(prior_text) if prior_text else {}
+    prior_obj = (
+        _loads_slot(prior_text, slot_format=slot_format)
+        if prior_text else {}
+    )
     tool_only = canonical.get("per_agentic_tool_only", {}).get(
         agentic_tool_name, {},
     )
@@ -197,19 +200,31 @@ def render_mcp_server_json(
         policy=secret_policy,
         artifact=str(canonical.get("name", "<unknown>")),
     )
-    return json.dumps(obj, indent=2, sort_keys=False) + "\n"
+    return _dumps_slot(obj, slot_format=slot_format)
 
 
-def _loads_slot(text: str | None) -> dict[str, Any]:
+def _loads_slot(text: str | None, *, slot_format: str = "json") -> dict[str, Any]:
     if text is None or not text.strip():
         return {}
-    try:
+    if slot_format == "json":
         obj = json.loads(text)
-    except json.JSONDecodeError:
+    elif slot_format == "toml":
         obj = tomllib.loads(text)
+    else:
+        raise ValueError(f"unknown mcp_server slot format: {slot_format!r}")
     if not isinstance(obj, dict):
         raise ValueError("mcp_server JSON slot must be an object")
     return obj
+
+
+def _dumps_slot(obj: dict[str, Any], *, slot_format: str = "json") -> str:
+    if slot_format == "json":
+        return json.dumps(obj, indent=2, sort_keys=False) + "\n"
+    if slot_format == "toml":
+        from agents_sync.shared_keyed_map_formats import get_format
+
+        return get_format("toml").serialize(obj)
+    raise ValueError(f"unknown mcp_server slot format: {slot_format!r}")
 
 
 def _transport_from_slot(

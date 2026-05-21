@@ -7,6 +7,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
 
 
 @dataclass
@@ -39,9 +43,12 @@ class PlannedTarget:
     """An adoption / projection target. ``slot`` is set only for
     ``SharedKeyedMapLayout`` (v0.5 ``mcp_server``) targets; otherwise
     ``slot`` is ``None`` and ``path`` is the per-file target path.
+    ``file_layout`` is populated for keyed-map targets so discovery can
+    inspect whether the planned slot is already occupied.
     """
     path: Path
     slot: str | None = None
+    file_layout: SharedKeyedMapLayout | None = None
 
 
 @dataclass(frozen=True)

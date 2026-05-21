@@ -139,10 +139,7 @@ def _toml_deserialize(text: str) -> MutableMapping[str, Any]:
     text = _without_utf8_bom(text)
     if not text or not text.strip():
         return {}
-    try:
-        result = json.loads(text)
-    except json.JSONDecodeError:
-        result = tomllib.loads(text)
+    result = tomllib.loads(text)
     if not isinstance(result, dict):
         raise ValueError("shared keyed-map root must be a TOML table")
     return result

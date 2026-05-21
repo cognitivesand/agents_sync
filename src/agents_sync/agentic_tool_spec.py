@@ -269,6 +269,7 @@ def _mcp_server_io(
             artifact_path=artifact_path,
             artifact_root=artifact_root,
             dialect=mcp_dialect,
+            slot_format=file_format,
             secret_policy=secret_policy(),
         )
 
@@ -281,11 +282,16 @@ def _mcp_server_io(
             prior_text,
             agentic_tool_name=agentic_tool_name,
             dialect=mcp_dialect,
+            slot_format=file_format,
             secret_policy=secret_policy(),
         )
 
     def extract_pair_id(text: str) -> str | None:
-        return extract_pair_id_from_mcp_server_json(text, dialect=mcp_dialect)
+        return extract_pair_id_from_mcp_server_json(
+            text,
+            dialect=mcp_dialect,
+            slot_format=file_format,
+        )
 
     return CustomizationTypeIO(
         parse=parse_mcp_server,

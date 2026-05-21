@@ -231,8 +231,18 @@ def test_real_adapters_honor_configured_secret_policy(tmp_path: Path):
 
     Syncer(config).sync_once()
 
-    claude = json.loads(claude_file.read_text())
-    codex = tomllib.loads(Path(str(config["codex_config_file"])).read_text())
+    codex_file = Path(str(config["codex_config_file"]))
+    opencode_file = Path(str(config["opencode_config_file"]))
+    state_path = Path(str(config["state_path"]))
+
+    claude_text = claude_file.read_text()
+    codex_text = codex_file.read_text()
+    opencode_text = opencode_file.read_text()
+    state_text = state_path.read_text()
+
+    claude = json.loads(claude_text)
+    codex = tomllib.loads(codex_text)
+    opencode = json.loads(opencode_text)
     assert (
         claude["mcpServers"]["github"]["env"]["GITHUB_TOKEN"]
         == "${AGENTS_SYNC_REDACTED_1}"
@@ -241,3 +251,26 @@ def test_real_adapters_honor_configured_secret_policy(tmp_path: Path):
         codex["mcp_servers"]["github"]["env"]["GITHUB_TOKEN"]
         == "${env:AGENTS_SYNC_REDACTED_1}"
     )
+    assert (
+        opencode["mcp"]["github"]["environment"]["GITHUB_TOKEN"]
+        == "{env:AGENTS_SYNC_REDACTED_1}"
+    )
+
+    canonical_files = list((state_path.parent / "canonical").glob("*.json"))
+    assert len(canonical_files) == 1
+    canonical_text = canonical_files[0].read_text()
+    canonical = json.loads(canonical_text)
+    assert canonical["secret_redactions"] == [{
+        "field_path": "env.GITHUB_TOKEN",
+        "original_env_var": None,
+        "placeholder_env_var": "AGENTS_SYNC_REDACTED_1",
+    }]
+
+    for persisted_text in (
+        claude_text,
+        codex_text,
+        opencode_text,
+        state_text,
+        canonical_text,
+    ):
+        assert "literal-token" not in persisted_text

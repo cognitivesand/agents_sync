@@ -15,11 +15,11 @@ Three operations:
   Python object for a single slot) to text. Used to feed the canonical
   parser, which expects ``text``.
 
-Concurrent writers (a user's editor, the agentic tool itself) are handled
-by the optimistic detect-and-retry pattern: ``apply_slot`` re-reads the
-file just before writing; if the bytes have changed since the initial
-read it retries once, and aborts if the second read also races. The
-shared file is never partially overwritten.
+Writes use atomic rename, so readers should not observe partially-written
+files. ``apply_slot`` also re-reads the file just before writing and
+retries once if the bytes changed during the merge. This is a lightweight
+guard, not a cross-process compare-and-swap: it reduces accidental lost
+updates but does not guarantee protection from every inter-process race.
 """
 from __future__ import annotations
 
@@ -58,9 +58,16 @@ def read_slots(
     slots: dict[str, str] = {}
     for slot_key, slot_value in node.items():
         slot_key_text = str(slot_key)
-        if isinstance(slot_value, dict) and layout.key_field not in slot_value:
-            slot_value = dict(slot_value)
-            slot_value[layout.key_field] = slot_key_text
+        if isinstance(slot_value, dict):
+            if layout.key_field not in slot_value:
+                slot_value = dict(slot_value)
+                slot_value[layout.key_field] = slot_key_text
+            elif slot_value[layout.key_field] != slot_key_text:
+                raise ValueError(
+                    "shared keyed-map slot key conflict: "
+                    f"path={shared_path} slot={slot_key_text!r} "
+                    f"{layout.key_field}={slot_value[layout.key_field]!r}"
+                )
         slots[slot_key_text] = format_handler.serialize(slot_value)
     return slots, None
 
@@ -70,12 +77,21 @@ def apply_slot(
     layout: SharedKeyedMapLayout,
     slot_key: str,
     new_slot_text: str | None,
+    *,
+    expected_pair_id: str | None = None,
+    allow_unpaired_existing: bool = False,
 ) -> str | None:
     """Read the shared file, insert / replace / delete ``slot_key`` under
     ``map_key_path``, write the merged file atomically. ``new_slot_text``
     is ``None`` for deletion. Returns the prior slot text (serialised
     via the registered format) or ``None`` if the slot did not previously
     exist. Sibling slots and out-of-map top-level keys are preserved.
+
+    If ``expected_pair_id`` is provided and the slot already exists,
+    the existing slot must either carry that pair_id or, when
+    ``allow_unpaired_existing`` is true, carry no pair_id. This is a
+    defense-in-depth guard against overwriting a slot owned by another
+    managed pair.
 
     Concurrent-writer handling: re-reads the file just before writing.
     If the bytes changed during the merge, retries the merge once on the
@@ -92,10 +108,19 @@ def apply_slot(
         )
         root = format_handler.deserialize(before_text) if before_text.strip() else {}
         node = _navigate_or_create(root, layout.map_key_path)
+        prior_exists = slot_key in node
         prior_value = node.get(slot_key)
         prior_text = (
             format_handler.serialize(prior_value) if prior_value is not None else None
         )
+        if expected_pair_id is not None and prior_exists:
+            _assert_slot_pair_id_matches(
+                shared_path,
+                slot_key,
+                prior_value,
+                expected_pair_id=expected_pair_id,
+                allow_unpaired_existing=allow_unpaired_existing,
+            )
         if new_slot_text is None:
             node.pop(slot_key, None)
         else:
@@ -135,8 +160,18 @@ def _navigate_or_create(
 ) -> MutableMapping[str, Any]:
     node: Any = root
     for key in map_key_path:
-        if key not in node or not isinstance(node[key], dict):
+        if not isinstance(node, MutableMapping):
+            raise ValueError(
+                "shared keyed-map path segment is not an object: "
+                f"segment={key!r} path={map_key_path!r}"
+            )
+        if key not in node:
             node[key] = {}
+        elif not isinstance(node[key], MutableMapping):
+            raise ValueError(
+                "shared keyed-map path segment is not an object: "
+                f"segment={key!r} path={map_key_path!r}"
+            )
         node = node[key]
     return node
 
@@ -144,3 +179,42 @@ def _navigate_or_create(
 class SharedKeyedMapRaceError(RuntimeError):
     """Raised when the shared file is rewritten by another process while
     ``apply_slot`` is computing the merged contents."""
+
+
+class SharedKeyedMapSlotCollisionError(RuntimeError):
+    """Raised when a slot is already occupied by another pair_id."""
+
+
+def _assert_slot_pair_id_matches(
+    shared_path: Path,
+    slot_key: str,
+    prior_value: Any,
+    *,
+    expected_pair_id: str,
+    allow_unpaired_existing: bool,
+) -> None:
+    if not isinstance(prior_value, dict):
+        if allow_unpaired_existing:
+            return
+        raise SharedKeyedMapSlotCollisionError(
+            "shared keyed-map slot collision: "
+            f"path={shared_path} slot={slot_key!r} "
+            f"expected_pair_id={expected_pair_id!r} existing_pair_id=None"
+        )
+    if "pair_id" not in prior_value:
+        if allow_unpaired_existing:
+            return
+        raise SharedKeyedMapSlotCollisionError(
+            "shared keyed-map slot collision: "
+            f"path={shared_path} slot={slot_key!r} "
+            f"expected_pair_id={expected_pair_id!r} existing_pair_id=None"
+        )
+    existing_pair_id = prior_value["pair_id"]
+    if existing_pair_id == expected_pair_id:
+        return
+    raise SharedKeyedMapSlotCollisionError(
+        "shared keyed-map slot collision: "
+        f"path={shared_path} slot={slot_key!r} "
+        f"expected_pair_id={expected_pair_id!r} "
+        f"existing_pair_id={existing_pair_id!r}"
+    )

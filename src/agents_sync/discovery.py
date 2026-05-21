@@ -54,20 +54,25 @@ def _target_already_exists(target: PlannedTarget) -> bool:
     shared-keyed-map targets, the shared file may exist (it is shared
     with other entries) — the collision question is whether the slot
     key is already populated under the configured ``map_key_path``.
-    The slot lookup is handled by ``state_owner_for_path`` for the
-    managed case; this helper covers only unmanaged occupants. We do
-    not parse the shared file here (we already parsed it during
-    discovery); a False here just means "no managed owner conflict",
-    consistent with the historical behaviour for missing files.
+    This helper covers unmanaged occupants; managed occupants are found
+    by ``state_owner_for_path`` before this is called.
     """
     if target.slot is None:
         return target.path.exists()
-    # For keyed-map targets, the shared file's existence is not itself a
-    # collision — siblings legitimately share the file. An unmanaged-slot
-    # collision is surfaced later during apply_slot (it would refuse to
-    # overwrite a slot whose pair_id does not match), so we return False
-    # here.
-    return False
+    # For keyed-map targets, parse the shared file and check the slot.
+    if not isinstance(target.file_layout, SharedKeyedMapLayout):
+        return False
+    try:
+        slots, absent_reason = read_slots(target.path, target.file_layout)
+    except Exception:
+        logging.exception(
+            "Cannot inspect shared keyed-map target: path=%s slot=%s",
+            target.path, target.slot,
+        )
+        return True
+    if absent_reason is not None:
+        return False
+    return target.slot in slots
 
 
 class DiscoveryWalker:
@@ -179,11 +184,18 @@ class DiscoveryWalker:
                     )
                     blocked.add(pair_id)
                 elif owner is None and _target_already_exists(target):
-                    logging.error(
-                        "Target collision with unmanaged entry: "
-                        "pair_id=%s target=%s slot=%s",
-                        pair_id, target.path, target.slot,
-                    )
+                    if target.slot is None:
+                        logging.error(
+                            "Target collision with unmanaged entry: "
+                            "pair_id=%s target=%s slot=%s",
+                            pair_id, target.path, target.slot,
+                        )
+                    else:
+                        logging.error(
+                            "Keyed-map slot collision with unmanaged entry: "
+                            "pair_id=%s target=%s slot=%s",
+                            pair_id, target.path, target.slot,
+                        )
                     blocked.add(pair_id)
 
         for target_key, pair_ids in targets.items():
@@ -250,6 +262,9 @@ class DiscoveryWalker:
                 "Cannot read shared keyed-map file: tool=%s type=%s path=%s",
                 tool_name, customization_type, shared_path,
             )
+            self._block_state_owners_for_path(
+                shared_path, state, blocked_pair_ids,
+            )
             return
         if absent_reason is not None:
             return
@@ -278,7 +293,17 @@ class DiscoveryWalker:
         state: dict[str, CustomizationArtifactState],
     ) -> None:
         """Register one keyed-map slot as a per-tool view of one artifact."""
-        pair_id = io.extract_pair_id(slot_text)
+        try:
+            pair_id = io.extract_pair_id(slot_text)
+        except Exception:
+            logging.exception(
+                "Cannot extract pair_id from %s %s slot: path=%s slot=%s",
+                tool_name, customization_type, shared_path, slot_key,
+            )
+            self._block_state_owner_slot(
+                shared_path, slot_key, state, blocked_pair_ids,
+            )
+            return
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
@@ -350,7 +375,15 @@ class DiscoveryWalker:
             )
             self._block_state_owner(path, state, blocked_pair_ids)
             return
-        pair_id = io.extract_pair_id(text)
+        try:
+            pair_id = io.extract_pair_id(text)
+        except Exception:
+            logging.exception(
+                "Cannot extract pair_id from %s %s: path=%s",
+                tool_name, customization_type, path,
+            )
+            self._block_state_owner(path, state, blocked_pair_ids)
+            return
         present = pair_id is not None
         if pair_id is None:
             pair_id = new_pair_id()
@@ -423,6 +456,20 @@ class DiscoveryWalker:
         if owner is not None:
             blocked_pair_ids.add(owner)
 
+    def _block_state_owners_for_path(
+        self,
+        path: Path,
+        state: dict[str, CustomizationArtifactState],
+        blocked_pair_ids: set[str],
+    ) -> None:
+        target_key = path_collision_key(path)
+        for pair_id, pair_state in state.items():
+            if any(
+                path_collision_key(Path(tool_state.path)) == target_key
+                for tool_state in pair_state.agentic_tools.values()
+            ):
+                blocked_pair_ids.add(pair_id)
+
     def _planned_adoption_targets(
         self, info: CustomizationArtifactInfo
     ) -> list[PlannedTarget]:
@@ -478,7 +525,13 @@ class DiscoveryWalker:
                 slot_key = str(canonical.get(layout.key_field, ""))
                 if not slot_key:
                     continue
-                targets.append(PlannedTarget(path=shared_path, slot=slot_key))
+                targets.append(
+                    PlannedTarget(
+                        path=shared_path,
+                        slot=slot_key,
+                        file_layout=layout,
+                    )
+                )
                 continue
             root = expand_path(self.config[spec.config_dir_keys[info.kind]])
             slugger = io.slugify_name or target_slug

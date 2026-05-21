@@ -335,6 +335,9 @@ class AdoptionEngine:
                 prior_text=prior_text,
                 source_dir=source_dir,
                 existing_slot=existing_slot,
+                allow_unpaired_existing_slot=(
+                    target_info is not None and not target_info.pair_id_present
+                ),
             )
         return results
 
@@ -510,6 +513,7 @@ class AdoptionEngine:
                     prior_slot_text = apply_slot(
                         survivor_info.path, survivor_io.file_layout,
                         slot_key, new_slot_text=None,
+                        expected_pair_id=pair_id,
                     )
                 except Exception:
                     logging.exception(

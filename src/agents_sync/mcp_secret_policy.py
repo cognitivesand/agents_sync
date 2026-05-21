@@ -4,12 +4,14 @@ from __future__ import annotations
 import copy
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
 
 ALLOWED_MCP_SECRET_POLICIES = frozenset({"refuse", "redact", "permissive"})
-_ENV_NAME = r"[A-Z_][A-Z0-9_]*"
+_ENV_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+ENV_NAME_RE = re.compile(rf"^{_ENV_NAME}$")
 _ENV_REFERENCE_TOKEN_RE = re.compile(
     rf"\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}"
 )
@@ -20,7 +22,22 @@ _BEARER_ENV_REFERENCE_RE = re.compile(
     rf"^Bearer\s+(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}})$",
     re.IGNORECASE,
 )
-SECRET_FIELD_RE = re.compile(r"(?i)(api[_-]?key|token|secret|password)")
+SECRET_FIELD_RE = re.compile(
+    r"(api[_-]?key|authentication[_-]?blob|auth[_-]?blob|"
+    r"license[_-]?key|connection[_-]?string|private[_-]?key|"
+    r"passphrase|credentials?|token|secret|password|dsn|cookie|"
+    r"session|jwt|(?:^|[_-])pat(?:$|[_-]))"
+)
+HIGH_CONFIDENCE_SECRET_VALUE_RE = re.compile(
+    r"("
+    r"sk-[A-Za-z0-9_-]{8,}|"
+    r"ghp_[A-Za-z0-9_]{8,}|"
+    r"github_pat_[A-Za-z0-9_]{16,}|"
+    r"AKIA[0-9A-Z]{16}|"
+    r"xoxb-[A-Za-z0-9-]{16,}|"
+    r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+    r")"
+)
 _PERMISSIVE_WARNING_CACHE: set[tuple[str, tuple[str, ...]]] = set()
 
 
@@ -81,8 +98,15 @@ def bearer_env_reference_name(value: str) -> str | None:
     return next(group for group in match.groups() if group is not None)
 
 
+def is_valid_env_var_name(name: str) -> bool:
+    """Whether ``name`` is a valid environment variable name."""
+    return ENV_NAME_RE.fullmatch(name) is not None
+
+
 def format_env_reference(name: str, *, style: str = "canonical") -> str:
     """Render an env-reference in the target tool's native syntax."""
+    if not is_valid_env_var_name(name):
+        raise ValueError(f"invalid env var name: {name!r}")
     if style == "canonical":
         return f"${{env:{name}}}"
     if style == "claude":
@@ -103,7 +127,14 @@ def convert_env_references(value: str, *, style: str) -> str:
 
 def is_safe_secret_reference(value: str) -> bool:
     """Whether a secret-looking field value delegates to the environment."""
-    return env_reference_name(value) is not None or bearer_env_reference_name(value) is not None
+    if env_reference_name(value) is not None:
+        return True
+    if bearer_env_reference_name(value) is not None:
+        return True
+    if _ENV_REFERENCE_TOKEN_RE.search(value) is None:
+        return False
+    literal_remainder = _ENV_REFERENCE_TOKEN_RE.sub("", value)
+    return HIGH_CONFIDENCE_SECRET_VALUE_RE.search(literal_remainder) is None
 
 
 def apply_mcp_secret_policy(
@@ -141,10 +172,13 @@ def apply_mcp_secret_policy(
     redacted = copy.deepcopy(data)
     redactions: list[dict[str, Any]] = []
     for index, finding in enumerate(findings, start=1):
-        _set_at_path(redacted, finding.path, f"${{env:AGENTS_SYNC_REDACTED_{index}}}")
+        placeholder_env_var = f"AGENTS_SYNC_REDACTED_{index}"
+        placeholder = _placeholder_for_path(finding.path, placeholder_env_var)
+        _set_at_path(redacted, finding.path, placeholder)
         redactions.append({
             "field_path": finding.field_path,
             "original_env_var": None,
+            "placeholder_env_var": placeholder_env_var,
         })
     return redacted, redactions
 
@@ -182,20 +216,56 @@ def reset_mcp_secret_warning_cache() -> None:
 
 
 def _is_secret_literal(path: tuple[str, ...], key: str, value: str) -> bool:
+    normalized_path = tuple(_normalize_key(part) for part in path)
+    normalized_key = _normalize_key(key)
+    if _expects_env_var_name(normalized_path):
+        return not _is_safe_env_var_name_value(value)
     if is_safe_secret_reference(value):
         return False
-    if key.lower().endswith(("env_var", "env_vars")):
-        return False
-    if "env_http_headers" in path:
-        return False
-    if path and path[0] == "env":
+    if normalized_path and normalized_path[0] == "env":
         return True
-    if len(path) == 2 and path[0] == "headers":
-        if path[1].lower() in {"authorization", "x-api-key"}:
-            return True
-    if path == ("auth", "client_secret"):
+    if _is_secret_header_path(normalized_path):
         return True
-    return SECRET_FIELD_RE.search(key) is not None
+    if SECRET_FIELD_RE.search(normalized_key) is not None:
+        return True
+    return HIGH_CONFIDENCE_SECRET_VALUE_RE.search(value) is not None
+
+
+def _normalize_key(key: str) -> str:
+    return unicodedata.normalize("NFKC", key).casefold()
+
+
+def _expects_env_var_name(normalized_path: tuple[str, ...]) -> bool:
+    return any(
+        part == "env_http_headers"
+        or part.endswith(("env_var", "env_vars"))
+        for part in normalized_path
+    )
+
+
+def _is_safe_env_var_name_value(value: str) -> bool:
+    if not is_valid_env_var_name(value):
+        return False
+    if HIGH_CONFIDENCE_SECRET_VALUE_RE.search(value):
+        return False
+    return not value.startswith(("ghp_", "github_pat_"))
+
+
+def _is_secret_header_path(normalized_path: tuple[str, ...]) -> bool:
+    if len(normalized_path) < 2:
+        return False
+    if "env_http_headers" in normalized_path[:-1]:
+        return False
+    if normalized_path[-2] not in {"headers", "http_headers"}:
+        return False
+    return normalized_path[-1] in {"authorization", "x-api-key"}
+
+
+def _placeholder_for_path(path: tuple[str, ...], placeholder_env_var: str) -> str:
+    normalized_path = tuple(_normalize_key(part) for part in path)
+    if _expects_env_var_name(normalized_path):
+        return placeholder_env_var
+    return format_env_reference(placeholder_env_var)
 
 
 def _set_at_path(data: dict[str, Any], path: tuple[str, ...], value: str) -> None:
@@ -222,6 +292,7 @@ __all__ = [
     "find_mcp_secret_literals",
     "format_env_reference",
     "is_safe_secret_reference",
+    "is_valid_env_var_name",
     "reset_mcp_secret_warning_cache",
     "validate_mcp_secret_policy",
 ]
