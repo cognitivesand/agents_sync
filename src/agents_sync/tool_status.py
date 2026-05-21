@@ -145,9 +145,11 @@ class ToolStatusTracker:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
         available_kinds: set[str] = set()
         first_reason: tuple[str, str] | None = None
+        enabled_kind_count = 0
         for kind, config_key in spec.config_dir_keys.items():
             if not self._is_kind_enabled(spec, kind):
                 continue
+            enabled_kind_count += 1
             status, reason = self._probe_kind_root(config_key)
             if status == "available":
                 available_kinds.add(kind)
@@ -159,6 +161,8 @@ class ToolStatusTracker:
 
         if available_kinds:
             return "available", None, available_kinds
+        if enabled_kind_count == 0:
+            return "disabled", None, set()
         return "unavailable", first_reason, set()
 
     def _probe_kind_root(

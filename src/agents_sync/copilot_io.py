@@ -254,6 +254,18 @@ def _set_pair_id(canonical: dict[str, Any], frontmatter: dict[str, Any], prior: 
         canonical["pair_id"] = new_pair_id()
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1"}:
+            return True
+        if normalized in {"false", "no", "0"}:
+            return False
+    return bool(value)
+
+
 def _set_per_tool_data(
     canonical: dict[str, Any],
     *,
@@ -404,10 +416,10 @@ def parse_copilot_instruction_md(
     canonical["body"] = body
 
     path_name = _instruction_name_from_path(artifact_path)
-    if "name" in frontmatter:
-        canonical["name"] = str(frontmatter["name"])
-    elif path_name:
+    if path_name:
         canonical["name"] = path_name
+    elif "name" in frontmatter:
+        canonical["name"] = str(frontmatter["name"])
     if "description" in frontmatter:
         canonical["description"] = str(frontmatter["description"])
     for field_name in INSTRUCTION_CANONICAL_FIELDS:
@@ -416,7 +428,7 @@ def parse_copilot_instruction_md(
     if "provenance" in frontmatter:
         canonical["provenance"] = str(frontmatter["provenance"])
     if "private" in frontmatter:
-        canonical["private"] = bool(frontmatter["private"])
+        canonical["private"] = _coerce_bool(frontmatter["private"])
 
     _set_per_tool_data(
         canonical,
@@ -468,10 +480,10 @@ def parse_copilot_prompt_md(
     canonical["body"] = body
 
     path_name = _prompt_name_from_path(artifact_path, artifact_root)
-    if "name" in frontmatter:
-        canonical["name"] = str(frontmatter["name"])
-    elif path_name:
+    if path_name:
         canonical["name"] = path_name
+    elif "name" in frontmatter:
+        canonical["name"] = str(frontmatter["name"])
     if "description" in frontmatter:
         canonical["description"] = str(frontmatter["description"])
     if "argument-hint" in frontmatter:
@@ -479,7 +491,7 @@ def parse_copilot_prompt_md(
     if "model" in frontmatter:
         canonical["model"] = frontmatter["model"]
     if "tools" in frontmatter:
-        canonical["tools"] = _as_string_list(frontmatter["tools"])
+        canonical["allowed_tools"] = _as_string_list(frontmatter["tools"])
 
     _set_per_tool_data(
         canonical,
@@ -503,7 +515,7 @@ def render_copilot_prompt_md(
     _set_or_pop(
         frontmatter,
         "tools",
-        canonical.get("tools") or canonical.get("allowed_tools"),
+        canonical.get("allowed_tools") or canonical.get("tools"),
     )
 
     tool_only = canonical.get("per_agentic_tool_only", {}).get("copilot", {})

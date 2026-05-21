@@ -114,6 +114,25 @@ def test_copilot_instruction_maps_to_rules_and_preserves_extra(tmp_path: Path):
     assert "custom-field: kept" in rendered
 
 
+def test_copilot_instruction_path_identity_wins_over_rendered_name(tmp_path: Path):
+    path = tmp_path / "typescript.instructions.md"
+    text = textwrap.dedent(
+        f"""\
+        ---
+        pair_id: {PAIR_ID}
+        name: stale-name
+        private: "false"
+        ---
+        Prefer explicit return types.
+        """
+    )
+
+    canonical = parse_copilot_instruction_md(text, None, artifact_path=path)
+
+    assert canonical["name"] == "typescript"
+    assert canonical["private"] is False
+
+
 def test_copilot_prompt_maps_namespace_and_tools(tmp_path: Path):
     root = tmp_path / "prompts"
     path = root / "git" / "commit.prompt.md"
@@ -142,7 +161,35 @@ def test_copilot_prompt_maps_namespace_and_tools(tmp_path: Path):
     assert canonical["kind"] == "slash_command"
     assert canonical["name"] == "git:commit"
     assert canonical["argument_hint"] == "[scope]"
-    assert canonical["tools"] == ["terminal"]
+    assert canonical["allowed_tools"] == ["terminal"]
     assert canonical["per_agentic_tool_only"]["copilot"] == {"agent": "planner"}
     assert "name: git:commit" in rendered
     assert "tools:" in rendered
+
+
+def test_copilot_prompt_path_identity_wins_over_rendered_name(tmp_path: Path):
+    root = tmp_path / "prompts"
+    path = root / "git" / "amend.prompt.md"
+    text = textwrap.dedent(
+        f"""\
+        ---
+        pair_id: {PAIR_ID}
+        name: git:commit
+        tools:
+          - terminal
+        ---
+        Update the last commit message.
+        """
+    )
+
+    canonical = parse_copilot_prompt_md(
+        text,
+        None,
+        artifact_path=path,
+        artifact_root=root,
+    )
+    rendered = render_copilot_prompt_md(canonical)
+
+    assert canonical["name"] == "git:amend"
+    assert canonical["allowed_tools"] == ["terminal"]
+    assert "name: git:amend" in rendered

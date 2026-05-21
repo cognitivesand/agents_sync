@@ -122,7 +122,10 @@ def test_copilot_prompt_syncs_as_slash_command_with_namespace(tmp_path: Path):
 
     target = syncer.tool_root("claude", "slash_command") / "git" / "commit.md"
     assert target.exists()
-    assert "Summarize the staged diff." in target.read_text(encoding="utf-8")
+    target_text = target.read_text(encoding="utf-8")
+    assert "Summarize the staged diff." in target_text
+    assert "allowed-tools:" in target_text
+    assert "terminal" in target_text
 
 
 def test_unset_vscode_profile_paths_do_not_disable_copilot_cli_half(tmp_path: Path):
@@ -137,3 +140,15 @@ def test_unset_vscode_profile_paths_do_not_disable_copilot_cli_half(tmp_path: Pa
     assert syncer.tool_status.is_kind_available("copilot", "skill") is True
     assert syncer.tool_status.is_kind_available("copilot", "slash_command") is False
     assert syncer.tool_status.is_kind_available("copilot", "rules") is False
+
+
+def test_disabling_both_copilot_halves_marks_tool_disabled(tmp_path: Path):
+    config = _config(tmp_path)
+    config["copilot_cli_enabled"] = False
+    config["copilot_vscode_user_profile_enabled"] = False
+    syncer = Syncer(config)
+
+    syncer.sync_once()
+
+    assert syncer.tool_status.snapshot()["copilot"] == "disabled"
+    assert syncer.tool_status.is_kind_available("copilot", "agent") is False

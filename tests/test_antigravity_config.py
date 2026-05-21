@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from agents_sync.cli import build_parser
-from agents_sync.config import merged_config, platform_defaults
+from agents_sync.config import ConfigError, merged_config, platform_defaults, validate_config
 from agents_sync.sync import Syncer
 
 
@@ -208,6 +208,18 @@ def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
 def test_merged_config_honors_cli_disable_flag():
     config = merged_config(_minimal_args(antigravity_enabled=False))
     assert config["antigravity_enabled"] is False
+
+
+@pytest.mark.parametrize("flag_name", ["antigravity_enabled", "opencode_enabled"])
+def test_validate_config_rejects_non_boolean_enable_flags(
+    tmp_path: Path,
+    flag_name: str,
+):
+    config = _test_config(tmp_path)
+    config[flag_name] = "false"
+
+    with pytest.raises(ConfigError, match=f"{flag_name} must be a boolean"):
+        validate_config(config)
 
 
 # ---------- Syncer status for antigravity ----------

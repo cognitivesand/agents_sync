@@ -224,6 +224,8 @@ OPTIONAL_PATH_KEYS: tuple[str, ...] = (
 )
 
 OPTIONAL_BOOL_KEYS: tuple[str, ...] = (
+    "antigravity_enabled",
+    "opencode_enabled",
     "copilot_enabled",
     "copilot_cli_enabled",
     "copilot_vscode_user_profile_enabled",
