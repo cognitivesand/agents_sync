@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,30 @@ from agents_sync.state import (
 )
 from agents_sync.sync_types import AgenticToolInfo, CustomizationArtifactInfo
 from agents_sync.tool_status import ToolStatusTracker
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    """Outcome of one ``Syncer.sync_once`` call.
+
+    - ``changed`` — number of pairs whose bytes or state advanced this poll.
+    - ``failed`` — pair_ids whose per-pair processing raised (logged at
+      exception level; daemon supervisor can count consecutive failures).
+    - ``blocked`` — pair_ids elided from processing because of an unresolved
+      collision (managed-owner, unmanaged-slug, or shared-keyed-map slot).
+    """
+
+    changed: int = 0
+    failed: list[str] = field(default_factory=list)
+    blocked: list[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        """A poll counts as truthy when something changed (back-compat)."""
+        return self.changed != 0
+
+    def __int__(self) -> int:
+        """Legacy callers comparing the return as an int still work."""
+        return self.changed
 
 
 class Syncer:
@@ -59,7 +84,7 @@ class Syncer:
 
     # ---------- top-level loop ----------
 
-    def sync_once(self) -> int:
+    def sync_once(self) -> SyncResult:
         validate_config(self.config)
         reset_mcp_secret_warning_cache()
         self.tool_status.refresh()
@@ -70,6 +95,7 @@ class Syncer:
             discovery, state
         )
         changed = 0
+        failed: list[str] = []
 
         for pair_id, info in discovery.items():
             try:
@@ -77,6 +103,7 @@ class Syncer:
                     changed += 1
             except Exception:
                 logging.exception("Failed to sync pair: pair_id=%s", pair_id)
+                failed.append(pair_id)
 
         # Detect deleted pairs (in state but not in discovery). Per US-11 AC-4,
         # only `available` tools can be removal sources: a pair whose state
@@ -97,9 +124,19 @@ class Syncer:
                     changed += 1
             except Exception:
                 logging.exception("Failed to handle orphan state: pair_id=%s", pair_id)
+                failed.append(pair_id)
 
         save_state(self.state_dir, state)
-        return changed
+        result = SyncResult(
+            changed=changed,
+            failed=failed,
+            blocked=sorted(self._blocked_pair_ids),
+        )
+        logging.info(
+            "Sync poll complete: changed=%d failed=%d blocked=%d",
+            result.changed, len(result.failed), len(result.blocked),
+        )
+        return result
 
     # ---------- first-boot reconciliation (v0.4 plan §5.5) ----------
 

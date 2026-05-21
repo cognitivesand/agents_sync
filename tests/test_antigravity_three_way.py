@@ -87,7 +87,7 @@ def _archive_files(syncer: Syncer, pair_id: str, tool_name: str) -> list[Path]:
 def test_three_way_noop_poll(syncer: Syncer):
     _write_skill(syncer.tool_root("claude", "skill"), "demo")
     syncer.sync_once()
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
     assert changed == 0
 
 

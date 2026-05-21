@@ -642,3 +642,52 @@ def test_default_config_uses_refuse_policy():
     defaults = platform_defaults(os_name="posix", env={}, home=Path("/home/tester"))
 
     assert defaults["mcp_server_secret_policy"] == "refuse"
+
+
+def test_secret_finding_field_path_distinguishes_list_index_from_dict_key():
+    """A literal at servers[0].token renders differently from servers."0".token."""
+    list_indexed = find_mcp_secret_literals(
+        {"servers": [{"token": "ghp_abcdefghijkl"}]}
+    )
+    assert len(list_indexed) == 1
+    assert list_indexed[0].field_path == "servers[0].token"
+
+    dict_key_zero = find_mcp_secret_literals(
+        {"servers": {"0": {"token": "ghp_abcdefghijkl"}}}
+    )
+    assert len(dict_key_zero) == 1
+    assert dict_key_zero[0].field_path == "servers.0.token"
+
+
+def test_apply_mcp_secret_policy_no_findings_returns_deep_copy():
+    """Caller mutating the returned dict must not mutate the input."""
+    from agents_sync.mcp_secret_policy import apply_mcp_secret_policy
+
+    original = {"name": "x", "transport": "stdio", "command": "echo"}
+    returned, redactions = apply_mcp_secret_policy(original, policy="refuse")
+    assert redactions == []
+    returned["mutated"] = True
+    assert "mutated" not in original
+
+
+def test_apply_mcp_secret_policy_permissive_warning_cache_is_injectable():
+    """A caller-provided warning_cache scopes de-duplication memory."""
+    from agents_sync.mcp_secret_policy import apply_mcp_secret_policy
+
+    data = {"env": {"GITHUB_TOKEN": "ghp_abcdefghijkl"}}
+    cache: set = set()
+    apply_mcp_secret_policy(
+        data, policy="permissive", artifact="srv-a", warning_cache=cache,
+    )
+    assert len(cache) == 1
+    # Second call with same artifact + fields hits the dedupe path.
+    apply_mcp_secret_policy(
+        data, policy="permissive", artifact="srv-a", warning_cache=cache,
+    )
+    assert len(cache) == 1
+    # A separate cache instance does not see prior warnings.
+    other_cache: set = set()
+    apply_mcp_secret_policy(
+        data, policy="permissive", artifact="srv-a", warning_cache=other_cache,
+    )
+    assert len(other_cache) == 1

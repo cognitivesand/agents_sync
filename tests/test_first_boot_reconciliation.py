@@ -111,7 +111,7 @@ def test_singleton_new_artifact_is_unaffected_by_reconcile(syncer: Syncer):
     """An artifact present on only one tool still adopts normally."""
     _write_skill(syncer.tool_root("claude", "skill"), "solo")
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
     assert changed == 1
 
     state = _list_state(syncer)
@@ -134,7 +134,7 @@ def test_intra_tool_slug_collision_still_blocks(syncer: Syncer):
     (first / "SKILL.md").write_text(_skill_md("same"))
     (second / "SKILL.md").write_text(_skill_md("same"))
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
     assert changed == 0
 
     state = _list_state(syncer)

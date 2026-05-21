@@ -498,7 +498,23 @@ class AdoptionEngine:
         disk and the state entry is preserved so the next poll retries.
         """
         from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
-        from agents_sync.shared_keyed_map_io import apply_slot
+        from agents_sync.shared_keyed_map_io import (
+            SharedKeyedMapRaceError,
+            SharedKeyedMapSlotCollisionError,
+            apply_slot,
+        )
+        # Narrow except set: I/O errors (archive_move, archive_text,
+        # atomic_write_text, read_text), parse errors from apply_slot's
+        # format handler, and the two lock/collision failures that
+        # apply_slot raises by contract. A bare ``except Exception`` here
+        # would also swallow TypeError / AttributeError from a logic bug,
+        # which we want to surface during testing.
+        _REMOVAL_FAILURES = (
+            OSError,
+            ValueError,
+            SharedKeyedMapRaceError,
+            SharedKeyedMapSlotCollisionError,
+        )
         for tool in survivors:
             survivor_info = info.agentic_tools[tool]
             survivor_io = self.agentic_tools[tool].io[info.kind]
@@ -515,7 +531,7 @@ class AdoptionEngine:
                         slot_key, new_slot_text=None,
                         expected_pair_id=pair_id,
                     )
-                except Exception:
+                except _REMOVAL_FAILURES:
                     logging.exception(
                         "Archive-then-remove aborted: pair_id=%s survivor=%s slot=%s",
                         pair_id, tool, slot_key,
@@ -534,7 +550,7 @@ class AdoptionEngine:
                 continue
             try:
                 archive.archive_move(self.state_dir, pair_id, tool, survivor_path)
-            except Exception:
+            except _REMOVAL_FAILURES:
                 logging.exception(
                     "Archive-then-remove aborted: pair_id=%s survivor=%s",
                     pair_id, tool,
@@ -569,6 +585,18 @@ class AdoptionEngine:
         prior_text: str | None,
         target_slot: str | None = None,
     ) -> bool:
+        """Decide whether ``target_path`` is privacy-protected.
+
+        Default-closed policy: if either the bytes cannot be read or the
+        parser cannot produce a canonical, treat the artifact as private
+        and skip projection. The alternative (fail open) would have us
+        overwrite a file we could not inspect — which would defeat the
+        privacy invariant the user signalled by marking artifacts private.
+        The trade-off: a parse regression in an adapter starts looking
+        like a privacy block until it is fixed; that is the safer
+        direction. The decision is logged at WARNING with the underlying
+        exception type so operators can disambiguate.
+        """
         target_io = target_spec.io[kind]
         text = prior_text
         if text is None:
@@ -577,26 +605,26 @@ class AdoptionEngine:
             except (OSError, UnicodeDecodeError) as exc:
                 logging.warning(
                     "Could not inspect prior text at %s for pair_id=%s; "
-                    "private-artifact exclusion could not be evaluated "
+                    "treating as private (fail-closed) "
                     "(%s: %s)",
                     target_path,
                     pair_id,
                     type(exc).__name__,
                     exc,
                 )
-                return False
+                return True
         try:
             canonical = target_io.parse(text, None, artifact_path=target_path)
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError, ValueError, KeyError) as exc:
             logging.warning(
                 "Could not inspect prior canonical at %s for pair_id=%s; "
-                "private-artifact exclusion could not be evaluated (%s: %s)",
+                "treating as private (fail-closed) (%s: %s)",
                 target_path,
                 pair_id,
                 type(exc).__name__,
                 exc,
             )
-            return False
+            return True
         return self._skip_private_canonical(pair_id, tool_name, canonical)
 
     def _available_participating_tools(self, kind: str) -> list[str]:

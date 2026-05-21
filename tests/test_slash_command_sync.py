@@ -150,7 +150,7 @@ def test_slash_command_syncs_markdown_to_toml_with_namespace(tmp_path: Path):
     source.parent.mkdir(parents=True)
     source.write_text(body, encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     injected = source.read_text(encoding="utf-8")
     pair_id = extract_pair_id_from_slash_command_markdown(injected)
@@ -212,7 +212,7 @@ def test_slash_command_syncs_toml_to_markdown_preserving_prompt_grammar(
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_toml(
         source.read_text(encoding="utf-8")
@@ -265,7 +265,7 @@ def test_reserved_slash_command_name_skips_only_that_target(tmp_path: Path, capl
     source = source_root / "plan.md"
     source.write_text("Plan with {{args}}.\n", encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")

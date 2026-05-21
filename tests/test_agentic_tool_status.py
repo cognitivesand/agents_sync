@@ -155,7 +155,7 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     shutil.rmtree(tmp_path / "as")
 
     # No raise, zero changes.
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
     assert changed == 0
     assert syncer.tool_status.snapshot() == {
         "antigravity": "unavailable",

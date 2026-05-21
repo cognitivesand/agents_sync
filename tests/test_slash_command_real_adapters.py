@@ -65,7 +65,7 @@ def test_claude_slash_command_adopts_to_codex_and_opencode(syncer: Syncer):
     source.parent.mkdir(parents=True)
     source.write_text(_slash_command_md(body), encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     injected = source.read_text(encoding="utf-8")
     pair_id = extract_pair_id_from_slash_command_markdown(injected)
@@ -110,7 +110,7 @@ def test_duplicate_new_slash_commands_reconcile_by_mtime_before_adoption(
     os.utime(claude_source, (1_000, 1_000))
     os.utime(codex_source, (2_000, 2_000))
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     state = load_state(syncer.state_dir)
     assert len(state) == 1
@@ -137,7 +137,7 @@ def test_codex_slash_command_adopts_to_claude_and_opencode(syncer: Syncer):
     source = syncer.tool_root("codex", "slash_command") / "refactor.md"
     source.write_text(_slash_command_md(body), encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")
@@ -157,7 +157,7 @@ def test_codex_slash_command_edit_propagates_without_tool_field_leakage(
 ):
     source = syncer.tool_root("codex", "slash_command") / "triage.md"
     source.write_text(_slash_command_md("Initial triage.\n"), encoding="utf-8")
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")
     )
@@ -178,7 +178,7 @@ def test_codex_slash_command_edit_propagates_without_tool_field_leakage(
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     codex_canonical = _parse_tool_command(syncer, "codex", source)
     assert codex_canonical["per_agentic_tool_only"]["codex"] == {
@@ -205,7 +205,7 @@ def test_slash_command_conflict_uses_newest_mtime_and_archives_loser(
 ):
     source = syncer.tool_root("claude", "slash_command") / "conflict.md"
     source.write_text(_slash_command_md("Base body.\n"), encoding="utf-8")
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")
     )
@@ -236,7 +236,7 @@ def test_slash_command_conflict_uses_newest_mtime_and_archives_loser(
     os.utime(codex_path, (2_000, 2_000))
 
     with caplog.at_level("WARNING"):
-        assert syncer.sync_once() == 1
+        assert syncer.sync_once().changed == 1
 
     assert "Conflict resolved (codex wins)" in caplog.text
     for tool, path in (
@@ -260,7 +260,7 @@ def test_slash_command_delete_on_one_tool_removes_available_counterparts(
 ):
     source = syncer.tool_root("claude", "slash_command") / "cleanup.md"
     source.write_text(_slash_command_md("Remove me everywhere.\n"), encoding="utf-8")
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")
     )
@@ -270,7 +270,7 @@ def test_slash_command_delete_on_one_tool_removes_available_counterparts(
     opencode_target = syncer.tool_root("opencode", "slash_command") / "cleanup.md"
     codex_target.unlink()
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     assert not source.exists()
     assert not codex_target.exists()
@@ -289,7 +289,7 @@ def test_opencode_reserved_slash_command_name_skips_opencode_only(
     source.write_text(_slash_command_md("Plan with {{args}}.\n"), encoding="utf-8")
 
     with caplog.at_level("WARNING"):
-        assert syncer.sync_once() == 1
+        assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")
@@ -312,7 +312,7 @@ def test_namespaced_reserved_slash_command_skips_opencode_by_leaf_name(
     source.write_text(_slash_command_md("Plan for $ARGUMENTS.\n"), encoding="utf-8")
 
     with caplog.at_level("WARNING"):
-        assert syncer.sync_once() == 1
+        assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")

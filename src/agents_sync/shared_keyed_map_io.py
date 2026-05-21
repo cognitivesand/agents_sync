@@ -9,17 +9,20 @@ Three operations:
   decides whether to log.
 - ``apply_slot(shared_path, layout, slot_key, new_slot_text)`` — read the
   shared file, replace / insert / delete the slot under ``map_key_path``,
-  serialise the merged mapping, and atomically write it back. Returns the
-  prior slot text (or ``None``) so the caller can archive it.
+  serialise the merged mapping, and atomically write it back under a
+  cross-process file lock so concurrent writers serialise instead of
+  racing. Returns the prior slot text (or ``None``) so the caller can
+  archive it. The shared file is never partially overwritten.
 - ``serialize_slot(value, layout)`` — serialise one slot value (the parsed
   Python object for a single slot) to text. Used to feed the canonical
   parser, which expects ``text``.
 
-Writes use atomic rename, so readers should not observe partially-written
-files. ``apply_slot`` also re-reads the file just before writing and
-retries once if the bytes changed during the merge. This is a lightweight
-guard, not a cross-process compare-and-swap: it reduces accidental lost
-updates but does not guarantee protection from every inter-process race.
+Concurrency contract: ``apply_slot`` acquires an exclusive lock on
+``<shared_path>.lock`` (via :mod:`agents_sync.filesystem_lock`) before
+its read-modify-write sequence. Two daemons (or a daemon and a hand
+``$EDITOR``) hitting the same shared file therefore serialise; neither
+clobbers the other. The lock is released on every exit path, including
+exceptions.
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+from agents_sync.filesystem_lock import LockTimeoutError, lock_file
 from agents_sync.shared_keyed_map_formats import get_format
 from agents_sync.state import atomic_write_text
 
@@ -93,59 +97,57 @@ def apply_slot(
     defense-in-depth guard against overwriting a slot owned by another
     managed pair.
 
-    Concurrent-writer handling: re-reads the file just before writing.
-    If the bytes changed during the merge, retries the merge once on the
-    fresh contents; if a second race occurs, raises
-    ``SharedKeyedMapRaceError`` so the caller can re-try next poll
-    rather than corrupt the file.
+    Concurrent-writer handling: the read-modify-write runs inside an
+    exclusive cross-process lock on ``<shared_path>.lock``. Two writers
+    therefore serialise; the shared file is never partially overwritten.
+    If the lock cannot be acquired within the configured timeout (a
+    user's editor holding the file open for many seconds), raises
+    :class:`SharedKeyedMapRaceError` so the caller retries next poll.
     """
     format_handler = get_format(layout.file_format)
+    shared_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for attempt in (1, 2):
-        before_text = (
-            shared_path.read_text(encoding="utf-8")
-            if shared_path.exists() else ""
-        )
-        root = format_handler.deserialize(before_text) if before_text.strip() else {}
-        node = _navigate_or_create(root, layout.map_key_path)
-        prior_exists = slot_key in node
-        prior_value = node.get(slot_key)
-        prior_text = (
-            format_handler.serialize(prior_value) if prior_value is not None else None
-        )
-        if expected_pair_id is not None and prior_exists:
-            _assert_slot_pair_id_matches(
-                shared_path,
-                slot_key,
-                prior_value,
-                expected_pair_id=expected_pair_id,
-                allow_unpaired_existing=allow_unpaired_existing,
+    try:
+        with lock_file(shared_path):
+            before_text = (
+                shared_path.read_text(encoding="utf-8")
+                if shared_path.exists() else ""
             )
-        if new_slot_text is None:
-            node.pop(slot_key, None)
-        else:
-            node[slot_key] = format_handler.deserialize(new_slot_text)
-        merged_text = format_handler.serialize(root)
-
-        # Re-read just before write to detect a concurrent writer.
-        latest_text = (
-            shared_path.read_text(encoding="utf-8")
-            if shared_path.exists() else ""
-        )
-        if latest_text == before_text:
-            shared_path.parent.mkdir(parents=True, exist_ok=True)
+            root = (
+                format_handler.deserialize(before_text)
+                if before_text.strip() else {}
+            )
+            node = _navigate_or_create(root, layout.map_key_path)
+            prior_exists = slot_key in node
+            prior_value = node.get(slot_key)
+            prior_text = (
+                format_handler.serialize(prior_value)
+                if prior_value is not None else None
+            )
+            if expected_pair_id is not None and prior_exists:
+                _assert_slot_pair_id_matches(
+                    shared_path,
+                    slot_key,
+                    prior_value,
+                    expected_pair_id=expected_pair_id,
+                    allow_unpaired_existing=allow_unpaired_existing,
+                )
+            if new_slot_text is None:
+                node.pop(slot_key, None)
+            else:
+                node[slot_key] = format_handler.deserialize(new_slot_text)
+            merged_text = format_handler.serialize(root)
             atomic_write_text(shared_path, merged_text)
             return prior_text
-
+    except LockTimeoutError as exc:
         logging.warning(
-            "Shared keyed-map file changed mid-merge: path=%s attempt=%d",
-            shared_path, attempt,
+            "Could not lock shared keyed-map file in time: path=%s slot=%s (%s)",
+            shared_path, slot_key, exc,
         )
-
-    raise SharedKeyedMapRaceError(
-        f"Concurrent writer kept racing the merge of {shared_path}; "
-        f"slot {slot_key!r} was not written this poll."
-    )
+        raise SharedKeyedMapRaceError(
+            f"Could not acquire lock on {shared_path} for slot {slot_key!r}; "
+            "another writer is holding it. Will retry next poll."
+        ) from exc
 
 
 def serialize_slot(value: Any, layout: SharedKeyedMapLayout) -> str:

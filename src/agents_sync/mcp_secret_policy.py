@@ -39,17 +39,39 @@ HIGH_CONFIDENCE_SECRET_VALUE_RE = re.compile(
     r")"
 )
 _PERMISSIVE_WARNING_CACHE: set[tuple[str, tuple[str, ...]]] = set()
+"""Module-level fallback cache. Kept for back-compat with callers that do not
+pass a per-context cache (and with the existing
+``reset_mcp_secret_warning_cache`` shim that ``Syncer.sync_once`` calls each
+poll). New code should construct its own cache and pass it explicitly so
+two independent ``Syncer`` instances (tests, future MCP server) do not share
+warning de-duplication state."""
 
 
 @dataclass(frozen=True)
 class SecretFinding:
-    """One literal secret-like value inside an MCP server document."""
+    """One literal secret-like value inside an MCP server document.
 
-    path: tuple[str, ...]
+    ``path`` is the tuple of dict keys and list indices traversed from the
+    root. Dict keys are :class:`str`; list indices are :class:`int`. The
+    distinction lets ``field_path`` render lists with bracket syntax
+    (``env[0]``) so a dict key called ``"0"`` is not confused with a list
+    index at position 0.
+    """
+
+    path: tuple[str | int, ...]
 
     @property
     def field_path(self) -> str:
-        return ".".join(self.path)
+        rendered: list[str] = []
+        for part in self.path:
+            if isinstance(part, int):
+                if rendered:
+                    rendered[-1] = f"{rendered[-1]}[{part}]"
+                else:
+                    rendered.append(f"[{part}]")
+            else:
+                rendered.append(part)
+        return ".".join(rendered)
 
 
 class McpSecretLeakError(ValueError):
@@ -142,17 +164,28 @@ def apply_mcp_secret_policy(
     *,
     policy: str,
     artifact: str | None = None,
+    warning_cache: set[tuple[str, tuple[str, ...]]] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Return ``data`` after applying the configured secret policy.
 
-    ``redact`` returns a deep-copied object with placeholders and a list
-    suitable for ``canonical["secret_redactions"]``. ``permissive`` logs a
-    warning and returns the original values. ``refuse`` raises.
+    Always returns a deep-copied object: even when no findings exist or the
+    policy is ``permissive``, the caller gets a fresh dict that it may mutate
+    without aliasing the input. (Earlier behaviour returned the input by
+    reference on those two paths, which made caller-side mutations leak back
+    into the canonical state for ``no findings`` and into the source document
+    for ``permissive``.)
+
+    ``warning_cache`` lets callers scope the permissive-warning
+    de-duplication memory. If omitted, the module-level
+    ``_PERMISSIVE_WARNING_CACHE`` is used (which ``Syncer.sync_once`` resets
+    each poll via :func:`reset_mcp_secret_warning_cache`). New code that
+    instantiates a ``Syncer`` from a test should pass its own ``set`` so
+    parallel tests do not share warning state.
     """
     validate_mcp_secret_policy(policy)
     findings = find_mcp_secret_literals(data)
     if not findings:
-        return data, []
+        return copy.deepcopy(data), []
 
     field_paths = [finding.field_path for finding in findings]
     if policy == "refuse":
@@ -160,14 +193,15 @@ def apply_mcp_secret_policy(
     if policy == "permissive":
         artifact_key = artifact or "<unknown>"
         cache_key = (artifact_key, tuple(field_paths))
-        if cache_key not in _PERMISSIVE_WARNING_CACHE:
+        cache = warning_cache if warning_cache is not None else _PERMISSIVE_WARNING_CACHE
+        if cache_key not in cache:
             logging.warning(
                 "MCP server secret policy permissive: artifact=%s fields=%s",
                 artifact_key,
                 field_paths,
             )
-            _PERMISSIVE_WARNING_CACHE.add(cache_key)
-        return data, []
+            cache.add(cache_key)
+        return copy.deepcopy(data), []
 
     redacted = copy.deepcopy(data)
     redactions: list[dict[str, Any]] = []
@@ -184,11 +218,18 @@ def apply_mcp_secret_policy(
 
 
 def find_mcp_secret_literals(data: Any) -> list[SecretFinding]:
-    """Return every string literal matching the v0.5 MCP secret heuristic."""
-    findings: list[SecretFinding] = []
-    seen: set[tuple[str, ...]] = set()
+    """Return every string literal matching the v0.5 MCP secret heuristic.
 
-    def visit(value: Any, path: tuple[str, ...]) -> None:
+    Path elements are :class:`str` for dict keys and :class:`int` for list
+    indices, so a finding at ``env[0]`` is distinguishable from a finding
+    at ``env."0"`` (the dict-key case). The ``_is_secret_literal``
+    classifier consumes the same heterogenous path so its checks operate
+    on the structurally-correct types.
+    """
+    findings: list[SecretFinding] = []
+    seen: set[tuple[str | int, ...]] = set()
+
+    def visit(value: Any, path: tuple[str | int, ...]) -> None:
         if isinstance(value, dict):
             for raw_key, child in value.items():
                 key = str(raw_key)
@@ -204,7 +245,7 @@ def find_mcp_secret_literals(data: Any) -> list[SecretFinding]:
             return
         if isinstance(value, list):
             for index, child in enumerate(value):
-                visit(child, path + (str(index),))
+                visit(child, path + (index,))
 
     visit(data, ())
     return findings
@@ -215,8 +256,10 @@ def reset_mcp_secret_warning_cache() -> None:
     _PERMISSIVE_WARNING_CACHE.clear()
 
 
-def _is_secret_literal(path: tuple[str, ...], key: str, value: str) -> bool:
-    normalized_path = tuple(_normalize_key(part) for part in path)
+def _is_secret_literal(
+    path: tuple[str | int, ...], key: str, value: str,
+) -> bool:
+    normalized_path = _normalize_path(path)
     normalized_key = _normalize_key(key)
     if _expects_env_var_name(normalized_path):
         return not _is_safe_env_var_name_value(value)
@@ -235,10 +278,23 @@ def _normalize_key(key: str) -> str:
     return unicodedata.normalize("NFKC", key).casefold()
 
 
-def _expects_env_var_name(normalized_path: tuple[str, ...]) -> bool:
+def _normalize_path(path: tuple[str | int, ...]) -> tuple[str | int, ...]:
+    """Apply NFKC + casefold to dict-key elements; list indices unchanged."""
+    return tuple(
+        _normalize_key(part) if isinstance(part, str) else part
+        for part in path
+    )
+
+
+def _expects_env_var_name(normalized_path: tuple[str | int, ...]) -> bool:
+    """Whether the path lands in a place that contractually holds an env var name.
+
+    List-index components never carry the env-var-name marker — only string
+    keys do.
+    """
     return any(
-        part == "env_http_headers"
-        or part.endswith(("env_var", "env_vars"))
+        isinstance(part, str)
+        and (part == "env_http_headers" or part.endswith(("env_var", "env_vars")))
         for part in normalized_path
     )
 
@@ -251,34 +307,49 @@ def _is_safe_env_var_name_value(value: str) -> bool:
     return not value.startswith(("ghp_", "github_pat_"))
 
 
-def _is_secret_header_path(normalized_path: tuple[str, ...]) -> bool:
+def _is_secret_header_path(normalized_path: tuple[str | int, ...]) -> bool:
+    """Whether the path lands in a request header that conventionally holds a
+    secret (``Authorization`` / ``X-API-Key``).
+
+    Works at any nesting depth (e.g. ``mcpServers.<name>.headers.Authorization``);
+    not only at the top-level depth that the earlier heuristic required.
+    """
     if len(normalized_path) < 2:
         return False
-    if "env_http_headers" in normalized_path[:-1]:
+    if any(part == "env_http_headers" for part in normalized_path[:-1]):
         return False
-    if normalized_path[-2] not in {"headers", "http_headers"}:
+    parent = normalized_path[-2]
+    leaf = normalized_path[-1]
+    if not isinstance(parent, str) or not isinstance(leaf, str):
         return False
-    return normalized_path[-1] in {"authorization", "x-api-key"}
+    if parent not in {"headers", "http_headers"}:
+        return False
+    return leaf in {"authorization", "x-api-key"}
 
 
-def _placeholder_for_path(path: tuple[str, ...], placeholder_env_var: str) -> str:
-    normalized_path = tuple(_normalize_key(part) for part in path)
+def _placeholder_for_path(
+    path: tuple[str | int, ...], placeholder_env_var: str,
+) -> str:
+    normalized_path = _normalize_path(path)
     if _expects_env_var_name(normalized_path):
         return placeholder_env_var
     return format_env_reference(placeholder_env_var)
 
 
-def _set_at_path(data: dict[str, Any], path: tuple[str, ...], value: str) -> None:
+def _set_at_path(
+    data: dict[str, Any], path: tuple[str | int, ...], value: str,
+) -> None:
     node: Any = data
     for key in path[:-1]:
-        if isinstance(node, list):
-            node = node[int(key)]
+        if isinstance(key, int):
+            node = node[key]
         else:
             node = node[key]
-    if isinstance(node, list):
-        node[int(path[-1])] = value
+    leaf = path[-1]
+    if isinstance(leaf, int):
+        node[leaf] = value
     else:
-        node[path[-1]] = value
+        node[leaf] = value
 
 
 __all__ = [

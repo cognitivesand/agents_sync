@@ -246,8 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_import(args, config)
 
     syncer = Syncer(config)
-    watch(syncer, float(config["poll_interval_seconds"]))
-    return 0
+    return watch(syncer, float(config["poll_interval_seconds"]))
 
 
 if __name__ == "__main__":

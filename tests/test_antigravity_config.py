@@ -282,7 +282,7 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
     )
 
     syncer = Syncer(config)
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
     assert changed == 0
     # No projection landed on claude_skills_dir; antigravity bytes intact.
     assert list(syncer.tool_root("claude", "skill").iterdir()) == []

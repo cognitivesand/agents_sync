@@ -225,7 +225,7 @@ def test_mcp_adoption_is_idempotent(tmp_path: Path):
         },
     })
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
     pair_id = _pair_id_for_slot(syncer, "github")
     canonical_path = syncer.state_dir / "canonical" / f"{pair_id}.json"
     archive_root = syncer.state_dir / "archive"
@@ -239,7 +239,7 @@ def test_mcp_adoption_is_idempotent(tmp_path: Path):
     state_before = (syncer.state_dir / "state.json").read_text(encoding="utf-8")
     canonical_before = canonical_path.read_text(encoding="utf-8")
 
-    assert syncer.sync_once() == 0
+    assert syncer.sync_once().changed == 0
 
     archive_after = [
         (path.relative_to(archive_root).as_posix(), path.read_text(encoding="utf-8"))
@@ -339,7 +339,7 @@ def test_mcp_secret_policy_refuse_blocks_adoption(
     })
 
     with caplog.at_level("ERROR"):
-        changed = syncer.sync_once()
+        result = syncer.sync_once(); changed = result.changed
 
     refusal_records = [
         record for record in caplog.records
@@ -502,7 +502,7 @@ def test_mcp_managed_conflict_newest_mtime_wins_archives_loser_slot(
     os.utime(beta_file, (4000, 4000))
     archives_before = set(_archive_files(syncer, github_pair_id, "alpha"))
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     alpha_after = _read_json(alpha_file)
     beta_after = _read_json(beta_file)
@@ -540,7 +540,7 @@ def test_mcp_two_adapters_same_shared_file_different_slots_no_collision(tmp_path
         },
     })
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 2
     state = load_state(syncer.state_dir)
@@ -569,7 +569,7 @@ def test_mcp_two_adapters_same_shared_file_same_slot_collide(
     original_text = shared_file.read_text(encoding="utf-8")
 
     with caplog.at_level("ERROR"):
-        changed = syncer.sync_once()
+        result = syncer.sync_once(); changed = result.changed
 
     collision_records = [
         record for record in caplog.records
@@ -610,7 +610,7 @@ def test_mcp_occupied_slot_with_different_pair_id_blocks_adoption(
     beta_before = beta_file.read_text(encoding="utf-8")
 
     with caplog.at_level("ERROR"):
-        changed = syncer.sync_once()
+        result = syncer.sync_once(); changed = result.changed
 
     collision_records = [
         record for record in caplog.records

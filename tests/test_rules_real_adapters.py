@@ -23,7 +23,7 @@ def test_claude_global_rules_sync_to_codex_and_opencode(syncer: Syncer):
     claude_rules = syncer.tool_root("claude", "rules") / "CLAUDE.md"
     claude_rules.write_text("Prefer small, direct changes.\n")
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 1
     pair_id, entry = _only_entry(syncer)

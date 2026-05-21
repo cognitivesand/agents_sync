@@ -134,7 +134,7 @@ def test_adoption_projects_slot_and_preserves_siblings(tmp_path: Path):
         "theme": "dark",
     }))
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 2  # two pairs adopted
 

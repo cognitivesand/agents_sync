@@ -179,8 +179,9 @@ def test_cli_no_subcommand_still_invokes_daemon(monkeypatch):
 
     invoked = {"watch": False}
 
-    def fake_watch(syncer, interval):
+    def fake_watch(syncer, interval, **kwargs):
         invoked["watch"] = True
+        return 0
 
     # Make watch return immediately so the test doesn't loop forever.
     monkeypatch.setattr(cli_module, "watch", fake_watch)

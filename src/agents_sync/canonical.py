@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from agents_sync.state import atomic_write_text
+from agents_sync.state import _quarantine_corrupt, atomic_write_text
 from agents_sync.identity import validate_pair_id
 
 
@@ -56,16 +56,30 @@ def canonical_path(state_dir: Path, pair_id: str) -> Path:
 
 
 def load_canonical(state_dir: Path, pair_id: str) -> dict[str, Any] | None:
+    """Return the canonical dict for ``pair_id``, or ``None`` if absent.
+
+    Corrupt canonicals (unparseable JSON, non-object root) are quarantined
+    under ``state_dir/quarantine/`` before this returns ``None`` — distinguishing
+    a partial-write recovery scenario from "never existed yet" by inspecting
+    the quarantine directory. Callers may treat the ``None`` return as
+    "treat as absent for this poll" without losing the corrupt bytes.
+    """
     path = canonical_path(state_dir, pair_id)
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        logging.exception("Could not read canonical for %s: %s", pair_id, path)
+        _quarantine_corrupt(state_dir, path, reason="unreadable bytes")
+        return None
+    try:
+        data = json.loads(text)
     except json.JSONDecodeError:
-        logging.error("Canonical for %s is unparseable: %s", pair_id, path)
+        _quarantine_corrupt(state_dir, path, reason="JSON parse error")
         return None
     if not isinstance(data, dict):
-        logging.error("Canonical for %s is not a JSON object: %s", pair_id, path)
+        _quarantine_corrupt(state_dir, path, reason="root is not a JSON object")
         return None
     return data
 

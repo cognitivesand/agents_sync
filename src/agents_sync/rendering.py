@@ -264,7 +264,7 @@ def update_state_n_way(
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
-    ps.last_modified = time.time()
+    ps.bump(now=time.time())
     for tool_name, result in results.items():
         spec = agentic_tools[tool_name]
         io = spec.io[kind]

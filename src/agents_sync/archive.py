@@ -39,8 +39,18 @@ def archive_dir_for(state_dir: Path, pair_id: str, side: str) -> Path:
 
 
 def _archive_target(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
+    """Compute the per-pair archive target path and ensure its parent exists.
+
+    The ``mkdir(parents=True, exist_ok=True)`` is wrapped in ``retry_fs`` so a
+    transient Windows ``ERROR_SHARING_VIOLATION`` from an antivirus scanner
+    indexing the parent directory does not abort a data-preservation archive
+    operation (audit slice 09 · CQ-08).
+    """
     target_dir = archive_dir_for(state_dir, pair_id, side)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    retry_fs(
+        lambda: target_dir.mkdir(parents=True, exist_ok=True),
+        operation=f"mkdir {target_dir}",
+    )
     return target_dir / f"{source.name}.{iso_timestamp()}"
 
 
@@ -71,7 +81,10 @@ def archive_text(
     """
     validate_pair_id(pair_id)
     target_dir = archive_dir_for(state_dir, pair_id, side)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    retry_fs(
+        lambda: target_dir.mkdir(parents=True, exist_ok=True),
+        operation=f"mkdir {target_dir}",
+    )
     target = target_dir / f"{slot_name}{extension}.{iso_timestamp()}"
     target.write_text(content, encoding="utf-8")
     return target

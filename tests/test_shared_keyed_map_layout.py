@@ -162,6 +162,47 @@ def test_read_slots_rejects_conflicting_inline_key_field(tmp_path):
         read_slots(shared_file, layout)
 
 
+def test_apply_slot_serializes_concurrent_writers(tmp_path):
+    """Two threads writing the same slot must produce a valid final file:
+    no interleaved bytes, no lost final slot — the second writer wins as
+    seen from the file system, but both writes were observed by readers."""
+    import threading
+
+    layout = SharedKeyedMapLayout(
+        shared_path_config_key="mcp_servers_file",
+        map_key_path=("mcpServers",),
+    )
+    shared_file = tmp_path / "mcp.json"
+    shared_file.write_text(json.dumps({"mcpServers": {}}, indent=2) + "\n")
+    barrier = threading.Barrier(2)
+    iterations = 20
+
+    def writer(slot_key: str, command: str) -> None:
+        barrier.wait()
+        for _ in range(iterations):
+            apply_slot(
+                shared_file,
+                layout,
+                slot_key,
+                json.dumps({"name": slot_key, "command": command}),
+            )
+
+    threads = [
+        threading.Thread(target=writer, args=("a", "cmd-a")),
+        threading.Thread(target=writer, args=("b", "cmd-b")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    final = json.loads(shared_file.read_text(encoding="utf-8"))
+    # Both slots survive every interleaving the lock allows.
+    assert set(final["mcpServers"].keys()) == {"a", "b"}
+    assert final["mcpServers"]["a"]["command"] == "cmd-a"
+    assert final["mcpServers"]["b"]["command"] == "cmd-b"
+
+
 def test_apply_slot_refuses_non_object_map_key_path_without_rewriting(tmp_path):
     layout = SharedKeyedMapLayout(
         shared_path_config_key="mcp_servers_file",

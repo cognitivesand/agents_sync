@@ -32,8 +32,10 @@ import json
 import logging
 import os
 import platform
+import shutil
 import socket
 import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +44,7 @@ from typing import Any, Literal
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.canonical import canonical_path, load_canonical, save_canonical
+from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.rendering import render_to_agentic_tool, update_state_n_way
 from agents_sync.state import (
@@ -116,6 +119,7 @@ def export_to_zip(state_dir: Path, zip_path: Path) -> ExportReport:
         entry["last_modified"] = (
             ps.last_modified if ps.last_modified is not None else 0.0
         )
+        entry["generation"] = ps.generation
         canonicals[pair_id] = entry
 
     manifest = _build_manifest(len(canonicals))
@@ -231,6 +235,13 @@ def _local_last_modified(
     return ps.last_modified
 
 
+def _local_generation(
+    state: dict[str, CustomizationArtifactState], pair_id: str
+) -> int:
+    ps = state.get(pair_id)
+    return ps.generation if ps is not None else 0
+
+
 @dataclass
 class _ImportDecision:
     """One per accepted-or-skipped artifact, fully resolved before disk writes."""
@@ -238,6 +249,7 @@ class _ImportDecision:
     pair_id: str
     canonical: dict[str, Any]
     last_modified: float
+    generation: int
     accepted: bool
     displaces_local_pair_id: str | None  # pair_id whose tool-side files to archive
 
@@ -260,20 +272,32 @@ def _decide_collision(
     *,
     imported_pair_id: str,
     imported_last_modified: float,
+    imported_generation: int,
     local_pair_id: str,
     local_last_modified: float,
+    local_generation: int,
     strategy: CollisionStrategy,
 ) -> tuple[bool, str | None]:
     """Return (accept_import, displaces_local_pair_id_or_None) per strategy.
 
-    AC-6 tie rule: ties on `mtime_wins` favour the local artifact
+    AC-6 tie rule: ties on ``mtime_wins`` favour the local artifact
     (default-deny on rewrite — protects against clock skew).
+
+    Comparison order: ``generation`` (monotonic, host-local) wins outright,
+    with ``last_modified`` only as a tiebreaker when generations are equal.
+    The generation field is host-local and only valid as a discriminator
+    when imported state was produced on the same host that holds the local
+    state, but for that common case it removes wall-clock-skew artifacts.
     """
     if strategy == "skip":
         return False, None
     if strategy == "overwrite":
         return True, local_pair_id
     # mtime_wins
+    if imported_generation != local_generation:
+        if imported_generation > local_generation:
+            return True, local_pair_id
+        return False, None
     if imported_last_modified > local_last_modified:
         return True, local_pair_id
     return False, None
@@ -290,6 +314,10 @@ def _classify(
     for imported_pair_id, doc in canonicals.items():
         doc_copy = dict(doc)
         imported_last_modified = float(doc_copy.pop("last_modified", 0.0))
+        try:
+            imported_generation = int(doc_copy.pop("generation", 0) or 0)
+        except (TypeError, ValueError):
+            imported_generation = 0
         kind = doc_copy["kind"]
         slug = target_slug(doc_copy["name"])
 
@@ -305,6 +333,7 @@ def _classify(
                     pair_id=imported_pair_id,
                     canonical=doc_copy,
                     last_modified=imported_last_modified,
+                    generation=imported_generation,
                     accepted=True,
                     displaces_local_pair_id=None,
                 )
@@ -314,8 +343,10 @@ def _classify(
         accept, displaces = _decide_collision(
             imported_pair_id=imported_pair_id,
             imported_last_modified=imported_last_modified,
+            imported_generation=imported_generation,
             local_pair_id=local_pair_id,
             local_last_modified=_local_last_modified(state, local_pair_id),
+            local_generation=_local_generation(state, local_pair_id),
             strategy=strategy,
         )
         decisions.append(
@@ -323,6 +354,7 @@ def _classify(
                 pair_id=imported_pair_id,
                 canonical=doc_copy,
                 last_modified=imported_last_modified,
+                generation=imported_generation,
                 accepted=accept,
                 displaces_local_pair_id=displaces,
             )
@@ -396,9 +428,22 @@ def import_from_zip(
 ) -> ImportReport:
     """Restore artifacts from a portable library snapshot.
 
-    Projection is synchronous: every accepted artifact is rendered to
-    disk before the function returns, and `state.json` is the last
-    thing written (AC-10 transactional guarantee).
+    Transactional contract (AC-10):
+
+    1. Decisions are computed entirely in memory before any disk write.
+    2. Every accepted canonical is staged to ``state_dir/.import_pending_<uuid>/``
+       first; only after *all* stagings succeed are the staged files
+       promoted into the live ``canonical/`` directory via ``os.replace``.
+       If staging raises midway, the pending directory is removed and no
+       canonical is touched.
+    3. ``state.json`` is the last thing written. A failure during the
+       tool-side projection step does not corrupt state.json — the next
+       sync poll will reconcile from a clean ``canonical/`` directory.
+
+    Note: tool-side files are *not* staged in Phase 1; a mid-import
+    failure during tool projection still leaves the already-projected
+    tool files in place. Adding tool-side staging requires the
+    polymorphic ``FileLayout`` from Phase 2; it is tracked separately.
     """
     if strategy not in ALLOWED_STRATEGIES:
         raise PortableArchiveError(
@@ -415,6 +460,41 @@ def import_from_zip(
     tool_status = ToolStatusTracker(config, agentic_tools)
     tool_status.refresh()
 
+    accepted_decisions = [d for d in decisions if d.accepted]
+
+    # Phase A — stage every accepted canonical. If anything raises here,
+    # the pending dir is removed and the live state is untouched.
+    pending_dir = state_dir / f".import_pending_{uuid.uuid4().hex[:8]}"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        staged: list[tuple[Path, Path]] = []  # (pending_path, live_path)
+        for decision in accepted_decisions:
+            pending_path = pending_dir / f"{decision.pair_id}.json"
+            save_canonical_to(pending_path, decision.canonical)
+            staged.append(
+                (pending_path, canonical_path(state_dir, decision.pair_id))
+            )
+    except Exception:
+        shutil.rmtree(pending_dir, ignore_errors=True)
+        raise
+
+    # Phase B — promote canonicals from staging into the live tree. Each
+    # os.replace is atomic per inode; we order them so the first failure
+    # leaves a strict prefix promoted (no partial-file canonicals).
+    try:
+        for pending_path, live_path in staged:
+            live_path.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(pending_path, live_path)
+    finally:
+        # Whether or not the loop succeeded, drop the staging directory.
+        # On success: it's empty. On partial failure: it may hold
+        # un-promoted files, which we discard (the canonicals they would
+        # have produced were never observed by the rest of the system).
+        shutil.rmtree(pending_dir, ignore_errors=True)
+
+    # Phase C — handle displacements, tool-side projection, and state
+    # updates. This is the only phase that can leak partial tool-side
+    # files on failure; state.json is still written last.
     report = ImportReport()
     for decision in decisions:
         if not decision.accepted:
@@ -438,16 +518,21 @@ def import_from_zip(
             if slug_displacement:
                 # Slug collision with a different local pair_id: drop the
                 # local entry (its canonical and state entry are about to be
-                # replaced by this imported artifact's identity).
+                # replaced by this imported artifact's identity). The
+                # ``unlink`` is retried so a transient Windows lock (AV
+                # scanner holding the JSON open) does not abort the import
+                # mid-loop (audit slice 09 · CQ-07).
                 state.pop(decision.displaces_local_pair_id, None)
                 local_canonical = canonical_path(
                     state_dir, decision.displaces_local_pair_id
                 )
                 if local_canonical.exists():
-                    local_canonical.unlink()
+                    retry_fs(
+                        lambda p=local_canonical: p.unlink(),
+                        operation=f"unlink {local_canonical}",
+                    )
 
         kind = decision.canonical["kind"]
-        save_canonical(state_dir, decision.pair_id, decision.canonical)
 
         paths: dict[str, Path] = {}
         for tool_name, spec in _participating_tools(
@@ -471,11 +556,13 @@ def import_from_zip(
             paths[tool_name] = target
 
         update_state_n_way(state, decision.pair_id, kind, paths, agentic_tools)
-        # Adoption stamps last_modified = time.time(); we overwrite with
-        # the imported value so cross-host equality and the mtime_wins
-        # comparison stay consistent (a re-export from this host carries
-        # the source host's original timestamp).
+        # Adoption stamps last_modified = time.time() and bumps generation;
+        # we overwrite both with the imported values so cross-host equality
+        # and the mtime_wins comparison stay consistent (a re-export from
+        # this host carries the source host's original timestamp and
+        # generation).
         state[decision.pair_id].last_modified = decision.last_modified
+        state[decision.pair_id].generation = decision.generation
 
         report.accepted.append(decision.pair_id)
         logging.info(
@@ -485,3 +572,17 @@ def import_from_zip(
 
     save_state(state_dir, state)
     return report
+
+
+def save_canonical_to(path: Path, canonical: dict[str, Any]) -> None:
+    """Write a canonical document directly to ``path`` (no pair_id derivation).
+
+    Used by ``import_from_zip`` to stage canonicals into a pending directory
+    before promoting them into the live ``canonical/`` tree.
+    """
+    from agents_sync.state import atomic_write_text
+
+    atomic_write_text(
+        path,
+        json.dumps(canonical, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+    )

@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -86,20 +88,37 @@ class CustomizationArtifactState:
     """One managed customization artifact, projected across N agentic tools.
 
     ``last_modified`` is a wall-clock POSIX timestamp (seconds, float) updated
-    every time the daemon writes new bytes for this pair. It is the source
-    of truth for the ``mtime_wins`` collision strategy when importing a
-    portable library snapshot (US-12). A value of ``None`` means the entry
-    predates the field; for comparison purposes treat it as 0.0.
+    every time the daemon writes new bytes for this pair. ``generation`` is a
+    monotonic in-process counter that the daemon bumps on every write to this
+    pair; it is the primary discriminator for the ``mtime_wins`` collision
+    strategy at import time (US-12), with ``last_modified`` as the tiebreaker
+    when comparing entries from different hosts. A ``None`` ``last_modified``
+    predates the field; ``generation`` defaults to ``0`` and is treated as
+    "no edits seen yet" for comparison.
+
+    Cross-host clock skew (NTP rewind, VM resume, Windows local-time bug)
+    therefore cannot, on its own, cause ``mtime_wins`` to overwrite a newer
+    same-host edit with an older import — the local entry's generation always
+    advances on each write and the import snapshot carries the generation it
+    had at export time. Mixing edits across hosts whose clocks disagree is
+    still the user's responsibility for the wall-clock tiebreaker.
     """
 
     kind: str  # "agent" | "skill" — serialized as "customization_type"
     agentic_tools: dict[str, AgenticToolState] = field(default_factory=dict)
     last_modified: float | None = None
+    generation: int = 0
+
+    def bump(self, *, now: float) -> None:
+        """Record a write to this pair: advance generation, set last_modified."""
+        self.generation += 1
+        self.last_modified = now
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "customization_type": self.kind,
             "last_modified": self.last_modified,
+            "generation": self.generation,
             "agentic_tools": {
                 name: at.to_dict() for name, at in self.agentic_tools.items()
             },
@@ -119,6 +138,11 @@ class CustomizationArtifactState:
                 last_modified = float(raw_last_modified)
             except (TypeError, ValueError) as exc:
                 raise ValueError("last_modified must be a number") from exc
+        raw_generation = data.get("generation", 0)
+        try:
+            generation = int(raw_generation) if raw_generation is not None else 0
+        except (TypeError, ValueError) as exc:
+            raise ValueError("generation must be an integer") from exc
         return cls(
             kind=data["customization_type"],
             agentic_tools={
@@ -127,6 +151,7 @@ class CustomizationArtifactState:
                 if isinstance(entry, dict)
             },
             last_modified=last_modified,
+            generation=generation,
         )
 
 
@@ -190,13 +215,57 @@ def sha256_tree(root: Path) -> str:
 
 
 def atomic_write_text(path: Path, content: str) -> None:
+    """Write ``content`` to ``path`` atomically and crash-consistently.
+
+    Steps: write to a unique temp file in the same directory, ``fsync`` the
+    file before close, ``os.replace`` onto the target, then ``fsync`` the
+    parent directory so the rename itself is durable on a crash.
+
+    The unique temp suffix (``.{name}.{pid}.{uuid4}.tmp``) prevents two
+    concurrent writers from clobbering each other's staging file: a fixed
+    suffix would race on the inode of the temp itself.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(content, encoding="utf-8", newline="\n")
-    retry_fs(
-        lambda: tmp.replace(path),
-        operation=f"replace {path}",
-    )
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    data = content.encode("utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    try:
+        retry_fs(
+            lambda: tmp.replace(path),
+            operation=f"replace {path}",
+        )
+    except Exception:
+        # Best-effort cleanup of the staging file; the user's data is still
+        # safe (the rename never landed).
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    _fsync_directory(path.parent)
+
+
+def _fsync_directory(directory: Path) -> None:
+    """``fsync`` the parent directory so a ``rename`` survives a power loss.
+
+    No-op on Windows where ``os.open`` cannot open a directory; the rename
+    itself is durable via the journal on NTFS/ReFS.
+    """
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except (OSError, PermissionError):
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def state_path(state_dir: Path) -> Path:
@@ -204,29 +273,48 @@ def state_path(state_dir: Path) -> Path:
 
 
 def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
-    """Read state.json (schema_version=2 only).
+    """Read ``state.json`` (current ``STATE_SCHEMA_VERSION``).
 
-    Older flat-shape state files written by v0.3 are not read — v0.4 is a
-    pre-1.0 cutover for two known users (jmirodg, gabi) who regenerate state
-    on first boot. Anything that isn't a v2 envelope rebuilds from scratch.
+    Anomalies are differentiated so the operator can tell silent rebuilds
+    from genuine partial-write recovery:
+
+    - **Absent** (no file): return ``{}`` quietly. This is the normal
+      first-boot path.
+    - **Wrong schema version** (older v0.x cutover): log INFO, rebuild
+      empty (the documented v0.4 policy for our two pre-1.0 users).
+    - **Corrupt** (unparseable JSON or wrong top-level shape): move the
+      offending file to ``state_dir/quarantine/state-<timestamp>.json``,
+      log ERROR with the quarantine path, then rebuild empty. The user
+      can inspect the quarantined file to recover by hand.
     """
     path = state_path(state_dir)
     if not path.exists():
         return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        logging.warning("Invalid state file, rebuilding: %s", path)
+    raw_text = _read_text_for_recovery(path)
+    if raw_text is None:
+        _quarantine_corrupt(state_dir, path, reason="unreadable bytes")
         return {}
-    if not isinstance(data, dict) or data.get("schema_version") != STATE_SCHEMA_VERSION:
-        logging.warning(
-            "state.json is not schema_version=%d, rebuilding: %s",
-            STATE_SCHEMA_VERSION,
-            path,
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError:
+        _quarantine_corrupt(state_dir, path, reason="JSON parse error")
+        return {}
+    if not isinstance(data, dict):
+        _quarantine_corrupt(state_dir, path, reason="root is not a JSON object")
+        return {}
+    schema_version = data.get("schema_version")
+    if schema_version != STATE_SCHEMA_VERSION:
+        logging.info(
+            "state.json schema_version=%r is not %d; rebuilding from scratch: %s",
+            schema_version, STATE_SCHEMA_VERSION, path,
         )
         return {}
     raw_entries = data.get("customization_artifacts")
     if not isinstance(raw_entries, dict):
+        _quarantine_corrupt(
+            state_dir, path,
+            reason="customization_artifacts missing or not an object",
+        )
         return {}
     result: dict[str, CustomizationArtifactState] = {}
     for pair_id, entry in raw_entries.items():
@@ -242,6 +330,51 @@ def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
         except (KeyError, ValueError):
             logging.warning("Skipping malformed state entry for pair_id=%s", pair_id)
     return result
+
+
+def _read_text_for_recovery(path: Path) -> str | None:
+    """Read ``path`` as UTF-8, returning ``None`` on read or decode failure."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        logging.exception("Could not read %s", path)
+        return None
+
+
+def _quarantine_corrupt(state_dir: Path, source: Path, *, reason: str) -> None:
+    """Move ``source`` into ``state_dir/quarantine/`` so the user can recover.
+
+    Best-effort: a quarantine failure is logged but does not propagate (the
+    caller still has to return an empty state so the daemon can make
+    forward progress). The source file is removed after a successful move.
+    """
+    quarantine_dir = state_dir / "quarantine"
+    try:
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = f"{int(_monotonic_ms()):d}"
+        dest = quarantine_dir / f"{source.name}.{timestamp}.corrupt"
+        retry_fs(
+            lambda: source.replace(dest),
+            operation=f"quarantine {source}",
+        )
+        logging.error(
+            "Quarantined corrupt %s (%s) -> %s. "
+            "Rebuilding from scratch; inspect the quarantined file to recover.",
+            source, reason, dest,
+        )
+    except OSError:
+        logging.exception(
+            "Quarantine failed for %s (%s); leaving the file in place. "
+            "Rebuilding from scratch — please remove or fix %s by hand.",
+            source, reason, source,
+        )
+
+
+def _monotonic_ms() -> int:
+    """Millisecond-precision monotonic counter for quarantine filenames."""
+    import time as _time
+
+    return int(_time.monotonic_ns() // 1_000_000)
 
 
 def save_state(state_dir: Path, state: dict[str, CustomizationArtifactState]) -> None:
