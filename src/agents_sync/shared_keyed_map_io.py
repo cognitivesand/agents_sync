@@ -109,22 +109,15 @@ def apply_slot(
 
     try:
         with lock_file(shared_path):
-            before_text = (
-                shared_path.read_text(encoding="utf-8")
-                if shared_path.exists() else ""
+            root, node = _read_root_and_node(
+                shared_path, layout, format_handler,
             )
-            root = (
-                format_handler.deserialize(before_text)
-                if before_text.strip() else {}
-            )
-            node = _navigate_or_create(root, layout.map_key_path)
-            prior_exists = slot_key in node
             prior_value = node.get(slot_key)
             prior_text = (
                 format_handler.serialize(prior_value)
                 if prior_value is not None else None
             )
-            if expected_pair_id is not None and prior_exists:
+            if expected_pair_id is not None and slot_key in node:
                 _assert_slot_pair_id_matches(
                     shared_path,
                     slot_key,
@@ -136,8 +129,7 @@ def apply_slot(
                 node.pop(slot_key, None)
             else:
                 node[slot_key] = format_handler.deserialize(new_slot_text)
-            merged_text = format_handler.serialize(root)
-            atomic_write_text(shared_path, merged_text)
+            atomic_write_text(shared_path, format_handler.serialize(root))
             return prior_text
     except LockTimeoutError as exc:
         logging.warning(
@@ -148,6 +140,26 @@ def apply_slot(
             f"Could not acquire lock on {shared_path} for slot {slot_key!r}; "
             "another writer is holding it. Will retry next poll."
         ) from exc
+
+
+def _read_root_and_node(
+    shared_path: Path,
+    layout: SharedKeyedMapLayout,
+    format_handler: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read the shared file (if any), deserialize to a root mapping, and
+    return ``(root, node)`` where ``node`` is the inner map at
+    ``layout.map_key_path`` ready for slot insertion / deletion."""
+    before_text = (
+        shared_path.read_text(encoding="utf-8")
+        if shared_path.exists() else ""
+    )
+    root = (
+        format_handler.deserialize(before_text)
+        if before_text.strip() else {}
+    )
+    node = _navigate_or_create(root, layout.map_key_path)
+    return root, node
 
 
 def serialize_slot(value: Any, layout: SharedKeyedMapLayout) -> str:

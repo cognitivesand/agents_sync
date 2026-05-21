@@ -182,3 +182,114 @@ def test_codex_skill_io_dispatches_to_skill_md_renderer():
     assert "name: demo-skill" in rendered
     assert "pair_id: 00000000-0000-4000-8000-000000000001" in rendered
     assert io.extract_pair_id(rendered) == "00000000-0000-4000-8000-000000000001"
+
+
+# ---------------- per-tool mcp_server capability assertions ----------------
+# Audit slice 05 · CQ-09: pin map_key_path / file_format / dialect-driven
+# behavior on each tool so adapter PRs cannot silently regress the shape of
+# the shared file (e.g. by swapping mcpServers ↔ mcp without noticing).
+
+from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+
+
+@pytest.mark.parametrize(
+    "tool_name, expected_map_key_path, expected_file_format",
+    [
+        ("claude", ("mcpServers",), "json"),
+        ("codex", ("mcp_servers",), "toml"),
+        ("opencode", ("mcp",), "json"),
+    ],
+)
+def test_mcp_server_layout_per_tool(
+    tool_name: str,
+    expected_map_key_path: tuple[str, ...],
+    expected_file_format: str,
+):
+    spec = default_agentic_tools()["claude" if tool_name == "claude" else tool_name]
+    io = spec.io["mcp_server"]
+    assert isinstance(io.file_layout, SharedKeyedMapLayout)
+    assert io.file_layout.map_key_path == expected_map_key_path
+    assert io.file_layout.file_format == expected_file_format
+    assert io.file_layout.key_field == "name"
+
+
+@pytest.mark.parametrize("tool_name", ["claude", "codex", "opencode"])
+def test_mcp_server_round_trip_per_tool(tool_name: str):
+    """Adapter-dialect smoke test: a stdio entry parses then renders back to
+    a shape carrying name + command for that tool, with the per-tool slot
+    format honoured (codex serialises TOML, the rest JSON)."""
+    spec = default_agentic_tools()[tool_name]
+    io = spec.io["mcp_server"]
+    canonical = empty_canonical("mcp_server")
+    canonical["pair_id"] = f"00000000-0000-4000-8000-00000000000{ {'claude':1,'codex':2,'opencode':3}[tool_name] }"
+    canonical["name"] = "filesystem"
+    canonical["transport"] = "stdio"
+    canonical["command"] = "fs-mcp"
+    canonical["args"] = ["--root", "/tmp"]
+    canonical["per_agentic_tool_only"] = {tool_name: {}}
+    canonical["per_agentic_tool_extra"] = {tool_name: {}}
+
+    rendered = io.render(canonical, None)
+    # The name is carried as the slot key in the shared file's map, so it
+    # need not appear in the slot body itself (claude/codex/opencode all set
+    # render_name_field=False). The command always lands in-body.
+    assert "fs-mcp" in rendered
+    # Reparsing requires the name to come from somewhere — pass it via the
+    # prior_canonical, which is the same path the sync engine takes after
+    # the first adoption (the slot key becomes canonical['name']).
+    parsed = io.parse(rendered, canonical)
+    assert parsed["name"] == "filesystem"
+    assert parsed["command"] == "fs-mcp"
+    assert parsed["transport"] == "stdio"
+    assert io.extract_pair_id(rendered) == canonical["pair_id"]
+
+
+@pytest.mark.parametrize("tool_name", ["claude", "codex", "opencode"])
+def test_slash_command_round_trip_per_tool(tool_name: str):
+    """slash_command must round-trip name and body across every tool."""
+    spec = default_agentic_tools()[tool_name]
+    io = spec.io["slash_command"]
+    pair_id = "11111111-2222-3333-4444-555555555555"
+    text = textwrap.dedent(
+        f"""\
+        ---
+        pair_id: {pair_id}
+        name: demo
+        description: round-trip
+        ---
+        body for {tool_name}
+        """
+    )
+    canonical = io.parse(text, None)
+    assert canonical["name"] == "demo"
+    assert "body for" in canonical["body"]
+    rendered = io.render(canonical, text)
+    canonical_again = io.parse(rendered, canonical)
+    assert canonical_again["name"] == canonical["name"]
+    assert canonical_again["body"].rstrip() == canonical["body"].rstrip()
+    assert io.extract_pair_id(rendered) == pair_id
+
+
+@pytest.mark.parametrize("tool_name", ["claude", "codex", "opencode"])
+def test_rules_round_trip_per_tool(tool_name: str):
+    """rules cell must round-trip pair_id and body. The canonical_name is
+    fixed to 'global' by the factory, so the parsed name is always 'global'
+    regardless of frontmatter (audit slice 05 · CQ-09 + 07 · CQ-04)."""
+    spec = default_agentic_tools()[tool_name]
+    io = spec.io["rules"]
+    pair_id = "22222222-3333-4444-5555-666666666666"
+    text = textwrap.dedent(
+        f"""\
+        ---
+        pair_id: {pair_id}
+        ---
+        rules body for {tool_name}
+        """
+    )
+    canonical = io.parse(text, None)
+    assert canonical["name"] == "global"
+    assert f"rules body for {tool_name}" in canonical["body"]
+    rendered = io.render(canonical, text)
+    assert io.extract_pair_id(rendered) == pair_id
+    canonical_again = io.parse(rendered, canonical)
+    assert canonical_again["body"].rstrip() == canonical["body"].rstrip()

@@ -151,6 +151,10 @@ def test_duplicate_pair_id_on_same_side_is_left_untouched(syncer: Syncer):
     assert (first / "SKILL.md").read_text() == first_text
     assert (second / "SKILL.md").read_text() == second_text
     assert list(syncer.tool_root("codex", "skill").iterdir()) == []
+    # Audit slice 10 · CQ-16: state.json must not record either duplicate;
+    # the block decision is observable in state, not just in logs.
+    state_after = json.loads((syncer.state_dir / "state.json").read_text())
+    assert pair_id not in state_after.get("pair_ids", {})
 
 
 # ---------------- target-slug collisions ----------------
@@ -188,19 +192,22 @@ def test_unreadable_prior_text_logs_warning_and_skips_target(
     pre_overwrite_bytes = (codex_dir / "SKILL.md").read_text()
     assert "v1" in pre_overwrite_bytes
 
-    # Patch the read_artifact_text name as resolved inside agents_sync.adoption
-    # only. agents_sync.discovery imports the same function under its own
-    # name binding, so discovery's read of the codex artifact still succeeds;
-    # only the prior_text / privacy reads inside _sync_from_agentic_tool fail.
-    import agents_sync.adoption as adoption_mod
-    original_read = adoption_mod.read_artifact_text
+    # Patch the read_artifact_text name as resolved inside the adopter
+    # and privacy_gate mixins only. agents_sync.discovery imports the same
+    # function under its own name binding, so discovery's read of the codex
+    # artifact still succeeds; only the prior_text and privacy reads inside
+    # _sync_from_agentic_tool fail.
+    import agents_sync.adoption.adopter as adopter_mod
+    import agents_sync.adoption.privacy_gate as privacy_gate_mod
+    original_read = adopter_mod.read_artifact_text
 
     def patched_read(io, path: Path, slot: str | None = None) -> str:
         if Path(path) == codex_dir:
             raise OSError("simulated prior-text read failure")
         return original_read(io, path, slot=slot)
 
-    monkeypatch.setattr(adoption_mod, "read_artifact_text", patched_read)
+    monkeypatch.setattr(adopter_mod, "read_artifact_text", patched_read)
+    monkeypatch.setattr(privacy_gate_mod, "read_artifact_text", patched_read)
 
     claude_md = claude_dir / "SKILL.md"
     claude_md.write_text(claude_md.read_text().replace("v1", "v2"))

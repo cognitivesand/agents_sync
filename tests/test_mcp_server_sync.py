@@ -625,3 +625,39 @@ def test_mcp_occupied_slot_with_different_pair_id_blocks_adoption(
     assert load_state(syncer.state_dir) == {}
     assert alpha_file.read_text(encoding="utf-8") == alpha_before
     assert beta_file.read_text(encoding="utf-8") == beta_before
+
+def test_mcp_servers_key_order_preserved_across_render(tmp_path: Path):
+    """Audit slice 03 · CQ-11: when the shared file already lists slots in a
+    user-visible order, that order must survive a sync that touches one of
+    the slots. Python dicts preserve insertion order; the test pins that
+    the renderer and the JSON serializer do not silently sort."""
+    syncer = _mcp_syncer(tmp_path)
+    alpha_file = tmp_path / 'alpha-mcp.json'
+    beta_file = tmp_path / 'beta-mcp.json'
+    _write_json(alpha_file, {
+        'mcpServers': {
+            'zulu': {'name': 'zulu', 'command': 'zulu-mcp'},
+            'alpha': {'name': 'alpha', 'command': 'alpha-mcp'},
+            'mike': {'name': 'mike', 'command': 'mike-mcp'},
+        },
+    })
+
+    assert syncer.sync_once().changed == 3
+
+    # alpha_file is the source; beta_file is the projected target. Both must
+    # have the slot keys in the SAME insertion order as the source.
+    alpha_after = _read_json(alpha_file)
+    beta_after = _read_json(beta_file)
+    assert list(alpha_after['mcpServers']) == ['zulu', 'alpha', 'mike']
+    assert list(beta_after['mcpServers']) == ['zulu', 'alpha', 'mike']
+
+    # Edit one slot in alpha; the order on both sides must remain stable.
+    edited = _read_json(alpha_file)
+    edited['mcpServers']['alpha']['command'] = 'alpha-mcp-v2'
+    _write_json(alpha_file, edited)
+    syncer.sync_once()
+    alpha_after = _read_json(alpha_file)
+    beta_after = _read_json(beta_file)
+    assert list(alpha_after['mcpServers']) == ['zulu', 'alpha', 'mike']
+    assert list(beta_after['mcpServers']) == ['zulu', 'alpha', 'mike']
+

@@ -201,39 +201,85 @@ def render_to_agentic_tool(
     slugger = io.slugify_name or target_slug
     slug = slugger(canonical["name"])
     if isinstance(io.file_layout, SharedKeyedMapLayout):
-        layout = io.file_layout
-        shared_path = expand_path(config[layout.shared_path_config_key])
-        slot_key = existing_slot or str(canonical.get(layout.key_field, slug))
-        slot_text = io.render(canonical, prior_text)
-        pair_id = canonical.get("pair_id")
-        prior_slot_text = apply_slot(
-            shared_path,
-            layout,
-            slot_key,
-            slot_text,
-            expected_pair_id=str(pair_id) if pair_id else None,
-            allow_unpaired_existing=allow_unpaired_existing_slot,
-        )
-        return RenderResult(
-            path=shared_path, slot=slot_key, prior_slot_text=prior_slot_text,
+        return _render_keyed_map_slot(
+            config, io, canonical, slug,
+            existing_slot=existing_slot,
+            allow_unpaired_existing_slot=allow_unpaired_existing_slot,
+            prior_text=prior_text,
         )
     root = expand_path(config[spec.config_dir_keys[kind]])
     if io.storage == "single_file":
-        target = existing_path or single_file_target(root, io, slug)
-        assert_target_available(target, existing_path)
-        atomic_write_text(target, io.render(canonical, prior_text))
-        return RenderResult(path=target)
+        return _render_single_file(
+            io, canonical, root, slug, existing_path, prior_text,
+        )
     if io.storage == "directory_skill":
-        target_dir = existing_path or (root / slug)
-        assert_target_available(target_dir, existing_path)
-        skill_md_text = io.render(canonical, prior_text)
-        if source_dir is not None and target_dir != source_dir:
-            stage_skill_dir(source_dir, target_dir, skill_md_text)
-        else:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(target_dir / "SKILL.md", skill_md_text)
-        return RenderResult(path=target_dir)
+        return _render_directory_skill(
+            io, canonical, root, slug, existing_path, prior_text, source_dir,
+        )
     raise ValueError(f"Unknown storage shape: {io.storage}")
+
+
+def _render_keyed_map_slot(
+    config: dict[str, Any],
+    io: CustomizationTypeIO,
+    canonical: dict[str, Any],
+    slug: str,
+    *,
+    existing_slot: str | None,
+    allow_unpaired_existing_slot: bool,
+    prior_text: str | None,
+) -> RenderResult:
+    layout = io.file_layout
+    assert isinstance(layout, SharedKeyedMapLayout)
+    shared_path = expand_path(config[layout.shared_path_config_key])
+    slot_key = existing_slot or str(canonical.get(layout.key_field, slug))
+    slot_text = io.render(canonical, prior_text)
+    pair_id = canonical.get("pair_id")
+    prior_slot_text = apply_slot(
+        shared_path,
+        layout,
+        slot_key,
+        slot_text,
+        expected_pair_id=str(pair_id) if pair_id else None,
+        allow_unpaired_existing=allow_unpaired_existing_slot,
+    )
+    return RenderResult(
+        path=shared_path, slot=slot_key, prior_slot_text=prior_slot_text,
+    )
+
+
+def _render_single_file(
+    io: CustomizationTypeIO,
+    canonical: dict[str, Any],
+    root: Path,
+    slug: str,
+    existing_path: Path | None,
+    prior_text: str | None,
+) -> RenderResult:
+    target = existing_path or single_file_target(root, io, slug)
+    assert_target_available(target, existing_path)
+    atomic_write_text(target, io.render(canonical, prior_text))
+    return RenderResult(path=target)
+
+
+def _render_directory_skill(
+    io: CustomizationTypeIO,
+    canonical: dict[str, Any],
+    root: Path,
+    slug: str,
+    existing_path: Path | None,
+    prior_text: str | None,
+    source_dir: Path | None,
+) -> RenderResult:
+    target_dir = existing_path or (root / slug)
+    assert_target_available(target_dir, existing_path)
+    skill_md_text = io.render(canonical, prior_text)
+    if source_dir is not None and target_dir != source_dir:
+        stage_skill_dir(source_dir, target_dir, skill_md_text)
+    else:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(target_dir / "SKILL.md", skill_md_text)
+    return RenderResult(path=target_dir)
 
 
 def single_file_target(root: Path, io: CustomizationTypeIO, slug: str) -> Path:
