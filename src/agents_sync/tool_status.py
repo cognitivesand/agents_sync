@@ -56,13 +56,16 @@ class ToolStatusTracker:
             if not self._is_tool_enabled(spec):
                 continue
             for kind, config_key in spec.config_dir_keys.items():
-                resolved = expand_path(self.config[config_key])
                 # SharedKeyedMapLayout config keys point at a shared file,
                 # not a directory; only its parent should be pre-created
                 # — and the file is allowed to be absent (first-boot).
                 if isinstance(spec.io[kind].file_layout, SharedKeyedMapLayout):
+                    if config_key not in self.config:
+                        continue
+                    resolved = expand_path(self.config[config_key])
                     parent = resolved.parent
                 else:
+                    resolved = expand_path(self.config[config_key])
                     parent = resolved
                 try:
                     parent.mkdir(parents=True, exist_ok=True)
@@ -122,8 +125,10 @@ class ToolStatusTracker:
     ) -> tuple[str, tuple[str, str] | None]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
         for kind, config_key in spec.config_dir_keys.items():
-            resolved = expand_path(self.config[config_key])
             if isinstance(spec.io[kind].file_layout, SharedKeyedMapLayout):
+                if config_key not in self.config:
+                    continue
+                resolved = expand_path(self.config[config_key])
                 # The shared file may not exist yet (first-boot before any
                 # MCP slot is created). Availability requires only that
                 # the parent directory is reachable.
@@ -135,6 +140,7 @@ class ToolStatusTracker:
                 except OSError as exc:
                     return "unavailable", (str(parent), f"{type(exc).__name__}: {exc}")
                 continue
+            resolved = expand_path(self.config[config_key])
             if not resolved.exists():
                 return "unavailable", (str(resolved), "path does not exist")
             try:

@@ -9,6 +9,7 @@ archive) lives in test_mcp_server_sync.py.
 from __future__ import annotations
 
 import json
+import tomllib
 
 import pytest
 
@@ -18,6 +19,7 @@ from agents_sync.shared_keyed_map_formats import (
     get_format,
     register_format,
 )
+from agents_sync.shared_keyed_map_io import apply_slot, read_slots
 
 
 def test_layout_reports_shared_keyed_map_storage():
@@ -41,6 +43,13 @@ def test_json_format_roundtrips_minimal_mcp_file():
     again = fmt.deserialize(fmt.serialize(obj))
 
     assert again == obj
+    assert obj["mcpServers"]["github"]["command"] == "gh-mcp"
+
+
+def test_json_format_tolerates_utf8_bom():
+    fmt = get_format("json")
+    obj = fmt.deserialize('\ufeff{"mcpServers": {"github": {"command": "gh-mcp"}}}')
+
     assert obj["mcpServers"]["github"]["command"] == "gh-mcp"
 
 
@@ -94,3 +103,83 @@ def test_json_serialize_trailing_newline_for_unix_friendliness():
 
     assert text.endswith("\n")
     assert json.loads(text) == {"mcpServers": {}}
+
+
+def test_toml_format_rejects_json_text():
+    fmt = get_format("toml")
+
+    with pytest.raises(tomllib.TOMLDecodeError):
+        fmt.deserialize('{"mcp_servers": {"github": {"command": "gh-mcp"}}}')
+
+
+def test_toml_format_roundtrips_valid_toml():
+    fmt = get_format("toml")
+    obj = {
+        "mcp_servers": {
+            "github": {
+                "command": "gh-mcp",
+                "args": ["serve"],
+            },
+        },
+    }
+
+    assert fmt.deserialize(fmt.serialize(obj)) == obj
+
+
+def test_read_slots_injects_missing_key_field_from_slot_key(tmp_path):
+    layout = SharedKeyedMapLayout(
+        shared_path_config_key="mcp_servers_file",
+        map_key_path=("mcpServers",),
+        key_field="name",
+    )
+    shared_file = tmp_path / "mcp.json"
+    shared_file.write_text(json.dumps({
+        "mcpServers": {
+            "github": {"command": "gh-mcp"},
+        },
+    }), encoding="utf-8")
+
+    slots, absent_reason = read_slots(shared_file, layout)
+
+    assert absent_reason is None
+    assert json.loads(slots["github"])["name"] == "github"
+
+
+def test_read_slots_rejects_conflicting_inline_key_field(tmp_path):
+    layout = SharedKeyedMapLayout(
+        shared_path_config_key="mcp_servers_file",
+        map_key_path=("mcpServers",),
+        key_field="name",
+    )
+    shared_file = tmp_path / "mcp.json"
+    shared_file.write_text(json.dumps({
+        "mcpServers": {
+            "github": {"name": "other", "command": "gh-mcp"},
+        },
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="slot key conflict"):
+        read_slots(shared_file, layout)
+
+
+def test_apply_slot_refuses_non_object_map_key_path_without_rewriting(tmp_path):
+    layout = SharedKeyedMapLayout(
+        shared_path_config_key="mcp_servers_file",
+        map_key_path=("mcpServers",),
+    )
+    shared_file = tmp_path / "mcp.json"
+    original_text = json.dumps({
+        "mcpServers": "disabled",
+        "theme": "dark",
+    }, indent=2) + "\n"
+    shared_file.write_text(original_text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not an object"):
+        apply_slot(
+            shared_file,
+            layout,
+            "github",
+            json.dumps({"name": "github", "command": "gh-mcp"}),
+        )
+
+    assert shared_file.read_text(encoding="utf-8") == original_text

@@ -161,7 +161,14 @@ def write_artifact_inplace(
     if isinstance(io.file_layout, SharedKeyedMapLayout):
         if slot is None:
             raise ValueError("SharedKeyedMapLayout requires a slot to write")
-        return apply_slot(path, io.file_layout, slot, text)
+        return apply_slot(
+            path,
+            io.file_layout,
+            slot,
+            text,
+            expected_pair_id=io.extract_pair_id(text),
+            allow_unpaired_existing=True,
+        )
     if io.storage == "single_file":
         atomic_write_text(path, text)
     else:
@@ -179,6 +186,7 @@ def render_to_agentic_tool(
     prior_text: str | None,
     source_dir: Path | None,
     existing_slot: str | None = None,
+    allow_unpaired_existing_slot: bool = False,
 ) -> RenderResult:
     """Render ``canonical`` onto one target tool. Returns where it landed.
 
@@ -197,7 +205,15 @@ def render_to_agentic_tool(
         shared_path = expand_path(config[layout.shared_path_config_key])
         slot_key = existing_slot or str(canonical.get(layout.key_field, slug))
         slot_text = io.render(canonical, prior_text)
-        prior_slot_text = apply_slot(shared_path, layout, slot_key, slot_text)
+        pair_id = canonical.get("pair_id")
+        prior_slot_text = apply_slot(
+            shared_path,
+            layout,
+            slot_key,
+            slot_text,
+            expected_pair_id=str(pair_id) if pair_id else None,
+            allow_unpaired_existing=allow_unpaired_existing_slot,
+        )
         return RenderResult(
             path=shared_path, slot=slot_key, prior_slot_text=prior_slot_text,
         )

@@ -32,7 +32,8 @@ class Syncer:
     ) -> None:
         self.config = dict(config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (
-            agentic_tools if agentic_tools is not None else default_agentic_tools()
+            agentic_tools if agentic_tools is not None
+            else default_agentic_tools(self.config)
         )
         self.state_dir = expand_path(config["state_path"]).parent
         self._blocked_pair_ids: set[str] = set()
