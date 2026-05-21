@@ -18,7 +18,26 @@ from pathlib import Path
 
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import validate_pair_id
-from agents_sync.state import ignored_tree_names
+from agents_sync.state import ignored_tree_names, slugify
+
+_MAX_SLOT_COMPONENT_LEN = 128
+
+
+def _safe_slot_component(slot_name: str) -> str:
+    """Return a filesystem-safe form of ``slot_name`` for use as an archive
+    filename component.
+
+    Slot names are derived from raw user-supplied keys in MCP server maps
+    (``mcpServers`` in ``.claude.json``, ``mcp_servers`` in
+    ``~/.codex/config.toml``, ``mcp`` in ``opencode.json``). A malicious
+    or accidental key like ``"../../../tmp/pwned"`` would otherwise
+    escape ``<state_dir>/archive/<pair_id>/<side>/``. We slugify with the
+    same rules as artifact names and cap the length; the original key
+    remains untouched in ``canonical['name']``.
+    """
+    if not isinstance(slot_name, str):
+        slot_name = str(slot_name)
+    return slugify(slot_name)[:_MAX_SLOT_COMPONENT_LEN]
 
 
 def iso_timestamp(now: _dt.datetime | None = None) -> str:
@@ -85,7 +104,15 @@ def archive_text(
         lambda: target_dir.mkdir(parents=True, exist_ok=True),
         operation=f"mkdir {target_dir}",
     )
-    target = target_dir / f"{slot_name}{extension}.{iso_timestamp()}"
+    safe_slot = _safe_slot_component(slot_name)
+    target = target_dir / f"{safe_slot}{extension}.{iso_timestamp()}"
+    resolved_target = target.resolve()
+    resolved_dir = target_dir.resolve()
+    if not resolved_target.is_relative_to(resolved_dir):
+        raise ValueError(
+            f"archive target {resolved_target} escapes per-pair directory "
+            f"{resolved_dir} (slot_name={slot_name!r}); refusing to write."
+        )
     target.write_text(content, encoding="utf-8")
     return target
 
