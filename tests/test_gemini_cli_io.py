@@ -55,11 +55,11 @@ def test_parse_gemini_agent_preserves_native_frontmatter(tmp_path: Path):
         pair_id: {PAIR_ID}
         name: reviewer
         description: Reviews code
-        kind: subagent
+        kind: local
         model: gemini-2.5-pro
         tools:
           - read_file
-          - grep
+          - grep_search
         temperature: 0.2
         max_turns: 6
         mcpServers:
@@ -80,10 +80,11 @@ def test_parse_gemini_agent_preserves_native_frontmatter(tmp_path: Path):
     assert canonical["name"] == "reviewer"
     assert canonical["description"] == "Reviews code"
     assert canonical["model"] == "gemini-2.5-pro"
-    assert canonical["tools"] == ["read_file", "grep"]
+    assert canonical["tools"] == []
     assert canonical["body"] == "Review with care."
     gemini_only = canonical["per_agentic_tool_only"]["gemini_cli"]
-    assert gemini_only["kind"] == "subagent"
+    assert gemini_only["kind"] == "local"
+    assert gemini_only["tools"] == ["read_file", "grep_search"]
     assert gemini_only["temperature"] == 0.2
     assert gemini_only["max_turns"] == 6
     assert dict(gemini_only["mcpServers"]["docs"]) == {"command": "uvx"}
@@ -110,10 +111,11 @@ def test_render_gemini_agent_does_not_leak_antigravity_or_claude_fields():
     canonical["description"] = "x"
     canonical["body"] = "body"
     canonical["model"] = "gemini-2.5-pro"
-    canonical["tools"] = ["read_file"]
+    canonical["tools"] = ["Read", "Grep"]
     canonical["permission_mode"] = "ask"
     canonical["per_agentic_tool_only"]["gemini_cli"] = {
-        "kind": "subagent",
+        "kind": "local",
+        "tools": ["read_file"],
         "temperature": 0.1,
     }
     canonical["per_agentic_tool_only"]["antigravity"] = {
@@ -125,7 +127,10 @@ def test_render_gemini_agent_does_not_leak_antigravity_or_claude_fields():
 
     rendered = render_gemini_agent_md(canonical)
 
-    assert "kind: subagent" in rendered
+    assert "kind: local" in rendered
+    assert "read_file" in rendered
+    assert "Read" not in rendered
+    assert "Grep" not in rendered
     assert "temperature: 0.1" in rendered
     assert "allowed-tools:" not in rendered
     assert "permissionMode:" not in rendered

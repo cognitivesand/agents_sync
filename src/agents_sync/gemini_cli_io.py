@@ -62,6 +62,7 @@ KNOWN_GEMINI_SKILL_FIELDS = frozenset({
 
 OPTIONAL_GEMINI_AGENT_FIELDS: tuple[str, ...] = (
     "kind",
+    "tools",
     "temperature",
     "max_turns",
     "mcpServers",
@@ -219,14 +220,15 @@ def parse_gemini_agent_md(
         canonical["description"] = str(frontmatter_data["description"])
     if "model" in frontmatter_data:
         canonical["model"] = frontmatter_data["model"]
-    if "tools" in frontmatter_data:
-        canonical["tools"] = _as_string_list(frontmatter_data["tools"])
 
     per_only = dict(canonical.get("per_agentic_tool_only") or {})
-    per_only["gemini_cli"] = _frontmatter_subset(
+    gemini_only = _frontmatter_subset(
         frontmatter_data,
         OPTIONAL_GEMINI_AGENT_FIELDS,
     )
+    if "tools" in gemini_only:
+        gemini_only["tools"] = _as_string_list(gemini_only["tools"])
+    per_only["gemini_cli"] = gemini_only
     canonical["per_agentic_tool_only"] = per_only
 
     per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
@@ -258,10 +260,10 @@ def render_gemini_agent_md(
     frontmatter["name"] = canonical["name"]
     _set_or_pop(frontmatter, "description", canonical.get("description"))
     _set_or_pop(frontmatter, "model", canonical.get("model"))
-    _set_or_pop(frontmatter, "tools", canonical.get("tools"))
 
     gemini_only = canonical.get("per_agentic_tool_only", {}).get("gemini_cli", {})
-    _set_or_pop(frontmatter, "kind", gemini_only.get("kind") or "subagent")
+    _set_or_pop(frontmatter, "kind", gemini_only.get("kind") or "local")
+    _set_or_pop(frontmatter, "tools", gemini_only.get("tools"))
     for field_name in ("temperature", "max_turns", "mcpServers"):
         _set_or_pop(frontmatter, field_name, gemini_only.get(field_name))
 

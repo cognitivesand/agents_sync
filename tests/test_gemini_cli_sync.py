@@ -73,7 +73,7 @@ def test_gemini_agent_adopts_and_projects_to_agent_capable_tools(tmp_path: Path)
         "---\n"
         "name: reviewer\n"
         "description: Reviews code\n"
-        "kind: subagent\n"
+        "kind: local\n"
         "tools:\n"
         "  - read_file\n"
         "---\n"
@@ -103,6 +103,7 @@ def test_agent_from_another_tool_projects_to_gemini_subagent(tmp_path: Path):
         "---\n"
         "name: debugger\n"
         "description: Debugs failures\n"
+        "tools: Read, Grep\n"
         "---\n"
         "Inspect the failing path.\n",
         encoding="utf-8",
@@ -112,7 +113,10 @@ def test_agent_from_another_tool_projects_to_gemini_subagent(tmp_path: Path):
 
     gemini_agent = syncer.tool_root("gemini_cli", "agent") / "debugger.md"
     text = gemini_agent.read_text(encoding="utf-8")
-    assert "kind: subagent" in text
+    assert "kind: local" in text
+    assert "tools:" not in text
+    assert "Read" not in text
+    assert "Grep" not in text
     assert "Inspect the failing path." in text
 
 
