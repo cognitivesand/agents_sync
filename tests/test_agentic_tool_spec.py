@@ -11,9 +11,15 @@ from agents_sync.agentic_tool_spec import (
 from agents_sync.canonical import empty_canonical
 
 
-def test_default_registry_has_claude_codex_antigravity_and_opencode():
+def test_default_registry_has_claude_codex_antigravity_gemini_and_opencode():
     registry = default_agentic_tools()
-    assert set(registry.keys()) == {"claude", "codex", "antigravity", "opencode"}
+    assert set(registry.keys()) == {
+        "claude",
+        "codex",
+        "antigravity",
+        "gemini_cli",
+        "opencode",
+    }
     for spec in registry.values():
         assert isinstance(spec, AgenticToolSpec)
 
@@ -83,6 +89,31 @@ def test_codex_spec_supports_agents_and_skills():
     assert spec.io["slash_command"].file_suffix == ".md"
     assert spec.io["slash_command"].recursive is True
     assert spec.io["rules"].fixed_file_name == "AGENTS.md"
+
+
+def test_gemini_cli_spec_supports_file_backed_user_surfaces():
+    spec = default_agentic_tools()["gemini_cli"]
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "slash_command",
+        "rules",
+    })
+    assert spec.config_dir_keys == {
+        "agent": "gemini_cli_agents_dir",
+        "slash_command": "gemini_cli_commands_dir",
+        "skill": "gemini_cli_skills_dir",
+        "rules": "gemini_cli_rules_dir",
+    }
+    assert spec.disable_config_key == "gemini_cli_enabled"
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".md"
+    assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["slash_command"].storage == "single_file"
+    assert spec.io["slash_command"].file_suffix == ".toml"
+    assert spec.io["slash_command"].recursive is True
+    assert spec.io["rules"].storage == "single_file"
+    assert spec.io["rules"].fixed_file_name == "GEMINI.md"
 
 
 def test_opencode_spec_supports_agents_and_skills_with_disable_key():

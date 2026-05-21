@@ -15,9 +15,9 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
+`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Gemini CLI**, **Google Antigravity**, and **OpenCode**.
 
-> Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
+> Build your AI workflow once and use it from every tool you've installed. Skills, agents, rules, and slash commands are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. Antigravity stays skills-only and separate from Gemini CLI.
 
 The daemon runs quietly in the background, protects your content with archives, and keeps user-level files connected even when they are renamed. If one of the tools isn't installed, that tool is silently skipped — the others continue to sync.
 
@@ -48,19 +48,19 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 `agents_sync` synchronizes user-level agents, skills, slash commands, and global rules across the tools that expose each customization type.
 
-| What you edit | Claude Code | Codex | Antigravity | OpenCode |
-|:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
-| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
-| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| What you edit | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode |
+|:---|:---|:---|:---|:---|:---|
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.gemini/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | `~/.gemini/commands/**/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
+| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
-- Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
-- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, and OpenCode sync them as Markdown files.
-- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
+- Skills are reusable instruction folders. Gemini CLI and Antigravity use distinct roots under `~/.gemini`, so their skill files never share the same managed directory.
+- Agents are reusable AI personas. Claude Code, Codex, Gemini CLI, and OpenCode have per-agent file formats.
+- Slash commands are reusable prompt files invoked from chat. Gemini CLI stores them as TOML with a `prompt` field; the other supported tools use Markdown.
+- Rules are global instruction files. Gemini CLI uses `GEMINI.md`; Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
 
 ```mermaid
 flowchart LR
@@ -68,6 +68,7 @@ flowchart LR
         direction TB
         Claude["Claude Code<br/>agents + commands + skills + rules"]
         Codex["Codex<br/>agents + prompts + skills + rules"]
+        Gemini["Gemini CLI<br/>agents + commands + skills + rules"]
         Antigravity["Antigravity<br/>skills only"]
         Opencode["OpenCode<br/>agents + commands + skills + rules"]
     end
@@ -78,6 +79,7 @@ flowchart LR
 
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
+    Gemini <-->|changes| Sync
     Antigravity <-->|changes| Sync
     Opencode <-->|changes| Sync
     Sync --> State
@@ -88,14 +90,14 @@ flowchart LR
     classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
     classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
 
-    class Claude,Codex,Antigravity,Opencode side
+    class Claude,Codex,Gemini,Antigravity,Opencode side
     class Sync sync
     class State state
     class Archive archive
 
-    linkStyle 0,1,2,3 stroke:#2da44e,stroke-width:2px
-    linkStyle 4 stroke:#8250df,stroke-width:2px
-    linkStyle 5 stroke:#2da44e,stroke-width:2px
+    linkStyle 0,1,2,3,4 stroke:#2da44e,stroke-width:2px
+    linkStyle 5 stroke:#8250df,stroke-width:2px
+    linkStyle 6 stroke:#2da44e,stroke-width:2px
 ```
 
 ---
@@ -108,9 +110,9 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit an agent in Claude Code, Codex, or OpenCode | The other two agent-capable tools receive matching agent files |
-| Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
-| Create or edit a slash command in Claude Code, Codex, or OpenCode | The other slash-command tools receive matching command files |
+| Create or edit an agent in Claude Code, Codex, Gemini CLI, or OpenCode | The other agent-capable tools receive matching agent files |
+| Create or edit a skill on any tool | The other skill-capable tools receive the matching `SKILL.md` folder |
+| Create or edit a slash command in Claude Code, Codex, Gemini CLI, or OpenCode | The other slash-command tools receive matching command files |
 | Two or more tools edit the same customization simultaneously | The most recently modified copy wins; the losers are archived |
 | Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
@@ -173,9 +175,17 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, and OpenCode into it. Antigravity itself picks up the directory on its next read.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from the other skill-capable tools into it. Antigravity itself picks up the directory on its next read.
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
+
+### Enabling Gemini CLI
+
+Gemini CLI is enabled by default and uses user-level files under `~/.gemini/`: agents in `agents/`, skills in `skills/`, global rules in `GEMINI.md`, and commands in `commands/**/*.toml`.
+
+Gemini CLI and Antigravity are intentionally separate adapters. Gemini CLI skills are managed under `~/.gemini/skills/`; Antigravity skills stay under `~/.gemini/antigravity/skills/`.
+
+To disable Gemini CLI entirely, set `gemini_cli_enabled = false` in your `config.toml`, or pass `--no-gemini-cli-enabled` on the command line. You can relocate its roots with `gemini_cli_agents_dir`, `gemini_cli_skills_dir`, `gemini_cli_rules_dir`, and `gemini_cli_commands_dir`.
 
 ### Enabling OpenCode
 
@@ -195,7 +205,7 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove agents and skills from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, Gemini CLI, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
 ---
 
@@ -389,6 +399,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 |:---|:---|:---|:---|:---|
 | Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` |
 | Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` |
+| Gemini CLI | `~/.gemini/agents` | `~/.gemini/commands` | `~/.gemini/skills` | `~/.gemini/GEMINI.md` |
 | Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a |
 | OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` |
 
@@ -413,8 +424,9 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
+- **Gemini CLI limitations:** this adapter syncs user-level agents, skills, global `GEMINI.md` rules, and TOML slash commands. Project-scoped `.gemini/` files, extension packages, hooks, themes, Policy Engine files, and MCP servers in `~/.gemini/settings.json[mcpServers]` are not synced in this branch.
 - **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, and `opencode_skills_dir`.
-- This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
+- This tool was developed with the support of Claude Code, Codex, Gemini CLI, Google Antigravity, and OpenCode.
 
 ---
 
@@ -424,6 +436,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ### Unreleased
 
+- Added Gemini CLI sync for user-level agents (`~/.gemini/agents`), Agent Skills (`~/.gemini/skills`), global rules (`~/.gemini/GEMINI.md`), and TOML slash commands (`~/.gemini/commands`), without sharing paths with Antigravity.
 - Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
 - Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
 
@@ -486,6 +499,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - `docs/v0.3_implementation_plan.md` - Windows support plan.
 - `docs/v0.4_implementation_plan.md` - Antigravity / N-tool sync plan.
 - `docs/v0.4.1_implementation_plan.md` - OpenCode integration follow-up plan.
+- `docs/v0.5_gemini_cli_implementation_plan.md` - Gemini CLI adapter plan.
 - `docs/agentic_tool_integration_protocol.md` - how to add another agentic tool.
 
 ---

@@ -303,6 +303,7 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "ga", "gc", "gs", "gr",
         "oa", "oc", "os", "or",
     ):
         (tmp_path / sub).mkdir()
@@ -321,6 +322,11 @@ def test_extension_of_existing_two_tool_pair_to_antigravity(tmp_path: Path):
         "codex_rules_dir": str(tmp_path / "xr"),
         "antigravity_skills_dir": str(tmp_path / "as"),  # doesn't exist yet
         "antigravity_enabled": False,
+        "gemini_cli_agents_dir": str(tmp_path / "ga"),
+        "gemini_cli_commands_dir": str(tmp_path / "gc"),
+        "gemini_cli_skills_dir": str(tmp_path / "gs"),
+        "gemini_cli_rules_dir": str(tmp_path / "gr"),
+        "gemini_cli_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),

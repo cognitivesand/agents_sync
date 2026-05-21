@@ -103,6 +103,13 @@ codex_rules_dir = "~/.codex"
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
 
+# Gemini CLI (agents + commands + skills + rules). Separate from Antigravity.
+# gemini_cli_agents_dir = "~/.gemini/agents"
+# gemini_cli_commands_dir = "~/.gemini/commands"
+# gemini_cli_skills_dir = "~/.gemini/skills"
+# gemini_cli_rules_dir = "~/.gemini"
+# gemini_cli_enabled = false
+
 # opencode (agents + skills). Enabled by default once the roots exist or can
 # be created. To disable, uncomment opencode_enabled.
 # opencode_agents_dir = "~/.config/opencode/agents"
