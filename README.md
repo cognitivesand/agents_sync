@@ -15,7 +15,7 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
+`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **GitHub Copilot**, **Google Antigravity**, and **OpenCode**.
 
 > Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
 
@@ -48,19 +48,19 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 `agents_sync` synchronizes user-level agents, skills, slash commands, and global rules across the tools that expose each customization type.
 
-| What you edit | Claude Code | Codex | Antigravity | OpenCode |
-|:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
-| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
-| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| What you edit | Claude Code | Codex | GitHub Copilot | Antigravity | OpenCode |
+|:---|:---|:---|:---|:---|:---|
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.copilot/agents/*.agent.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.copilot/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | VS Code user profile `*.prompt.md` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
+| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | VS Code user profile `*.instructions.md` | n/a | `~/.config/opencode/AGENTS.md` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
-- Agents are reusable AI personas. Claude Code, Codex, and OpenCode have per-agent file formats, so agents sync three ways.
-- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, and OpenCode sync them as Markdown files.
-- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
+- Skills are reusable instruction folders. Claude Code, Codex, Copilot, Antigravity, and OpenCode use the open `SKILL.md` shape, so skills sync across every available skill-capable tool.
+- Agents are reusable AI personas. Claude Code, Codex, Copilot, and OpenCode have per-agent file formats.
+- Slash commands are reusable prompt files invoked from chat. Copilot uses VS Code user-profile `*.prompt.md` files for this surface.
+- Rules are global instruction files. Copilot uses VS Code user-profile `*.instructions.md` files for this surface.
 
 ```mermaid
 flowchart LR
@@ -68,6 +68,7 @@ flowchart LR
         direction TB
         Claude["Claude Code<br/>agents + commands + skills + rules"]
         Codex["Codex<br/>agents + prompts + skills + rules"]
+        Copilot["GitHub Copilot<br/>agents + prompts + skills + instructions"]
         Antigravity["Antigravity<br/>skills only"]
         Opencode["OpenCode<br/>agents + commands + skills + rules"]
     end
@@ -78,6 +79,7 @@ flowchart LR
 
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
+    Copilot <-->|changes| Sync
     Antigravity <-->|changes| Sync
     Opencode <-->|changes| Sync
     Sync --> State
@@ -88,14 +90,14 @@ flowchart LR
     classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
     classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
 
-    class Claude,Codex,Antigravity,Opencode side
+    class Claude,Codex,Copilot,Antigravity,Opencode side
     class Sync sync
     class State state
     class Archive archive
 
-    linkStyle 0,1,2,3 stroke:#2da44e,stroke-width:2px
-    linkStyle 4 stroke:#8250df,stroke-width:2px
-    linkStyle 5 stroke:#2da44e,stroke-width:2px
+    linkStyle 0,1,2,3,4 stroke:#2da44e,stroke-width:2px
+    linkStyle 5 stroke:#8250df,stroke-width:2px
+    linkStyle 6 stroke:#2da44e,stroke-width:2px
 ```
 
 ---
@@ -108,9 +110,9 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit an agent in Claude Code, Codex, or OpenCode | The other two agent-capable tools receive matching agent files |
-| Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
-| Create or edit a slash command in Claude Code, Codex, or OpenCode | The other slash-command tools receive matching command files |
+| Create or edit an agent in Claude Code, Codex, Copilot, or OpenCode | The other agent-capable tools receive matching agent files |
+| Create or edit a skill on any tool | The other skill-capable tools receive the matching `SKILL.md` folder |
+| Create or edit a slash command in Claude Code, Codex, Copilot, or OpenCode | The other slash-command tools receive matching command files |
 | Two or more tools edit the same customization simultaneously | The most recently modified copy wins; the losers are archived |
 | Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
@@ -183,6 +185,12 @@ OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/op
 
 To disable OpenCode entirely, set `opencode_enabled = false` in your `config.toml`, or pass `--no-opencode-enabled` on the command line.
 
+### Enabling GitHub Copilot
+
+Copilot is enabled by default. The CLI half uses `~/.copilot/agents/` for agents and `~/.copilot/skills/` for Agent Skills. The VS Code user-profile half is opt-in by path: set `copilot_vscode_user_instructions_dir` for `*.instructions.md` files and `copilot_vscode_user_prompts_dir` for `*.prompt.md` files.
+
+To disable Copilot entirely, set `copilot_enabled = false`, or use `--no-copilot-enabled`. You can disable only the CLI half with `copilot_cli_enabled = false`, or only the VS Code user-profile half with `copilot_vscode_user_profile_enabled = false`.
+
 ---
 
 <a id="daily-usage"></a>
@@ -195,7 +203,7 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove agents and skills from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, GitHub Copilot, Antigravity, or OpenCode normally. Create, edit, rename, or remove agents and skills from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
 ---
 
@@ -389,6 +397,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 |:---|:---|:---|:---|:---|
 | Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` |
 | Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` |
+| GitHub Copilot | `~/.copilot/agents` | configured VS Code profile prompts dir | `~/.copilot/skills` | configured VS Code profile instructions dir |
 | Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a |
 | OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` |
 
@@ -414,7 +423,8 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
 - **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, and `opencode_skills_dir`.
-- This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
+- **GitHub Copilot limitations:** this adapter manages user-level Copilot CLI agents and skills plus explicitly configured VS Code user-profile instructions and prompts. It does not sync repository `.github/` files, workspace `.vscode/mcp.json`, GitHub.com organization customizations, Copilot cloud agent settings, hooks, plugin packages, extension-contributed customizations, or MCP servers yet.
+- This tool was developed with the support of Claude Code, Codex, GitHub Copilot, Google Antigravity, and OpenCode.
 
 ---
 
@@ -424,6 +434,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ### Unreleased
 
+- Added GitHub Copilot support for CLI agents, Agent Skills, VS Code user-profile instructions, and VS Code user-profile prompt files.
 - Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
 - Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
 

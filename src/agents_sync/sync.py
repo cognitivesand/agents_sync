@@ -29,6 +29,7 @@ class Syncer:
         agentic_tools: dict[str, AgenticToolSpec] | None = None,
     ) -> None:
         self.config = dict(config)
+        validate_config(self.config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (
             agentic_tools if agentic_tools is not None else default_agentic_tools()
         )
@@ -85,7 +86,8 @@ class Syncer:
                 continue
             ps = state[pair_id]
             if not any(
-                self.tool_status.is_available(t) for t in ps.agentic_tools
+                self.tool_status.is_kind_available(t, ps.kind)
+                for t in ps.agentic_tools
             ):
                 continue
             try:

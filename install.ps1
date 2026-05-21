@@ -158,6 +158,15 @@ codex_rules_dir = "~/.codex"
 # opencode_skills_dir = "$opencodeSkillsPath"
 # opencode_rules_dir = "$opencodeRulesPath"
 # opencode_enabled = false
+
+# GitHub Copilot CLI agents and skills are enabled by default.
+# VS Code user-profile instructions/prompts are path-configured because
+# profile locations vary by install.
+# copilot_cli_agents_dir = "~/.copilot/agents"
+# copilot_cli_skills_dir = "~/.copilot/skills"
+# copilot_vscode_user_instructions_dir = "C:/path/to/vscode/profile/instructions"
+# copilot_vscode_user_prompts_dir = "C:/path/to/vscode/profile/prompts"
+# copilot_enabled = false
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($ConfigFile, $cfg, $utf8NoBom)

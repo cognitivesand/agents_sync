@@ -30,6 +30,7 @@ class ToolStatusTracker:
         self.config = config
         self.agentic_tools = agentic_tools
         self._status: dict[str, str] = {}
+        self._available_kinds: dict[str, set[str]] = {}
 
     # ---------- public read API ----------
 
@@ -38,6 +39,17 @@ class ToolStatusTracker:
 
     def is_available(self, tool_name: str) -> bool:
         return self._status.get(tool_name) == "available"
+
+    def is_kind_available(self, tool_name: str, kind: str) -> bool:
+        """Whether one customization type is reachable for a tool this poll."""
+        if self._status.get(tool_name) != "available":
+            return False
+        spec = self.agentic_tools.get(tool_name)
+        if spec is None:
+            return False
+        if not spec.partial_availability:
+            return kind in spec.supported_customization_types
+        return kind in self._available_kinds.get(tool_name, set())
 
     def snapshot(self) -> dict[str, str]:
         """A shallow copy of the current status map, for inspection in tests."""
@@ -55,8 +67,13 @@ class ToolStatusTracker:
         for spec in self.agentic_tools.values():
             if not self._is_tool_enabled(spec):
                 continue
-            for config_key in spec.config_dir_keys.values():
-                root = expand_path(self.config[config_key])
+            for kind, config_key in spec.config_dir_keys.items():
+                if not self._is_kind_enabled(spec, kind):
+                    continue
+                raw_root = self.config.get(config_key)
+                if raw_root is None:
+                    continue
+                root = expand_path(raw_root)
                 try:
                     root.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
@@ -78,13 +95,16 @@ class ToolStatusTracker:
           - ``available`` ⇒ tool is enabled and every root is reachable.
         """
         new_status: dict[str, str] = {}
+        new_available_kinds: dict[str, set[str]] = {}
         reasons: dict[str, tuple[str, str]] = {}
         for tool_name, spec in self.agentic_tools.items():
             if not self._is_tool_enabled(spec):
                 new_status[tool_name] = "disabled"
+                new_available_kinds[tool_name] = set()
                 continue
-            status, reason = self._probe_tool_roots(spec)
+            status, reason, available_kinds = self._probe_tool_roots(spec)
             new_status[tool_name] = status
+            new_available_kinds[tool_name] = available_kinds
             if reason is not None:
                 reasons[tool_name] = reason
 
@@ -96,6 +116,7 @@ class ToolStatusTracker:
                 tool_name, prev, status, reasons.get(tool_name)
             )
         self._status = new_status
+        self._available_kinds = new_available_kinds
 
     # ---------- internals ----------
 
@@ -110,18 +131,54 @@ class ToolStatusTracker:
             return True
         return bool(self.config.get(spec.disable_config_key, True))
 
+    def _is_kind_enabled(self, spec: AgenticToolSpec, kind: str) -> bool:
+        if not self._is_tool_enabled(spec):
+            return False
+        config_key = spec.kind_disable_config_keys.get(kind)
+        if config_key is None:
+            return True
+        return bool(self.config.get(config_key, True))
+
     def _probe_tool_roots(
         self, spec: AgenticToolSpec
-    ) -> tuple[str, tuple[str, str] | None]:
+    ) -> tuple[str, tuple[str, str] | None, set[str]]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
-        for _kind, config_key in spec.config_dir_keys.items():
-            root = expand_path(self.config[config_key])
-            if not root.exists():
-                return "unavailable", (str(root), "path does not exist")
-            try:
-                next(root.iterdir(), None)
-            except OSError as exc:
-                return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
+        available_kinds: set[str] = set()
+        first_reason: tuple[str, str] | None = None
+        enabled_kind_count = 0
+        for kind, config_key in spec.config_dir_keys.items():
+            if not self._is_kind_enabled(spec, kind):
+                continue
+            enabled_kind_count += 1
+            status, reason = self._probe_kind_root(config_key)
+            if status == "available":
+                available_kinds.add(kind)
+                continue
+            if first_reason is None:
+                first_reason = reason
+            if not spec.partial_availability:
+                return "unavailable", reason, set()
+
+        if available_kinds:
+            return "available", None, available_kinds
+        if enabled_kind_count == 0:
+            return "disabled", None, set()
+        return "unavailable", first_reason, set()
+
+    def _probe_kind_root(
+        self,
+        config_key: str,
+    ) -> tuple[str, tuple[str, str] | None]:
+        raw_root = self.config.get(config_key)
+        if raw_root is None:
+            return "unavailable", (config_key, "path is not configured")
+        root = expand_path(raw_root)
+        if not root.exists():
+            return "unavailable", (str(root), "path does not exist")
+        try:
+            next(root.iterdir(), None)
+        except OSError as exc:
+            return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
         return "available", None
 
     def _log_status_transition(

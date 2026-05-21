@@ -380,7 +380,7 @@ def _participating_tools(
     for tool_name, spec in agentic_tools.items():
         if kind not in spec.io:
             continue
-        if not tool_status.is_available(tool_name):
+        if not tool_status.is_kind_available(tool_name, kind):
             continue
         result.append((tool_name, spec))
     return result

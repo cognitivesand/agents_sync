@@ -100,6 +100,16 @@ def platform_defaults(
         "opencode_skills_dir": str(opencode_root / "skills"),
         "opencode_rules_dir": str(opencode_root),
         "opencode_enabled": True,
+        "copilot_enabled": True,
+        "copilot_cli_enabled": True,
+        "copilot_vscode_user_profile_enabled": True,
+        "copilot_cli_agents_dir": str(home_dir / ".copilot" / "agents"),
+        "copilot_cli_skills_dir": str(home_dir / ".copilot" / "skills"),
+        "copilot_cli_mcp_config_file": str(home_dir / ".copilot" / "mcp-config.json"),
+        "copilot_vscode_user_agents_dir": None,
+        "copilot_vscode_user_instructions_dir": None,
+        "copilot_vscode_user_prompts_dir": None,
+        "copilot_vscode_user_mcp_file": None,
         "import_collision_strategy": "mtime_wins",
     }
 
@@ -149,6 +159,40 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
     maybe_set(config, "opencode_rules_dir", getattr(args, "opencode_rules_dir", None))
     maybe_set(config, "opencode_enabled", getattr(args, "opencode_enabled", None))
+    maybe_set(config, "copilot_enabled", getattr(args, "copilot_enabled", None))
+    maybe_set(config, "copilot_cli_enabled", getattr(args, "copilot_cli_enabled", None))
+    maybe_set(
+        config,
+        "copilot_vscode_user_profile_enabled",
+        getattr(args, "copilot_vscode_user_profile_enabled", None),
+    )
+    maybe_set(config, "copilot_cli_agents_dir", getattr(args, "copilot_cli_agents_dir", None))
+    maybe_set(config, "copilot_cli_skills_dir", getattr(args, "copilot_cli_skills_dir", None))
+    maybe_set(
+        config,
+        "copilot_cli_mcp_config_file",
+        getattr(args, "copilot_cli_mcp_config_file", None),
+    )
+    maybe_set(
+        config,
+        "copilot_vscode_user_agents_dir",
+        getattr(args, "copilot_vscode_user_agents_dir", None),
+    )
+    maybe_set(
+        config,
+        "copilot_vscode_user_instructions_dir",
+        getattr(args, "copilot_vscode_user_instructions_dir", None),
+    )
+    maybe_set(
+        config,
+        "copilot_vscode_user_prompts_dir",
+        getattr(args, "copilot_vscode_user_prompts_dir", None),
+    )
+    maybe_set(
+        config,
+        "copilot_vscode_user_mcp_file",
+        getattr(args, "copilot_vscode_user_mcp_file", None),
+    )
     maybe_set(config, "state_path", args.state_path)
     return config
 
@@ -167,6 +211,24 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "opencode_commands_dir",
     "opencode_skills_dir",
     "opencode_rules_dir",
+)
+
+OPTIONAL_PATH_KEYS: tuple[str, ...] = (
+    "copilot_cli_agents_dir",
+    "copilot_cli_skills_dir",
+    "copilot_cli_mcp_config_file",
+    "copilot_vscode_user_agents_dir",
+    "copilot_vscode_user_instructions_dir",
+    "copilot_vscode_user_prompts_dir",
+    "copilot_vscode_user_mcp_file",
+)
+
+OPTIONAL_BOOL_KEYS: tuple[str, ...] = (
+    "antigravity_enabled",
+    "opencode_enabled",
+    "copilot_enabled",
+    "copilot_cli_enabled",
+    "copilot_vscode_user_profile_enabled",
 )
 
 
@@ -198,6 +260,16 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigError(f"missing required config key: {key}")
         if not isinstance(config[key], (str, Path)):
             raise ConfigError(f"{key} must be a path string")
+
+    for key in OPTIONAL_PATH_KEYS:
+        if key not in config or config[key] is None:
+            continue
+        if not isinstance(config[key], (str, Path)):
+            raise ConfigError(f"{key} must be a path string when set")
+
+    for key in OPTIONAL_BOOL_KEYS:
+        if key in config and not isinstance(config[key], bool):
+            raise ConfigError(f"{key} must be a boolean")
 
     strategy = config.get("import_collision_strategy", "mtime_wins")
     if strategy not in {"skip", "mtime_wins", "overwrite"}:

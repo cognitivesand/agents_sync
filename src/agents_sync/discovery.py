@@ -78,6 +78,8 @@ class DiscoveryWalker:
             if not self.tool_status.is_available(tool_name):
                 continue
             for customization_type in sorted(spec.supported_customization_types):
+                if not self.tool_status.is_kind_available(tool_name, customization_type):
+                    continue
                 io = spec.io[customization_type]
                 root = expand_path(self.config[spec.config_dir_keys[customization_type]])
                 if not root.exists():
@@ -190,9 +192,18 @@ class DiscoveryWalker:
                     return [fixed_path]
                 return []
             walker = root.rglob if io.recursive else root.glob
+            suffixes = io.accepted_file_suffixes or (io.file_suffix,)
+            seen: set[Path] = set()
+            paths: list[Path] = []
+            for suffix in suffixes:
+                for path in walker(f"*{suffix}"):
+                    if path in seen:
+                        continue
+                    if path.is_file() and not path.name.startswith("."):
+                        seen.add(path)
+                        paths.append(path)
             return sorted(
-                p for p in walker(f"*{io.file_suffix}")
-                if p.is_file() and not p.name.startswith(".")
+                paths
             )
         if io.storage == "directory_skill":
             return sorted(
@@ -336,7 +347,7 @@ class DiscoveryWalker:
         return [
             name for name, spec in self.agentic_tools.items()
             if kind in spec.supported_customization_types
-            and self.tool_status.is_available(name)
+            and self.tool_status.is_kind_available(name, kind)
         ]
 
     def _is_reserved_target_name(

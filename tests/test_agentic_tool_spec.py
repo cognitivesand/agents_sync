@@ -11,9 +11,15 @@ from agents_sync.agentic_tool_spec import (
 from agents_sync.canonical import empty_canonical
 
 
-def test_default_registry_has_claude_codex_antigravity_and_opencode():
+def test_default_registry_has_claude_codex_copilot_antigravity_and_opencode():
     registry = default_agentic_tools()
-    assert set(registry.keys()) == {"claude", "codex", "antigravity", "opencode"}
+    assert set(registry.keys()) == {
+        "claude",
+        "codex",
+        "copilot",
+        "antigravity",
+        "opencode",
+    }
     for spec in registry.values():
         assert isinstance(spec, AgenticToolSpec)
 
@@ -83,6 +89,41 @@ def test_codex_spec_supports_agents_and_skills():
     assert spec.io["slash_command"].file_suffix == ".md"
     assert spec.io["slash_command"].recursive is True
     assert spec.io["rules"].fixed_file_name == "AGENTS.md"
+
+
+def test_copilot_spec_supports_cli_and_vscode_user_surfaces():
+    spec = default_agentic_tools()["copilot"]
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "rules",
+        "slash_command",
+    })
+    assert spec.config_dir_keys == {
+        "agent": "copilot_cli_agents_dir",
+        "skill": "copilot_cli_skills_dir",
+        "rules": "copilot_vscode_user_instructions_dir",
+        "slash_command": "copilot_vscode_user_prompts_dir",
+    }
+    assert spec.disable_config_key == "copilot_enabled"
+    assert spec.partial_availability is True
+    assert spec.kind_disable_config_keys == {
+        "agent": "copilot_cli_enabled",
+        "skill": "copilot_cli_enabled",
+        "rules": "copilot_vscode_user_profile_enabled",
+        "slash_command": "copilot_vscode_user_profile_enabled",
+    }
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".agent.md"
+    assert spec.io["agent"].accepted_file_suffixes == (
+        ".agent.md",
+        ".chatmode.md",
+        ".md",
+    )
+    assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["rules"].file_suffix == ".instructions.md"
+    assert spec.io["slash_command"].file_suffix == ".prompt.md"
+    assert spec.io["slash_command"].recursive is True
 
 
 def test_opencode_spec_supports_agents_and_skills_with_disable_key():

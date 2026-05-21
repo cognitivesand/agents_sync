@@ -25,6 +25,16 @@ def test_linux_defaults_use_home_conventions():
     assert defaults["opencode_commands_dir"] == str(home / ".config" / "opencode" / "commands")
     assert defaults["opencode_skills_dir"] == str(home / ".config" / "opencode" / "skills")
     assert defaults["opencode_rules_dir"] == str(home / ".config" / "opencode")
+    assert defaults["copilot_enabled"] is True
+    assert defaults["copilot_cli_enabled"] is True
+    assert defaults["copilot_vscode_user_profile_enabled"] is True
+    assert defaults["copilot_cli_agents_dir"] == str(home / ".copilot" / "agents")
+    assert defaults["copilot_cli_skills_dir"] == str(home / ".copilot" / "skills")
+    assert defaults["copilot_cli_mcp_config_file"] == str(home / ".copilot" / "mcp-config.json")
+    assert defaults["copilot_vscode_user_agents_dir"] is None
+    assert defaults["copilot_vscode_user_instructions_dir"] is None
+    assert defaults["copilot_vscode_user_prompts_dir"] is None
+    assert defaults["copilot_vscode_user_mcp_file"] is None
 
 
 def test_windows_defaults_prefer_appdata_and_localappdata():

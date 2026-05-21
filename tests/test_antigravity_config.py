@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from agents_sync.cli import build_parser
-from agents_sync.config import merged_config, platform_defaults
+from agents_sync.config import ConfigError, merged_config, platform_defaults, validate_config
 from agents_sync.sync import Syncer
 
 
@@ -107,6 +107,27 @@ def test_cli_parser_accepts_rules_dir_flags():
     assert args.codex_rules_dir == "/codex"
 
 
+def test_cli_parser_accepts_copilot_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--copilot-cli-agents-dir",
+        "/copilot/agents",
+        "--copilot-cli-skills-dir",
+        "/copilot/skills",
+        "--copilot-vscode-user-instructions-dir",
+        "/copilot/instructions",
+        "--copilot-vscode-user-prompts-dir",
+        "/copilot/prompts",
+        "--no-copilot-cli-enabled",
+    ])
+
+    assert args.copilot_cli_agents_dir == "/copilot/agents"
+    assert args.copilot_cli_skills_dir == "/copilot/skills"
+    assert args.copilot_vscode_user_instructions_dir == "/copilot/instructions"
+    assert args.copilot_vscode_user_prompts_dir == "/copilot/prompts"
+    assert args.copilot_cli_enabled is False
+
+
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:
@@ -187,6 +208,18 @@ def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
 def test_merged_config_honors_cli_disable_flag():
     config = merged_config(_minimal_args(antigravity_enabled=False))
     assert config["antigravity_enabled"] is False
+
+
+@pytest.mark.parametrize("flag_name", ["antigravity_enabled", "opencode_enabled"])
+def test_validate_config_rejects_non_boolean_enable_flags(
+    tmp_path: Path,
+    flag_name: str,
+):
+    config = _test_config(tmp_path)
+    config[flag_name] = "false"
+
+    with pytest.raises(ConfigError, match=f"{flag_name} must be a boolean"):
+        validate_config(config)
 
 
 # ---------- Syncer status for antigravity ----------

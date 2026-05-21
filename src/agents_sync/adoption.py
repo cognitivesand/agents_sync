@@ -107,7 +107,7 @@ class AdoptionEngine:
         """
         ps = state[pair_id]
         for tool in list(ps.agentic_tools.keys()):
-            if self.tool_status.is_available(tool):
+            if self.tool_status.is_kind_available(tool, ps.kind):
                 del ps.agentic_tools[tool]
         if not ps.agentic_tools:
             del state[pair_id]
@@ -473,7 +473,7 @@ class AdoptionEngine:
         return [
             name for name, spec in self.agentic_tools.items()
             if kind in spec.supported_customization_types
-            and self.tool_status.is_available(name)
+            and self.tool_status.is_kind_available(name, kind)
         ]
 
     def _is_reserved_target_name(
