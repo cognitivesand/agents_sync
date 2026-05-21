@@ -1,3 +1,12 @@
+"""Simulated case-only-collision tests.
+
+This file used to be named ``test_windows_slug_collision.py``, which
+overpromised: the case-insensitive lookups monkeypatch
+``os.path.normcase`` rather than relying on real NTFS case-folding. They
+pin the *logic* of the case-only collision detector but they do **not**
+exercise the inode-shared-between-two-names behaviour real NTFS / APFS
+exhibits (audit slice 10 · CQ-12).
+"""
 from __future__ import annotations
 
 from pathlib import Path

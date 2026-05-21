@@ -174,6 +174,17 @@ def parse_opencode_agent_md(
     *,
     artifact_path: Path | None = None,
 ) -> dict[str, Any]:
+    """Parse an opencode agent .md document into a canonical dict.
+
+    Unlike the other Markdown adapters, opencode agents derive their stable
+    user-facing identity from the *filename stem*, not from any field in
+    the frontmatter. Callers must therefore supply ``artifact_path`` unless
+    the canonical name is already known (i.e. ``prior_canonical`` carries
+    one or the frontmatter explicitly sets ``name``). When none of those
+    sources can produce a non-empty name, this raises rather than minting
+    a silent ``name=''`` — empty names misroute downstream sync (audit
+    slice 07 · CQ-01, the Liskov outlier in the parse_X family).
+    """
     frontmatter_data, body = split_frontmatter(text, label="opencode agent")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
     canonical["body"] = body
@@ -181,7 +192,14 @@ def parse_opencode_agent_md(
     if artifact_path is not None:
         canonical["name"] = artifact_path.stem
     elif not canonical.get("name"):
-        canonical["name"] = str(frontmatter_data.get("name", ""))
+        frontmatter_name = str(frontmatter_data.get("name", ""))
+        if not frontmatter_name:
+            raise ValueError(
+                "parse_opencode_agent_md needs either artifact_path, a prior "
+                "canonical with name set, or a 'name' field in frontmatter; "
+                "opencode agents have no other source of stable identity."
+            )
+        canonical["name"] = frontmatter_name
 
     if "description" in frontmatter_data:
         canonical["description"] = str(frontmatter_data["description"])

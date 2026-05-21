@@ -11,6 +11,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from agents_sync.sync import Syncer
 
 
@@ -141,15 +143,27 @@ def test_intra_tool_slug_collision_still_blocks(syncer: Syncer):
     assert state == {} or state.get("customization_artifacts", {}) == {}
 
 
-def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Spec v0.4 §5.5 'managed wins, new bytes archived' merge is deferred. "
+        "Audit slice 10 · CQ-09: this test asserts the *correct* §5.5 outcome "
+        "(managed pair_id wins, codex bytes are archived). The implementation "
+        "today produces block-and-log, so the assertion fails → XFAIL. When "
+        "the §5.5 handler lands, the test will PASS and pytest will raise "
+        "XPASS-strict, telling the contributor to remove this xfail marker "
+        "and accept the new contract as the regular green test."
+    ),
+)
+def test_mixed_managed_and_new_at_same_slug_resolves_per_spec_5_5(tmp_path: Path):
     """When one side carries a pair_id and the other is a no-id duplicate at
-    the same bare slug, both targets collide on the opposite side. Current
-    behavior: both pair_ids are blocked and state stays empty.
+    the same bare slug, spec §5.5 prescribes: the managed pair wins, the new
+    bytes from the unmanaged side are archived under the managed pair_id.
 
-    The v0.4 plan §5.5 prescribes a "managed wins, new bytes archived" merge
-    for this case, but my Phase 1.6 commit deferred that implementation. This
-    test documents the present block-and-log behavior so we notice when the
-    deferred §5.5 mixed handler lands.
+    The implementation today does block-and-log (both pair_ids blocked, state
+    stays empty) — the §5.5 merge handler was deferred from the Phase 1.6
+    commit. This test pins the *correct* §5.5 outcome so the deferral is
+    explicit and breaks loudly when implemented.
     """
     from ._helpers import make_syncer
 
@@ -157,11 +171,12 @@ def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
         tmp_path, antigravity_enabled=False, opencode_enabled=False,
     )
 
+    managed_pair_id = "00000000-0000-4000-8000-000000000000"
     claude_dir = syncer.tool_root("claude", "skill") / "managed"
     claude_dir.mkdir()
     (claude_dir / "SKILL.md").write_text(
         "---\n"
-        "pair_id: 00000000-0000-4000-8000-000000000000\n"
+        f"pair_id: {managed_pair_id}\n"
         "name: managed\n"
         "description: from-claude\n"
         "---\n"
@@ -172,4 +187,11 @@ def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
     syncer.sync_once()
 
     state = _list_state(syncer)
-    assert state.get("customization_artifacts", {}) == {}
+    artifacts = state.get("customization_artifacts", {})
+    # §5.5 expected outcome: managed pair_id survives, codex bytes archived
+    # under it. This is the assertion the implementation must satisfy when
+    # the §5.5 handler lands.
+    assert managed_pair_id in artifacts
+    archive_dir = syncer.state_dir / "archive" / managed_pair_id / "codex"
+    assert archive_dir.exists()
+    assert any(archive_dir.iterdir())

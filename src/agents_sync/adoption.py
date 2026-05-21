@@ -306,37 +306,24 @@ class AdoptionEngine:
                 continue
             target_info = info.agentic_tools.get(tool_name)
             target_spec = self.agentic_tools[tool_name]
-            existing_path: Path | None = None
-            existing_slot: str | None = None
-            prior_text: str | None = None
-            if target_info is not None:
-                existing_path = target_info.path
-                existing_slot = target_info.slot
-                if read_prior_text:
-                    target_io = target_spec.io[info.kind]
-                    try:
-                        prior_text = read_artifact_text(
-                            target_io, target_info.path, slot=target_info.slot,
-                        )
-                    except (OSError, UnicodeDecodeError) as exc:
-                        logging.warning(
-                            "Could not read prior text at %s for pair_id=%s; "
-                            "rendered output will not preserve existing frontmatter "
-                            "formatting (%s: %s)",
-                            target_info.path, pair_id, type(exc).__name__, exc,
-                            extra={"event": "prior_text_unreadable"},
-                        )
-                        prior_text = None
-                if self._target_is_private(
-                    pair_id,
-                    tool_name,
-                    target_spec,
-                    info.kind,
-                    target_info.path,
-                    prior_text,
-                    target_slot=target_info.slot,
-                ):
-                    continue
+            prior_text = self._read_target_prior_text(
+                pair_id=pair_id,
+                tool_name=tool_name,
+                target_spec=target_spec,
+                target_info=target_info,
+                kind=info.kind,
+                read_prior_text=read_prior_text,
+            )
+            if target_info is not None and self._target_is_private(
+                pair_id,
+                tool_name,
+                target_spec,
+                info.kind,
+                target_info.path,
+                prior_text,
+                target_slot=target_info.slot,
+            ):
+                continue
             if self._is_reserved_target_name(target_spec, info.kind, canonical):
                 logging.warning(
                     "Reserved slash_command name skipped: pair_id=%s tool=%s name=%s",
@@ -350,15 +337,51 @@ class AdoptionEngine:
                 target_spec,
                 info.kind,
                 canonical,
-                existing_path=existing_path,
+                existing_path=target_info.path if target_info is not None else None,
                 prior_text=prior_text,
                 source_dir=source_dir,
-                existing_slot=existing_slot,
+                existing_slot=target_info.slot if target_info is not None else None,
                 allow_unpaired_existing_slot=(
                     target_info is not None and not target_info.pair_id_present
                 ),
             )
         return results
+
+    def _read_target_prior_text(
+        self,
+        *,
+        pair_id: str,
+        tool_name: str,
+        target_spec: AgenticToolSpec,
+        target_info: "AgenticToolInfo | None",
+        kind: str,
+        read_prior_text: bool,
+    ) -> str | None:
+        """Return the existing on-disk text at ``target_info.path`` (or ``None``).
+
+        Encapsulates the three-way decision: target not present (no prior),
+        adoption path that skips the read, or sync path that reads with a
+        fail-soft fallback (logs ``prior_text_unreadable`` and returns None
+        if the read raises). Phase 4.b extracts this out of
+        ``_project_to_other_tools`` so the caller's render loop stays at one
+        level of abstraction.
+        """
+        if target_info is None or not read_prior_text:
+            return None
+        target_io = target_spec.io[kind]
+        try:
+            return read_artifact_text(
+                target_io, target_info.path, slot=target_info.slot,
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            logging.warning(
+                "Could not read prior text at %s for pair_id=%s; "
+                "rendered output will not preserve existing frontmatter "
+                "formatting (%s: %s)",
+                target_info.path, pair_id, type(exc).__name__, exc,
+                extra={"event": "prior_text_unreadable"},
+            )
+            return None
 
     # ---------- extend ----------
 
@@ -518,42 +541,14 @@ class AdoptionEngine:
             survivor_info = info.agentic_tools[tool]
             survivor_io = self.agentic_tools[tool].io[info.kind]
             if isinstance(survivor_io.file_layout, SharedKeyedMapLayout):
-                # Keyed-map removal: archive the slot text, then delete the
-                # slot key from the shared file. Sibling slots and out-of-map
-                # keys must survive.
-                slot_key = survivor_info.slot
-                if slot_key is None:
-                    continue
-                try:
-                    prior_slot_text = apply_slot(
-                        survivor_info.path, survivor_io.file_layout,
-                        slot_key, new_slot_text=None,
-                        expected_pair_id=pair_id,
-                    )
-                except _REMOVAL_FAILURES:
-                    logging.exception(
-                        "Archive-then-remove aborted: pair_id=%s survivor=%s slot=%s",
-                        pair_id, tool, slot_key,
-                    )
+                if not self._remove_keyed_map_slot(
+                    pair_id, tool, survivor_info, survivor_io,
+                ):
                     return False
-                if prior_slot_text is not None:
-                    archive.archive_text(
-                        self.state_dir, pair_id, tool,
-                        slot_name=slot_key,
-                        extension=survivor_io.file_layout.file_suffix,
-                        content=prior_slot_text,
-                    )
                 continue
-            survivor_path = survivor_info.path
-            if not survivor_path.exists():
-                continue
-            try:
-                archive.archive_move(self.state_dir, pair_id, tool, survivor_path)
-            except _REMOVAL_FAILURES:
-                logging.exception(
-                    "Archive-then-remove aborted: pair_id=%s survivor=%s",
-                    pair_id, tool,
-                )
+            if not self._remove_file_artifact(
+                pair_id, tool, survivor_info.path,
+            ):
                 return False
         ps = state[pair_id]
         for tool in list(missing_tools) + list(survivors):
@@ -570,6 +565,65 @@ class AdoptionEngine:
                 "preserved_unavailable=%s",
                 pair_id, missing_tools, survivors, list(ps.agentic_tools.keys()),
             )
+        return True
+
+    def _remove_keyed_map_slot(
+        self,
+        pair_id: str,
+        tool: str,
+        survivor_info: "AgenticToolInfo",
+        survivor_io: Any,
+    ) -> bool:
+        """Archive the prior slot text and delete the slot from the shared file.
+
+        Returns False on failure (the caller aborts and leaves the survivor
+        on disk; state is preserved so the next poll retries). Phase 4.b
+        extracts this out of ``_propagate_removal`` so each storage shape
+        (keyed-map vs per-file) lives in one focused helper.
+        """
+        slot_key = survivor_info.slot
+        if slot_key is None:
+            return True
+        try:
+            prior_slot_text = apply_slot(
+                survivor_info.path, survivor_io.file_layout,
+                slot_key, new_slot_text=None,
+                expected_pair_id=pair_id,
+            )
+        except _REMOVAL_FAILURES:
+            logging.exception(
+                "Archive-then-remove aborted: pair_id=%s survivor=%s slot=%s",
+                pair_id, tool, slot_key,
+            )
+            return False
+        if prior_slot_text is not None:
+            archive.archive_text(
+                self.state_dir, pair_id, tool,
+                slot_name=slot_key,
+                extension=survivor_io.file_layout.file_suffix,
+                content=prior_slot_text,
+            )
+        return True
+
+    def _remove_file_artifact(
+        self, pair_id: str, tool: str, survivor_path: Path,
+    ) -> bool:
+        """Archive-move the survivor file into the per-pair archive.
+
+        Returns False on failure (the caller aborts and leaves the survivor
+        on disk). No-op if the file no longer exists. Phase 4.b extracts
+        the per-file branch out of ``_propagate_removal``.
+        """
+        if not survivor_path.exists():
+            return True
+        try:
+            archive.archive_move(self.state_dir, pair_id, tool, survivor_path)
+        except _REMOVAL_FAILURES:
+            logging.exception(
+                "Archive-then-remove aborted: pair_id=%s survivor=%s",
+                pair_id, tool,
+            )
+            return False
         return True
 
     # ---------- internals ----------

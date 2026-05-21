@@ -23,3 +23,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_sync"]
+
+[tool.pytest.ini_options]
+# Audit slice 10 · CQ-15: register slow / integration markers so a developer
+# can opt out of the integration layer with ``pytest -m 'not integration'``
+# for fast feedback during inner loops.
+markers = [
+  "slow: tests that take more than ~2s wall-clock; opt out with -m 'not slow'",
+  "integration: tests that build a multi-tool Syncer over a tmp_path tree (the dominant cost in the suite); opt out with -m 'not integration'",
+]

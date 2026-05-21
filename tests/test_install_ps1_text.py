@@ -1,3 +1,17 @@
+"""Static-text checks on ``install.ps1``.
+
+This file used to be named ``test_windows_silent_startup.py``, which
+overpromised: nothing here actually starts PowerShell, executes the
+installer, or registers a real scheduled task. Every assertion is a
+substring match against the installer's source text. A PowerShell syntax
+error, a quoting regression, or a wscript launch that opens a visible
+window will all still pass.
+
+The file is kept (audit slice 10 · CQ-02) as a load-bearing safety net
+against accidental edits that remove the hidden-launcher pattern from
+``install.ps1``, but it does **not** stand in for a real Windows-platform
+integration test. A real test would need a Windows CI runner.
+"""
 from __future__ import annotations
 
 from pathlib import Path

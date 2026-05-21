@@ -165,15 +165,67 @@ class Syncer:
         slug, and multi-managed-id collisions are left untouched here; the
         existing _block_target_collisions step handles them.
         """
-        new_pair_ids = [
+        new_pair_ids = self._collect_new_pair_ids(discovery)
+        if not new_pair_ids:
+            return
+
+        groups, source_tool_by_pair = self._group_new_pairs_by_slug(
+            new_pair_ids, discovery,
+        )
+
+        for (kind, slug), group_pair_ids in groups.items():
+            if len(group_pair_ids) < 2:
+                continue
+            # Skip groups where the same tool appears twice: those are intra-tool
+            # slug collisions (e.g. two distinct claude files that slugify to the
+            # same name), not multi-tool duplicates. Hand them to
+            # _block_target_collisions intact.
+            tools_in_group = {source_tool_by_pair[p] for p in group_pair_ids}
+            if len(tools_in_group) != len(group_pair_ids):
+                continue
+
+            storage_targets = {
+                slot_aware_collision_key(
+                    discovery[p].agentic_tools[source_tool_by_pair[p]].path,
+                    discovery[p].agentic_tools[source_tool_by_pair[p]].slot,
+                )
+                for p in group_pair_ids
+            }
+            if len(storage_targets) != len(group_pair_ids):
+                continue
+            self._merge_new_artifact_group(
+                discovery, kind, slug, group_pair_ids, source_tool_by_pair
+            )
+
+    def _collect_new_pair_ids(
+        self, discovery: dict[str, CustomizationArtifactInfo],
+    ) -> list[str]:
+        """Return pair_ids whose every tool-side observation lacks a pair_id —
+        i.e. the artifact has never been managed before. Sole eligibility for
+        the §5.5 group-and-merge phase."""
+        return [
             pair_id for pair_id, info in discovery.items()
             if info.agentic_tools and all(
                 not t.pair_id_present for t in info.agentic_tools.values()
             )
         ]
-        if not new_pair_ids:
-            return
 
+    def _group_new_pairs_by_slug(
+        self,
+        new_pair_ids: list[str],
+        discovery: dict[str, CustomizationArtifactInfo],
+    ) -> tuple[dict[tuple[str, str], list[str]], dict[str, str]]:
+        """Group every new pair by (customization_type, target_slug) so multi-
+        tool duplicates can be detected. Returns:
+
+        - ``groups``: ``{(kind, slug): [pair_id, ...]}``.
+        - ``source_tool_by_pair``: ``{pair_id: tool_name}`` (every new pair has
+          exactly one tool by construction).
+
+        Private artifacts are dropped from ``discovery`` here so neither the
+        grouping nor any downstream projection sees them. Parse failures are
+        logged and skipped — they cannot participate in a merge group.
+        """
         groups: dict[tuple[str, str], list[str]] = {}
         source_tool_by_pair: dict[str, str] = {}
         for pair_id in new_pair_ids:
@@ -204,33 +256,7 @@ class Syncer:
             slug = target_slug(canonical["name"])
             groups.setdefault((info.kind, slug), []).append(pair_id)
             source_tool_by_pair[pair_id] = tool_name
-
-        for (kind, slug), group_pair_ids in groups.items():
-            if len(group_pair_ids) < 2:
-                continue
-            # Skip groups where the same tool appears twice: those are intra-tool
-            # slug collisions (e.g. two distinct claude files that slugify to the
-            # same name), not multi-tool duplicates. Hand them to
-            # _block_target_collisions intact.
-            tools_in_group = {source_tool_by_pair[p] for p in group_pair_ids}
-            if len(tools_in_group) != len(group_pair_ids):
-                continue
-            def group_tool_info(pair_id: str) -> AgenticToolInfo:
-                tool = source_tool_by_pair[pair_id]
-                return discovery[pair_id].agentic_tools[tool]
-
-            storage_targets = {
-                slot_aware_collision_key(
-                    group_tool_info(p).path,
-                    group_tool_info(p).slot,
-                )
-                for p in group_pair_ids
-            }
-            if len(storage_targets) != len(group_pair_ids):
-                continue
-            self._merge_new_artifact_group(
-                discovery, kind, slug, group_pair_ids, source_tool_by_pair
-            )
+        return groups, source_tool_by_pair
 
     def _merge_new_artifact_group(
         self,

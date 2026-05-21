@@ -1,3 +1,12 @@
+"""Unit tests for the ``retry_fs`` helper.
+
+This file used to be named ``test_windows_filesystem_retries.py``, which
+overpromised: the tests inject a ``flaky()`` callable and monkeypatch
+``time.sleep`` to a no-op. They pin retry semantics but do **not**
+exercise any real Windows-only filesystem race (anti-virus locks,
+OneDrive lazy hydration, ERROR_SHARING_VIOLATION on ``MoveFile``) —
+audit slice 10 · CQ-11.
+"""
 from __future__ import annotations
 
 from pathlib import Path
