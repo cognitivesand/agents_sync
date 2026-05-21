@@ -55,9 +55,10 @@ def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: py
         "pair-a": CustomizationArtifactInfo(kind="skill"),
         "pair-b": CustomizationArtifactInfo(kind="skill"),
     }
+    from agents_sync.sync_types import PlannedTarget
     targets = iter([
-        syncer.tool_root("codex", "skill") / "Alpha",
-        syncer.tool_root("codex", "skill") / "alpha",
+        PlannedTarget(syncer.tool_root("codex", "skill") / "Alpha"),
+        PlannedTarget(syncer.tool_root("codex", "skill") / "alpha"),
     ])
     monkeypatch.setattr(
         syncer.discovery, "_planned_adoption_targets", lambda info: [next(targets)]

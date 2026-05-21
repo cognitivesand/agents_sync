@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec
+from agents_sync.agentic_tool_spec import AgenticToolSpec, SharedKeyedMapLayout
 from agents_sync.config import expand_path
 
 
@@ -55,15 +55,22 @@ class ToolStatusTracker:
         for spec in self.agentic_tools.values():
             if not self._is_tool_enabled(spec):
                 continue
-            for config_key in spec.config_dir_keys.values():
-                root = expand_path(self.config[config_key])
+            for kind, config_key in spec.config_dir_keys.items():
+                resolved = expand_path(self.config[config_key])
+                # SharedKeyedMapLayout config keys point at a shared file,
+                # not a directory; only its parent should be pre-created
+                # — and the file is allowed to be absent (first-boot).
+                if isinstance(spec.io[kind].file_layout, SharedKeyedMapLayout):
+                    parent = resolved.parent
+                else:
+                    parent = resolved
                 try:
-                    root.mkdir(parents=True, exist_ok=True)
+                    parent.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
                     logging.warning(
                         "Could not pre-create %s root %s (%s: %s); "
                         "next poll will mark this tool unavailable.",
-                        spec.name, root, type(exc).__name__, exc,
+                        spec.name, parent, type(exc).__name__, exc,
                     )
 
     # ---------- per-poll refresh ----------
@@ -114,14 +121,26 @@ class ToolStatusTracker:
         self, spec: AgenticToolSpec
     ) -> tuple[str, tuple[str, str] | None]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
-        for _kind, config_key in spec.config_dir_keys.items():
-            root = expand_path(self.config[config_key])
-            if not root.exists():
-                return "unavailable", (str(root), "path does not exist")
+        for kind, config_key in spec.config_dir_keys.items():
+            resolved = expand_path(self.config[config_key])
+            if isinstance(spec.io[kind].file_layout, SharedKeyedMapLayout):
+                # The shared file may not exist yet (first-boot before any
+                # MCP slot is created). Availability requires only that
+                # the parent directory is reachable.
+                parent = resolved.parent
+                if not parent.exists():
+                    return "unavailable", (str(parent), "path does not exist")
+                try:
+                    next(parent.iterdir(), None)
+                except OSError as exc:
+                    return "unavailable", (str(parent), f"{type(exc).__name__}: {exc}")
+                continue
+            if not resolved.exists():
+                return "unavailable", (str(resolved), "path does not exist")
             try:
-                next(root.iterdir(), None)
+                next(resolved.iterdir(), None)
             except OSError as exc:
-                return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
+                return "unavailable", (str(resolved), f"{type(exc).__name__}: {exc}")
         return "available", None
 
     def _log_status_transition(

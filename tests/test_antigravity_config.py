@@ -107,6 +107,13 @@ def test_cli_parser_accepts_rules_dir_flags():
     assert args.codex_rules_dir == "/codex"
 
 
+def test_cli_parser_accepts_mcp_server_secret_policy_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--mcp-server-secret-policy", "redact"])
+
+    assert args.mcp_server_secret_policy == "redact"
+
+
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:
@@ -128,6 +135,7 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
         opencode_skills_dir=None,
         opencode_rules_dir=None,
         opencode_enabled=None,
+        mcp_server_secret_policy=None,
         state_path=None,
         verbose=False,
     )
@@ -187,6 +195,11 @@ def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
 def test_merged_config_honors_cli_disable_flag():
     config = merged_config(_minimal_args(antigravity_enabled=False))
     assert config["antigravity_enabled"] is False
+
+
+def test_merged_config_honors_mcp_secret_policy_override():
+    config = merged_config(_minimal_args(mcp_server_secret_policy="permissive"))
+    assert config["mcp_server_secret_policy"] == "permissive"
 
 
 # ---------- Syncer status for antigravity ----------

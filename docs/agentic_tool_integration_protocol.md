@@ -277,7 +277,7 @@ An `mcp_server` artifact is one MCP-server definition. Unlike `agent`/`skill`/`r
   - `map_key_path` is the JSON/TOML/YAML path to the map inside the file. Examples: `("mcpServers",)` for `~/.cursor/mcp.json`; `("mcpServers",)` for `~/.gemini/settings.json`; `("mcp_servers",)` for OpenAI Codex's `config.toml`. Encoded as a tuple of keys; nesting is allowed.
   - `key_field` is the canonical identity field. Almost always `"name"`.
 - **`config_roots`**: single key naming the shared file. The same key name is reused as `SharedKeyedMapLayout.shared_path`.
-- **Identity**: the map key (server name). When the canonical injects a `customization_artifact_id`, it is stored under a tool-specific frontmatter / passthrough field inside the slot (concrete location is the adapter's choice; the protocol requires only that `extract_customization_artifact_id` recovers it).
+- **Identity**: the map key (server name). When the canonical injects a `customization_artifact_id`, the v0.5 JSON slot convention stores it as top-level `pair_id` inside the slot. `extract_customization_artifact_id` / `extract_pair_id` MUST recover that value.
 - **Canonical document fields**:
   - `name` (string, required) — the slot key.
   - `transport` (`"stdio" | "http" | "sse" | "streamable-http"`, required) — canonical transport name. Per-tool aliases (`local`/`remote` from opencode, `streamableHttp` from Cline, `httpUrl` vs `url` from Gemini CLI) are normalised to the canonical name on parse and reverted on render via `per_agentic_tool_only`.
@@ -302,7 +302,8 @@ An `mcp_server` artifact is one MCP-server definition. Unlike `agent`/`skill`/`r
   - **Read**: discovery enumerates `shared_path` once per poll. The parser is invoked once per slot (one `parse(slot_text, prior_canonical)` per server). On a malformed slot, the artifact is skipped with a structured warning; sibling slots are still processed.
   - **Write**: rendering produces a slot value. The sync core reads the current `shared_path`, replaces (or inserts) the slot under `map_key_path`, and atomically writes the merged file. Sibling slots are preserved byte-for-byte. The file's keys outside `map_key_path` are preserved byte-for-byte.
   - **Archive granularity**: per-slot, matching US-05 AC-1 without exception. When a slot's bytes change, the prior slot value is serialised independently (one JSON or TOML fragment) and written to `archive/<customization_artifact_id>/<agentic_tool_name>/<slot-key>.<file-extension>.<ISO-timestamp>`. Sibling slots whose bytes did not change produce no archive entries on this poll, even if the slot we are writing forces a rewrite of the shared file as a whole. The bytes of the shared file outside the slot's `map_key_path` entry are never archived — they are preserved on disk byte-for-byte.
-  - **Identity injection**: when the sync engine creates a slot, the adapter chooses where in the slot the `customization_artifact_id` is stored. The protocol requires only that `extract_customization_artifact_id(slot_text)` recovers it. Conventional choice: a top-level key like `__agents_sync_id__` or `_agents_sync_artifact_id` inside the slot, mirroring how `agent` artifacts embed it in frontmatter.
+  - **Identity injection**: when the sync engine creates a JSON slot, it writes the managed identity as top-level `pair_id`. TOML / YAML adapter PRs may introduce format-specific handlers, but they must preserve the same recoverable canonical identity.
+  - **Format support in `feat/v0.5-mcp-server`**: only the JSON shared-keyed-map format handler is registered in this PR. TOML (`config.toml[mcp_servers]`) and YAML handlers land with the tool-adapter PRs that need them.
 
 ## Versioning
 

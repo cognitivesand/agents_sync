@@ -31,7 +31,7 @@ from agents_sync.rendering import (
     write_artifact_inplace,
 )
 from agents_sync.state import CustomizationArtifactState
-from agents_sync.sync_types import CustomizationArtifactInfo
+from agents_sync.sync_types import CustomizationArtifactInfo, RenderResult
 from agents_sync.tool_status import ToolStatusTracker
 
 
@@ -143,7 +143,7 @@ class AdoptionEngine:
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
         source_root = expand_path(self.config[source_spec.config_dir_keys[info.kind]])
-        text = read_artifact_text(source_io, source_info.path)
+        text = read_artifact_text(source_io, source_info.path, slot=source_info.slot)
         canonical = source_io.parse(
             text,
             None,
@@ -155,15 +155,19 @@ class AdoptionEngine:
         canonical["pair_id"] = pair_id
 
         if not source_info.pair_id_present:
-            archive.archive_copy(self.state_dir, pair_id, source_tool, source_info.path)
+            self._archive_source_before_write(
+                pair_id, source_tool, source_io, source_info, text,
+            )
             write_artifact_inplace(
-                source_io, source_info.path, source_io.render(canonical, text)
+                source_io, source_info.path,
+                source_io.render(canonical, text),
+                slot=source_info.slot,
             )
 
         save_canonical(self.state_dir, pair_id, canonical)
 
         source_dir = source_info.path if source_io.storage == "directory_skill" else None
-        paths = self._project_to_other_tools(
+        results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,
             info=info,
@@ -171,13 +175,41 @@ class AdoptionEngine:
             source_dir=source_dir,
             read_prior_text=False,
         )
+        self._archive_prior_slot_results(pair_id, info.kind, results)
 
-        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
+        update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info(
             "Adopted from %s: pair_id=%s paths=%s",
-            source_tool, pair_id, {k: str(v) for k, v in paths.items()},
+            source_tool, pair_id,
+            {k: str(v.path) for k, v in results.items()},
         )
         return True
+
+    def _archive_source_before_write(
+        self,
+        pair_id: str,
+        source_tool: str,
+        source_io: Any,
+        source_info: Any,
+        prior_text: str,
+    ) -> None:
+        """Preserve the source's prior bytes before the engine rewrites
+        them. For per-file artifacts the original file is archived
+        unchanged; for SharedKeyedMapLayout artifacts the prior slot
+        text is archived (the shared file as a whole is never archived,
+        only the slot we are about to overwrite)."""
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        if isinstance(source_io.file_layout, SharedKeyedMapLayout):
+            archive.archive_text(
+                self.state_dir, pair_id, source_tool,
+                slot_name=str(source_info.slot),
+                extension=source_io.file_layout.file_suffix,
+                content=prior_text,
+            )
+            return
+        archive.archive_copy(
+            self.state_dir, pair_id, source_tool, source_info.path,
+        )
 
     # ---------- N-way sync ----------
 
@@ -201,7 +233,7 @@ class AdoptionEngine:
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
         source_root = expand_path(self.config[source_spec.config_dir_keys[info.kind]])
-        text = read_artifact_text(source_io, source_info.path)
+        text = read_artifact_text(source_io, source_info.path, slot=source_info.slot)
         canonical = source_io.parse(
             text,
             prior_canonical,
@@ -214,7 +246,7 @@ class AdoptionEngine:
         save_canonical(self.state_dir, pair_id, canonical)
 
         source_dir = source_info.path if source_io.storage == "directory_skill" else None
-        paths = self._project_to_other_tools(
+        results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,
             info=info,
@@ -222,8 +254,9 @@ class AdoptionEngine:
             source_dir=source_dir,
             read_prior_text=True,
         )
+        self._archive_prior_slot_results(pair_id, info.kind, results)
 
-        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
+        update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info("Synced from %s: pair_id=%s", source_tool, pair_id)
         return True
 
@@ -236,28 +269,37 @@ class AdoptionEngine:
         source_tool: str,
         source_dir: Path | None,
         read_prior_text: bool,
-    ) -> dict[str, Path]:
-        """Render `canonical` onto every available tool except `source_tool`.
+    ) -> dict[str, "RenderResult"]:
+        """Render ``canonical`` onto every available tool except ``source_tool``.
 
-        `read_prior_text=True` (the sync path) re-reads each target's existing
+        ``read_prior_text=True`` (the sync path) re-reads each target's existing
         bytes so the renderer can preserve user frontmatter ordering;
-        `read_prior_text=False` (the adoption path) skips that read since the
+        ``read_prior_text=False`` (the adoption path) skips that read since the
         target either doesn't exist yet or hasn't been claimed by this pair.
         """
-        paths: dict[str, Path] = {source_tool: info.agentic_tools[source_tool].path}
+        source_info = info.agentic_tools[source_tool]
+        results: dict[str, RenderResult] = {
+            source_tool: RenderResult(
+                path=source_info.path, slot=source_info.slot,
+            )
+        }
         for tool_name in self._available_participating_tools(info.kind):
             if tool_name == source_tool:
                 continue
             target_info = info.agentic_tools.get(tool_name)
             target_spec = self.agentic_tools[tool_name]
             existing_path: Path | None = None
+            existing_slot: str | None = None
             prior_text: str | None = None
             if target_info is not None:
                 existing_path = target_info.path
+                existing_slot = target_info.slot
                 if read_prior_text:
                     target_io = target_spec.io[info.kind]
                     try:
-                        prior_text = read_artifact_text(target_io, target_info.path)
+                        prior_text = read_artifact_text(
+                            target_io, target_info.path, slot=target_info.slot,
+                        )
                     except (OSError, UnicodeDecodeError) as exc:
                         logging.warning(
                             "Could not read prior text at %s for pair_id=%s; "
@@ -273,6 +315,7 @@ class AdoptionEngine:
                     info.kind,
                     target_info.path,
                     prior_text,
+                    target_slot=target_info.slot,
                 ):
                     continue
             if self._is_reserved_target_name(target_spec, info.kind, canonical):
@@ -283,7 +326,7 @@ class AdoptionEngine:
                     canonical.get("name"),
                 )
                 continue
-            paths[tool_name] = render_to_agentic_tool(
+            results[tool_name] = render_to_agentic_tool(
                 self.config,
                 target_spec,
                 info.kind,
@@ -291,8 +334,9 @@ class AdoptionEngine:
                 existing_path=existing_path,
                 prior_text=prior_text,
                 source_dir=source_dir,
+                existing_slot=existing_slot,
             )
-        return paths
+        return results
 
     # ---------- extend ----------
 
@@ -318,7 +362,7 @@ class AdoptionEngine:
                     source_dir = tool_info.path
                     break
 
-        paths: dict[str, Path] = {}
+        results: dict[str, RenderResult] = {}
         for tool_name in target_tools:
             target_spec = self.agentic_tools[tool_name]
             if self._is_reserved_target_name(target_spec, info.kind, canonical):
@@ -329,7 +373,7 @@ class AdoptionEngine:
                     canonical.get("name"),
                 )
                 continue
-            paths[tool_name] = render_to_agentic_tool(
+            results[tool_name] = render_to_agentic_tool(
                 self.config,
                 target_spec,
                 info.kind,
@@ -338,7 +382,8 @@ class AdoptionEngine:
                 prior_text=None,
                 source_dir=source_dir,
             )
-        update_state_n_way(state, pair_id, info.kind, paths, self.agentic_tools)
+        self._archive_prior_slot_results(pair_id, info.kind, results)
+        update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info(
             "Extended to newly available tools: pair_id=%s tools=%s",
             pair_id, target_tools,
@@ -361,15 +406,66 @@ class AdoptionEngine:
         for tool in changed_tools:
             if tool == winner:
                 continue
-            archive.archive_copy(
-                self.state_dir, pair_id, tool, info.agentic_tools[tool].path
-            )
+            self._archive_existing_tool_bytes(pair_id, info.kind, tool, info)
         logging.warning(
             "Conflict resolved (%s wins): pair_id=%s mtimes=%s",
             winner, pair_id,
             {t: info.agentic_tools[t].mtime for t in changed_tools},
         )
         return self._sync_from_agentic_tool(pair_id, winner, info, state)
+
+    def _archive_existing_tool_bytes(
+        self,
+        pair_id: str,
+        kind: str,
+        tool: str,
+        info: CustomizationArtifactInfo,
+    ) -> None:
+        """Archive the current bytes for ``tool`` respecting storage shape."""
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        tool_info = info.agentic_tools[tool]
+        tool_io = self.agentic_tools[tool].io[kind]
+        if isinstance(tool_io.file_layout, SharedKeyedMapLayout):
+            prior_text = read_artifact_text(
+                tool_io, tool_info.path, slot=tool_info.slot,
+            )
+            archive.archive_text(
+                self.state_dir, pair_id, tool,
+                slot_name=str(tool_info.slot),
+                extension=tool_io.file_layout.file_suffix,
+                content=prior_text,
+            )
+            return
+        archive.archive_copy(self.state_dir, pair_id, tool, tool_info.path)
+
+    def _archive_prior_slot_results(
+        self,
+        pair_id: str,
+        kind: str,
+        results: dict[str, RenderResult],
+    ) -> None:
+        """Archive keyed-map slots returned by render writes.
+
+        Per-file artifacts keep the historical behaviour. ``RenderResult``
+        only carries prior bytes for ``SharedKeyedMapLayout`` writes, so this
+        helper is intentionally narrow.
+        """
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        for tool, result in results.items():
+            if result.prior_slot_text is None:
+                continue
+            tool_io = self.agentic_tools[tool].io[kind]
+            extension = (
+                tool_io.file_layout.file_suffix
+                if isinstance(tool_io.file_layout, SharedKeyedMapLayout)
+                else result.path.suffix
+            )
+            archive.archive_text(
+                self.state_dir, pair_id, tool,
+                slot_name=str(result.slot),
+                extension=extension or ".json",
+                content=result.prior_slot_text,
+            )
 
     def _pick_winner(
         self, tools: Iterable[str], info: CustomizationArtifactInfo
@@ -398,8 +494,38 @@ class AdoptionEngine:
         dropped. Abort if archiving any survivor fails — survivors stay on
         disk and the state entry is preserved so the next poll retries.
         """
+        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
+        from agents_sync.shared_keyed_map_io import apply_slot
         for tool in survivors:
-            survivor_path = info.agentic_tools[tool].path
+            survivor_info = info.agentic_tools[tool]
+            survivor_io = self.agentic_tools[tool].io[info.kind]
+            if isinstance(survivor_io.file_layout, SharedKeyedMapLayout):
+                # Keyed-map removal: archive the slot text, then delete the
+                # slot key from the shared file. Sibling slots and out-of-map
+                # keys must survive.
+                slot_key = survivor_info.slot
+                if slot_key is None:
+                    continue
+                try:
+                    prior_slot_text = apply_slot(
+                        survivor_info.path, survivor_io.file_layout,
+                        slot_key, new_slot_text=None,
+                    )
+                except Exception:
+                    logging.exception(
+                        "Archive-then-remove aborted: pair_id=%s survivor=%s slot=%s",
+                        pair_id, tool, slot_key,
+                    )
+                    return False
+                if prior_slot_text is not None:
+                    archive.archive_text(
+                        self.state_dir, pair_id, tool,
+                        slot_name=slot_key,
+                        extension=survivor_io.file_layout.file_suffix,
+                        content=prior_slot_text,
+                    )
+                continue
+            survivor_path = survivor_info.path
             if not survivor_path.exists():
                 continue
             try:
@@ -437,12 +563,13 @@ class AdoptionEngine:
         kind: str,
         target_path: Path,
         prior_text: str | None,
+        target_slot: str | None = None,
     ) -> bool:
         target_io = target_spec.io[kind]
         text = prior_text
         if text is None:
             try:
-                text = read_artifact_text(target_io, target_path)
+                text = read_artifact_text(target_io, target_path, slot=target_slot)
             except (OSError, UnicodeDecodeError) as exc:
                 logging.warning(
                     "Could not inspect prior text at %s for pair_id=%s; "
@@ -496,7 +623,7 @@ class AdoptionEngine:
         prior_canonical = load_canonical(self.state_dir, pair_id)
         tool_info = info.agentic_tools[winner]
         tool_io = self.agentic_tools[winner].io[info.kind]
-        text = read_artifact_text(tool_io, tool_info.path)
+        text = read_artifact_text(tool_io, tool_info.path, slot=tool_info.slot)
         canonical = tool_io.parse(
             text,
             prior_canonical,
