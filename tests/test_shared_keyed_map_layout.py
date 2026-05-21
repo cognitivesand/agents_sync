@@ -44,6 +44,13 @@ def test_json_format_roundtrips_minimal_mcp_file():
     assert obj["mcpServers"]["github"]["command"] == "gh-mcp"
 
 
+def test_json_format_tolerates_utf8_bom():
+    fmt = get_format("json")
+    obj = fmt.deserialize('\ufeff{"mcpServers": {"github": {"command": "gh-mcp"}}}')
+
+    assert obj["mcpServers"]["github"]["command"] == "gh-mcp"
+
+
 def test_json_format_handles_empty_text_as_empty_mapping():
     """First-boot before any MCP slot exists: the shared file may be empty
     or whitespace-only. The handler must not crash."""

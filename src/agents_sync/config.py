@@ -85,10 +85,12 @@ def platform_defaults(
         "claude_commands_dir": str(home_dir / ".claude" / "commands"),
         "claude_skills_dir": str(home_dir / ".claude" / "skills"),
         "claude_rules_dir": str(home_dir / ".claude"),
+        "claude_mcp_servers_file": str(home_dir / ".claude.json"),
         "codex_agents_dir": str(home_dir / ".codex" / "agents"),
         "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
         "codex_skills_dir": str(home_dir / ".codex" / "skills"),
         "codex_rules_dir": str(home_dir / ".codex"),
+        "codex_config_file": str(home_dir / ".codex" / "config.toml"),
         # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
         # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
         # handles the per-OS separator). Set antigravity_enabled=False to skip
@@ -99,6 +101,7 @@ def platform_defaults(
         "opencode_commands_dir": str(opencode_root / "commands"),
         "opencode_skills_dir": str(opencode_root / "skills"),
         "opencode_rules_dir": str(opencode_root),
+        "opencode_config_file": str(opencode_root / "opencode.json"),
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",
         "mcp_server_secret_policy": "refuse",
@@ -139,16 +142,19 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(config, "claude_commands_dir", getattr(args, "claude_commands_dir", None))
     maybe_set(config, "claude_skills_dir", args.claude_skills_dir)
     maybe_set(config, "claude_rules_dir", getattr(args, "claude_rules_dir", None))
+    maybe_set(config, "claude_mcp_servers_file", getattr(args, "claude_mcp_servers_file", None))
     maybe_set(config, "codex_agents_dir", getattr(args, "codex_agents_dir", None))
     maybe_set(config, "codex_prompts_dir", getattr(args, "codex_prompts_dir", None))
     maybe_set(config, "codex_skills_dir", args.codex_skills_dir)
     maybe_set(config, "codex_rules_dir", getattr(args, "codex_rules_dir", None))
+    maybe_set(config, "codex_config_file", getattr(args, "codex_config_file", None))
     maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
     maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
     maybe_set(config, "opencode_agents_dir", getattr(args, "opencode_agents_dir", None))
     maybe_set(config, "opencode_commands_dir", getattr(args, "opencode_commands_dir", None))
     maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
     maybe_set(config, "opencode_rules_dir", getattr(args, "opencode_rules_dir", None))
+    maybe_set(config, "opencode_config_file", getattr(args, "opencode_config_file", None))
     maybe_set(config, "opencode_enabled", getattr(args, "opencode_enabled", None))
     maybe_set(
         config,
