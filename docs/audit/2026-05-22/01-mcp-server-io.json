@@ -1,0 +1,63 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/mcp_server_io/{__init__,parse,render,dialect,headers,_helpers,_slot_codec}.py + tests/test_mcp_server_io.py",
+  "date": "2026-05-22",
+  "files_analyzed": 8,
+  "total_lines": 1379,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "Zero CRITICAL findings and zero un-mitigated MAJOR findings: every prior MAJOR (CQ-01..CQ-05, CQ-07, CQ-14) has a tracked behavioural test that asserts the closure, and the remaining structural smells are now MINOR/INFO.",
+  "remediation_diff_summary": "All twelve prior MAJOR/WARNING findings are closed. The 612-line monolith is now a 7-file package whose largest unit (parse.py, 262 lines) and longest function (parse_mcp_server_json, 26 lines) are well under thresholds. CQ-01 (extras back-door), CQ-02 (silent JSON→TOML fallback), CQ-03 (catch-all in extract_pair_id), CQ-05 (long parse function), CQ-07 (transport-fork divergence), CQ-09 (long _render_http_headers), CQ-14 (round-trip assertion gap), and CQ-16 (coverage gap on sse/streamable-http/TOML/bearer/env_http_headers) each have a dedicated regression test. No regressions detected; residual W3/W8 primitive-obsession on the canonical-dict schema persists but is bounded to the package and is now INFO-grade.",
+  "detailed_analysis": "The remediation has materially improved this slice. The monolithic mcp_server_io.py (612 lines, multifaceted responsibility) is now a cohesive package whose modules each own one concern: dialect (data class), _slot_codec (format I/O), _helpers (pure value transforms), headers (HTTP-header policy), parse (slot → canonical), render (canonical → slot), __init__ (re-export). Every prior MAJOR finding has a corresponding behavioural test in tests/test_mcp_server_io.py. CQ-01 (extras back-door): closed via test_mcp_secret_policy_refuse_flags_secret_extra_exactly and test_mcp_secret_policy_redact_rewrites_secret_extra_before_persisting. CQ-02 (silent JSON→TOML fallback): closed; _slot_codec.loads_slot now dispatches on an explicit slot_format kwarg. CQ-03 (extract_pair_id catch-all): closed; JSONDecodeError and ValueError propagate. CQ-04 (Dialect god-class): partially mitigated structurally. CQ-05 (long parse function): closed (26 lines, six helpers). CQ-06 (dead artifact_root parameter): persists as INFO. CQ-07 (divergent transport switches): closed via _copy_transport_fields/_render_transport_fields. CQ-08/CQ-10/CQ-12 (primitive obsession): persist as INFO. CQ-09 (long _render_http_headers): closed (23 lines). CQ-11 (canonical_transport rebuild): persists as INFO. CQ-13 (renderer discards redactions): persists as INFO. CQ-14 (round-trip assertion gap): closed. CQ-15 (assertion-roulette): partially closed via list comprehension. CQ-16 (coverage gap): closed via new tests for sse, streamable-http, TOML, bearer, env_http_headers, prior_canonical reuse, unknown-transport rejection. No regressions. The package is structurally sound and ready to absorb v0.5 tool adapters.",
+  "findings": [
+    {
+      "id": "CQ-01",
+      "severity": "INFO",
+      "category": "I2 — Dead interface contract",
+      "file": "src/agents_sync/mcp_server_io/parse.py",
+      "line": 47,
+      "description": "parse_mcp_server_json still accepts an artifact_root parameter that is immediately discarded with `del artifact_root`. Persists from prior CQ-06.",
+      "recommendation": "Either drop artifact_root from the public signature now that no caller relies on it, or wire it through to apply_mcp_secret_policy as the artifact context when artifact_path is relative.",
+      "prior_audit_ref": "CQ-06"
+    },
+    {
+      "id": "CQ-02",
+      "severity": "INFO",
+      "category": "C3 — Discarded second return value",
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "line": 60,
+      "description": "render_mcp_server_json discards the redactions tuple from apply_mcp_secret_policy with `obj, _ = ...`. If the renderer ever produces a fresh redaction, that signal is lost.",
+      "recommendation": "Either assert `len(redactions) == 0` at render time or surface the redactions on the return so the caller can log them.",
+      "prior_audit_ref": "CQ-13"
+    },
+    {
+      "id": "CQ-03",
+      "severity": "INFO",
+      "category": "W8 — Primitive obsession on tool_only schema",
+      "file": "src/agents_sync/mcp_server_io/parse.py",
+      "line": 207,
+      "description": "The tool_only dict still uses nine stringly-typed magic keys that writer and readers must agree on by convention.",
+      "recommendation": "Introduce a TypedDict or frozen dataclass `ToolOnlySpellings` so mypy --strict catches key drift.",
+      "prior_audit_ref": "CQ-08"
+    },
+    {
+      "id": "CQ-04",
+      "severity": "INFO",
+      "category": "I4 — Recomputation in repeated path",
+      "file": "src/agents_sync/mcp_server_io/dialect.py",
+      "line": 60,
+      "description": "McpServerDialect.canonical_transport rebuilds the aliases dict from self.transport_aliases on every call. The dialect is frozen, so this is pure waste.",
+      "recommendation": "Compute the aliases lookup in __post_init__ or via functools.cached_property so the dict is built once per dialect instance.",
+      "prior_audit_ref": "CQ-11"
+    },
+    {
+      "id": "CQ-05",
+      "severity": "INFO",
+      "category": "W3 — Inappropriate intimacy with canonical dict",
+      "file": "src/agents_sync/mcp_server_io/parse.py",
+      "line": 277,
+      "description": "clear_mcp_fields and known_slot_fields still encode the canonical schema as two parallel literal sets — adding a new canonical field requires updating both.",
+      "recommendation": "Promote the canonical schema to a CanonicalMcpServer dataclass (or TypedDict) and derive both clear_mcp_fields and known_slot_fields from it via dataclasses.fields() or __annotations__.",
+      "prior_audit_ref": "CQ-10"
+    }
+  ]
+}

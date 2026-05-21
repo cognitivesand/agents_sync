@@ -1,0 +1,83 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "tests/test_mcp_server_sync.py (+ tests/_helpers.py, tests/conftest.py for context)",
+  "date": "2026-05-22",
+  "files_analyzed": 3,
+  "total_lines": 814,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "All MAJOR findings from the prior audit are closed; the three residual smells are WARNING or INFO and the suite now pins idempotency, conflict resolution, and key ordering with positive signals.",
+  "remediation_diff_summary": "Phase 1 + 3 reworked the refuse/redact/collision tests to assert structured signals (McpSecretLeakError.policy and .findings[].field_path, ResolveResult.changed counts, structured 'slot=github' log keys) instead of free-text wording. Phase 4c added four contracts the prior audit said were missing: idempotency (test_mcp_adoption_is_idempotent), managed-conflict newest-mtime-wins with loser-slot archive verification, key-order preservation across renders, and occupied-slot-with-foreign-pair-id blocking. The pair-id, remove-slot, and cross-tool composition tests gained positive content checks (validate_pair_id, canonical inspection, archive content equality). _pair_id_for_slot and _baseline_config helpers were not refactored.",
+  "detailed_analysis": "The MCP-server sync test file has been substantively strengthened. Of the twelve prior findings, six are fully closed, three are partially closed (down-rated from MAJOR/WARNING to WARNING/INFO), and three persist at their original severity. The file grew from 405 to 664 lines, adding ~260 lines of net new contract coverage rather than scaffolding bloat. Closed findings: CQ-01 (refuse-blocks-adoption now walks caplog records to assert McpSecretLeakError.policy=='refuse' and findings[0].field_path=='env.GITHUB_TOKEN'); CQ-07 (no longer hits internal discovery); CQ-08 (pair-id format validation + cross-slot uniqueness + cross-tool equality + canonical content); CQ-09 (archive content compared field-for-field to pre-deletion slot); CQ-11 (idempotency, conflict, key-ordering tests all added); CQ-02 (collision test now requires ERROR record containing 'Target collision' AND shared file path AND structured 'slot=github' key). Persisting: CQ-03 (sensitive equality on 'MCP server secret policy permissive' log substring), CQ-04 (magic placeholder string '${env:AGENTS_SYNC_REDACTED_1}'), CQ-05 (conditional logic in _pair_id_for_slot, now called from six tests up from four), CQ-06 (eager test asserting archive shape AND filesystem-slot intactness), CQ-10 (eleven 'unused-*' directory keys in _baseline_config), CQ-12 (magic mtime literals 1000/2000). New minor smells introduced: semicolon-chained 'result = syncer.sync_once(); changed = result.changed' on lines 342/543/572/613. Net posture: the file pins the right things now; remaining work is hygiene.",
+  "findings": [
+    {
+      "id": "TQ-01",
+      "severity": "WARNING",
+      "category": "P10 Sensitive Equality — Log Message Substring",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 417,
+      "description": "test_mcp_secret_policy_permissive_warns still asserts via 'MCP server secret policy permissive' substring match against caplog.message. Any rephrasing — even capitalisation — breaks the test without indicating a behavioural regression.",
+      "recommendation": "Emit a structured signal for the permissive code path — either a dedicated McpSecretWarning event/record carrying .policy and .findings on caplog, or a returnable warnings list on ResolveResult — and assert on the structured field instead of the free-text message.",
+      "prior_audit_ref": "CQ-03"
+    },
+    {
+      "id": "TQ-02",
+      "severity": "WARNING",
+      "category": "P10 Sensitive Equality — Magic Placeholder Format",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 381,
+      "description": "test_mcp_secret_policy_redact_rewrites still pins the literal placeholder format '${env:AGENTS_SYNC_REDACTED_1}' as a string. The canonical assertion on .secret_redactions[0].placeholder_env_var is the right pattern; the file-content assertion should follow the same shape.",
+      "recommendation": "Read the expected placeholder back from canonical.secret_redactions[0].placeholder_env_var and interpolate it into the expected file text, or expose a render_redaction_placeholder(name) helper from production and use it in the test.",
+      "prior_audit_ref": "CQ-04"
+    },
+    {
+      "id": "TQ-03",
+      "severity": "WARNING",
+      "category": "P8 Conditional Test Logic in Shared Helper",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 126,
+      "description": "_pair_id_for_slot still contains a for-loop, an any() predicate, and a raise AssertionError fallback (lines 126-131). It is now called from six tests rather than four, so a single helper bug masks six regressions.",
+      "recommendation": "Replace with a deterministic lookup that takes (slot, tool_name) and asserts exactly one match. Better: derive the pair_id from the file under test so the helper disappears.",
+      "prior_audit_ref": "CQ-05"
+    },
+    {
+      "id": "TQ-04",
+      "severity": "WARNING",
+      "category": "P7 Eager Test",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 259,
+      "description": "test_mcp_archive_is_per_slot still asserts two distinct contracts in one body (archive shape AND sibling-slot preservation). test_mcp_managed_conflict_newest_mtime_wins_archives_loser_slot introduces the same pattern at a larger scale.",
+      "recommendation": "Split each test into a focused 'archive shape' test and a 'sibling-slot preservation' test.",
+      "prior_audit_ref": "CQ-06"
+    },
+    {
+      "id": "TQ-05",
+      "severity": "WARNING",
+      "category": "P12 Mystery Guest in Helper",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 36,
+      "description": "_baseline_config still injects eleven 'unused-*' directory paths solely to satisfy Syncer's config schema. The file doesn't use tests/_helpers.make_config because its synthetic alpha/beta MCP adapter set is incompatible with the helper's claude/codex/opencode/antigravity-shaped config.",
+      "recommendation": "Either (1) extend tests/_helpers.make_config with an mcp_adapters=… kwarg, or (2) relax Syncer's config schema so unused tool roots can be absent, or (3) consolidate the eleven keys into a single CONFIG_UNUSED_DIRS constant.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "TQ-06",
+      "severity": "INFO",
+      "category": "P4 Weak Assertion — Magic Numbers",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 456,
+      "description": "test_mcp_first_boot_reconciliation_by_slot_key still encodes 'newer mtime wins' via raw literals 1000 (alpha) and 2000 (beta). The new conflict test at line 501 uses 3000/4000 with the same implicit convention.",
+      "recommendation": "Introduce named constants OLDER_MTIME / NEWER_MTIME at module scope. Better, rename the test to test_mcp_first_boot_reconciliation_newest_mtime_wins so the name advertises the rule.",
+      "prior_audit_ref": "CQ-12"
+    },
+    {
+      "id": "TQ-07",
+      "severity": "INFO",
+      "category": "Style — Semicolon-chained Statements",
+      "file": "tests/test_mcp_server_sync.py",
+      "line": 342,
+      "description": "Four call sites use 'result = syncer.sync_once(); changed = result.changed' on a single line (lines 342, 543, 572, 613). ruff format would split it.",
+      "recommendation": "Split onto two lines, or replace with 'changed = syncer.sync_once().changed' where the .result object isn't otherwise used.",
+      "prior_audit_ref": "newly introduced"
+    }
+  ]
+}
