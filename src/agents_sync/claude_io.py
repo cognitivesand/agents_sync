@@ -1,24 +1,24 @@
 """Claude .md parsing and rendering.
 
 Uses ruamel.yaml for round-trip preservation when injecting fields into
-an existing user-authored frontmatter (e.g., a fresh `pair_id`).
+an existing user-authored frontmatter (e.g., a fresh `pair_id`). The
+generic YAML-frontmatter primitives live in :mod:`yaml_frontmatter` so
+the four Markdown-based adapters share one parse-prelude and one
+exception type instead of four near-duplicates.
 """
 from __future__ import annotations
 
-import io
-import re
 from typing import Any
 
-from ruamel.yaml import YAML
-
 from agents_sync.canonical import empty_canonical, new_pair_id
-
-
-FRONTMATTER_RE = re.compile(
-    r"\A(?:\ufeff)?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)(.*)\Z",
-    re.DOTALL,
+from agents_sync.yaml_frontmatter import (
+    FRONTMATTER_RE,
+    extract_pair_id_from_md,
+    frontmatter_for_render,
+    split_frontmatter,
+    yaml_dump,
 )
-_CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
+
 
 # Frontmatter keys the canonical maps explicitly. Anything else is preserved
 # in canonical["per_agentic_tool_extra"]["claude"] so user-set fields we don't
@@ -37,54 +37,10 @@ KNOWN_CLAUDE_FIELDS = {
 }
 
 
-def _make_yaml() -> YAML:
-    yml = YAML(typ="rt")
-    yml.preserve_quotes = True
-    yml.width = 4096
-    yml.indent(mapping=2, sequence=4, offset=2)
-    return yml
-
-
-def _yaml_load(text: str) -> Any:
-    if not text.strip():
-        return None
-    return _make_yaml().load(io.StringIO(text))
-
-
-def _yaml_dump(data: Any) -> str:
-    buf = io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
-
-
 def _split_csv(value: Any) -> list[str]:
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]
     return [str(value)]
-
-
-def _strip_bom_prefix(text: str) -> str:
-    if text.startswith("\ufeff"):
-        return text[1:]
-    # Defensive handling for already-corrupted BOM bytes rendered as text.
-    if text.startswith(_CORRUPTED_UTF8_BOM):
-        return text[3:]
-    return text
-
-
-def _normalize_markdown_text(text: str) -> str:
-    return _strip_bom_prefix(text)
-
-
-def extract_pair_id_from_md(text: str) -> str | None:
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if not match:
-        return None
-    loaded = _yaml_load(match.group(1))
-    if isinstance(loaded, dict) and isinstance(loaded.get("pair_id"), str):
-        return loaded["pair_id"]
-    return None
 
 
 def parse_claude_md(text: str, prior_canonical: dict[str, Any] | None = None,
@@ -96,21 +52,7 @@ def parse_claude_md(text: str, prior_canonical: dict[str, Any] | None = None,
     the new frontmatter are dropped (since the user's frontmatter is the
     source of truth on the Claude side for Phase 2).
     """
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        frontmatter_data: dict[str, Any] = {}
-        body = _strip_bom_prefix(text.strip())
-    else:
-        raw_frontmatter, body_raw = match.groups()
-        body = _strip_bom_prefix(body_raw.strip())
-        loaded = _yaml_load(raw_frontmatter)
-        if loaded is None:
-            frontmatter_data = {}
-        elif not isinstance(loaded, dict):
-            raise ValueError("Claude frontmatter must be a YAML mapping")
-        else:
-            frontmatter_data = dict(loaded)
+    frontmatter_data, body = split_frontmatter(text, label="Claude")
 
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical(kind)
     canonical["body"] = body
@@ -171,17 +113,7 @@ def render_claude_md(canonical: dict[str, Any], prior_text: str | None = None) -
     ruamel and mutated in place so existing key order, comments, and
     quoting style are preserved across writes.
     """
-    yml = _make_yaml()
-
-    prior_text = _normalize_markdown_text(prior_text) if prior_text is not None else None
-    prior_match = FRONTMATTER_RE.match(prior_text) if prior_text is not None else None
-
-    if prior_match is not None:
-        raw, _ = prior_match.groups()
-        loaded = _yaml_load(raw)
-        frontmatter = loaded if isinstance(loaded, dict) else yml.load("{}\n")
-    else:
-        frontmatter = yml.load("{}\n")
+    frontmatter = frontmatter_for_render(prior_text)
 
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
@@ -209,7 +141,7 @@ def render_claude_md(canonical: dict[str, Any], prior_text: str | None = None) -
         frontmatter[key] = value
 
     body = canonical.get("body", "")
-    rendered_fm = _yaml_dump(frontmatter).rstrip("\n")
+    rendered_fm = yaml_dump(frontmatter).rstrip("\n")
     if body:
         return f"---\n{rendered_fm}\n---\n{body}\n"
     return f"---\n{rendered_fm}\n---\n"

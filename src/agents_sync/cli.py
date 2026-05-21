@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from agents_sync.agentic_tool_spec import default_agentic_tools
-from agents_sync.config import ConfigError, merged_config, validate_config
+from agents_sync.config import ConfigError, expand_path, merged_config, validate_config
 from agents_sync.daemon import watch
 from agents_sync.portable_archive import (
     PortableArchiveError,
@@ -181,7 +181,6 @@ def _check_legacy_install() -> int | None:
 
 
 def _run_export(args: argparse.Namespace, config: dict) -> int:
-    from agents_sync.config import expand_path
 
     state_dir = expand_path(config["state_path"]).parent
     try:
@@ -196,7 +195,6 @@ def _run_export(args: argparse.Namespace, config: dict) -> int:
 
 
 def _run_import(args: argparse.Namespace, config: dict) -> int:
-    from agents_sync.config import expand_path
 
     state_dir = expand_path(config["state_path"]).parent
     strategy = args.collision_strategy or config["import_collision_strategy"]

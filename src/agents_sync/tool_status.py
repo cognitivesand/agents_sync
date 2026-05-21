@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec, SharedKeyedMapLayout
+from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.config import expand_path
 
 
@@ -56,17 +56,15 @@ class ToolStatusTracker:
             if not self._is_tool_enabled(spec):
                 continue
             for kind, config_key in spec.config_dir_keys.items():
-                # SharedKeyedMapLayout config keys point at a shared file,
-                # not a directory; only its parent should be pre-created
-                # — and the file is allowed to be absent (first-boot).
-                if isinstance(spec.io[kind].file_layout, SharedKeyedMapLayout):
+                layout = spec.io[kind].file_layout
+                if layout is not None and layout.tolerates_missing_config_key():
                     if config_key not in self.config:
                         continue
-                    resolved = expand_path(self.config[config_key])
-                    parent = resolved.parent
-                else:
-                    resolved = expand_path(self.config[config_key])
-                    parent = resolved
+                resolved = expand_path(self.config[config_key])
+                parent = (
+                    layout.probe_check_path(resolved)
+                    if layout is not None else resolved
+                )
                 try:
                     parent.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
@@ -125,28 +123,24 @@ class ToolStatusTracker:
     ) -> tuple[str, tuple[str, str] | None]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
         for kind, config_key in spec.config_dir_keys.items():
-            if isinstance(spec.io[kind].file_layout, SharedKeyedMapLayout):
+            layout = spec.io[kind].file_layout
+            if layout is not None and layout.tolerates_missing_config_key():
                 if config_key not in self.config:
                     continue
-                resolved = expand_path(self.config[config_key])
-                # The shared file may not exist yet (first-boot before any
-                # MCP slot is created). Availability requires only that
-                # the parent directory is reachable.
-                parent = resolved.parent
-                if not parent.exists():
-                    return "unavailable", (str(parent), "path does not exist")
-                try:
-                    next(parent.iterdir(), None)
-                except OSError as exc:
-                    return "unavailable", (str(parent), f"{type(exc).__name__}: {exc}")
-                continue
             resolved = expand_path(self.config[config_key])
-            if not resolved.exists():
-                return "unavailable", (str(resolved), "path does not exist")
+            probe_path = (
+                layout.probe_check_path(resolved)
+                if layout is not None else resolved
+            )
+            if not probe_path.exists():
+                return "unavailable", (str(probe_path), "path does not exist")
             try:
-                next(resolved.iterdir(), None)
+                next(probe_path.iterdir(), None)
             except OSError as exc:
-                return "unavailable", (str(resolved), f"{type(exc).__name__}: {exc}")
+                return (
+                    "unavailable",
+                    (str(probe_path), f"{type(exc).__name__}: {exc}"),
+                )
         return "available", None
 
     def _log_status_transition(

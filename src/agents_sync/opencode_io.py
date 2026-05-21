@@ -6,20 +6,17 @@ when available. opencode skills use the open SKILL.md folder format.
 """
 from __future__ import annotations
 
-import io as _io
 import re
 from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import (
-    FRONTMATTER_RE,
-    _make_yaml,
-    _normalize_markdown_text,
-    _strip_bom_prefix,
-    _yaml_load,
+from agents_sync.yaml_frontmatter import (
     extract_pair_id_from_md,
+    frontmatter_for_render,
+    split_frontmatter,
+    yaml_dump,
 )
 
 
@@ -96,42 +93,8 @@ FOREIGN_SKILL_FIELDS = frozenset({
 })
 
 
-def _yaml_dump(data: Any) -> str:
-    buf = _io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
-
-
-def _split_frontmatter(text: str, label: str) -> tuple[dict[str, Any], str]:
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        return {}, _strip_bom_prefix(text.strip())
-
-    raw_frontmatter, body_raw = match.groups()
-    loaded = _yaml_load(raw_frontmatter)
-    if loaded is None:
-        frontmatter_data: dict[str, Any] = {}
-    elif not isinstance(loaded, dict):
-        raise ValueError(f"{label} frontmatter must be a YAML mapping")
-    else:
-        frontmatter_data = dict(loaded)
-    return frontmatter_data, _strip_bom_prefix(body_raw.strip())
-
-
-def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    yml = _make_yaml()
-    prior_text = _normalize_markdown_text(prior_text) if prior_text is not None else None
-    prior_match = FRONTMATTER_RE.match(prior_text) if prior_text is not None else None
-    if prior_match is None:
-        return yml.load("{}\n")
-    raw, _ = prior_match.groups()
-    loaded = _yaml_load(raw)
-    return loaded if isinstance(loaded, dict) else yml.load("{}\n")
-
-
 def _render_markdown(frontmatter: dict[str, Any], body: str) -> str:
-    rendered_fm = _yaml_dump(frontmatter).rstrip("\n")
+    rendered_fm = yaml_dump(frontmatter).rstrip("\n")
     if body:
         return f"---\n{rendered_fm}\n---\n{body}\n"
     return f"---\n{rendered_fm}\n---\n"
@@ -211,7 +174,7 @@ def parse_opencode_agent_md(
     *,
     artifact_path: Path | None = None,
 ) -> dict[str, Any]:
-    frontmatter_data, body = _split_frontmatter(text, "opencode agent")
+    frontmatter_data, body = split_frontmatter(text, label="opencode agent")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
     canonical["body"] = body
 
@@ -264,7 +227,7 @@ def render_opencode_agent_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     for key in FOREIGN_AGENT_FIELDS:
         frontmatter.pop(key, None)
 
@@ -301,7 +264,7 @@ def parse_opencode_skill_md(
     text: str,
     prior_canonical: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    frontmatter_data, body = _split_frontmatter(text, "opencode SKILL.md")
+    frontmatter_data, body = split_frontmatter(text, label="opencode SKILL.md")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
 
@@ -338,7 +301,7 @@ def render_opencode_skill_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     for key in FOREIGN_SKILL_FIELDS:
         frontmatter.pop(key, None)
 

@@ -117,31 +117,21 @@ def test_cli_parser_accepts_mcp_server_secret_policy_flag():
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:
-    base = dict(
-        config=None,
-        interval=None,
-        claude_agents_dir=None,
-        claude_commands_dir=None,
-        claude_skills_dir=None,
-        claude_rules_dir=None,
-        claude_mcp_servers_file=None,
-        codex_agents_dir=None,
-        codex_prompts_dir=None,
-        codex_skills_dir=None,
-        codex_rules_dir=None,
-        codex_config_file=None,
-        antigravity_skills_dir=None,
-        antigravity_enabled=None,
-        opencode_agents_dir=None,
-        opencode_commands_dir=None,
-        opencode_skills_dir=None,
-        opencode_rules_dir=None,
-        opencode_config_file=None,
-        opencode_enabled=None,
-        mcp_server_secret_policy=None,
-        state_path=None,
-        verbose=False,
-    )
+    """Build a minimal argparse Namespace driven by the merged_config table.
+
+    Phase 2.6 of the audit remediation: the previous fixture hand-listed
+    every CLI flag and silently fell behind whenever a new flag landed.
+    Sourcing the keys from ``config._ARG_TO_CONFIG_KEY`` (plus a couple of
+    parser-only attrs the loop does not consume) means a new flag is a
+    one-line addition to the table, not a two-place edit.
+    """
+    from agents_sync.config import _ARG_TO_CONFIG_KEY
+
+    base: dict[str, object] = {arg_attr: None for arg_attr, _ in _ARG_TO_CONFIG_KEY}
+    # Attributes the merged_config table doesn't read but every Namespace
+    # constructed from the parser still carries.
+    base["config"] = None
+    base["verbose"] = False
     base.update(overrides)
     return argparse.Namespace(**base)
 

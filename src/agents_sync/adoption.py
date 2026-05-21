@@ -20,6 +20,7 @@ from typing import Any, Iterable
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
+    SharedKeyedMapLayout,
     is_reserved_customization_name,
 )
 from agents_sync.canonical import is_private, load_canonical, save_canonical
@@ -30,9 +31,27 @@ from agents_sync.rendering import (
     update_state_n_way,
     write_artifact_inplace,
 )
+from agents_sync.shared_keyed_map_io import (
+    SharedKeyedMapRaceError,
+    SharedKeyedMapSlotCollisionError,
+    apply_slot,
+)
 from agents_sync.state import CustomizationArtifactState
 from agents_sync.sync_types import CustomizationArtifactInfo, RenderResult
 from agents_sync.tool_status import ToolStatusTracker
+
+
+# Narrow except set used by removal-propagation paths: I/O errors,
+# format-parse errors, and the two lock/collision failures that apply_slot
+# raises by contract. Captured at module scope so the per-pair handlers
+# don't swallow programmer errors (TypeError, AttributeError) as if they
+# were I/O failures (audit slice 08 · CQ-12).
+_REMOVAL_FAILURES: tuple[type[Exception], ...] = (
+    OSError,
+    ValueError,
+    SharedKeyedMapRaceError,
+    SharedKeyedMapSlotCollisionError,
+)
 
 
 class AdoptionEngine:
@@ -198,7 +217,6 @@ class AdoptionEngine:
         unchanged; for SharedKeyedMapLayout artifacts the prior slot
         text is archived (the shared file as a whole is never archived,
         only the slot we are about to overwrite)."""
-        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
         if isinstance(source_io.file_layout, SharedKeyedMapLayout):
             archive.archive_text(
                 self.state_dir, pair_id, source_tool,
@@ -425,7 +443,6 @@ class AdoptionEngine:
         info: CustomizationArtifactInfo,
     ) -> None:
         """Archive the current bytes for ``tool`` respecting storage shape."""
-        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
         tool_info = info.agentic_tools[tool]
         tool_io = self.agentic_tools[tool].io[kind]
         if isinstance(tool_io.file_layout, SharedKeyedMapLayout):
@@ -453,7 +470,6 @@ class AdoptionEngine:
         only carries prior bytes for ``SharedKeyedMapLayout`` writes, so this
         helper is intentionally narrow.
         """
-        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
         for tool, result in results.items():
             if result.prior_slot_text is None:
                 continue
@@ -497,24 +513,6 @@ class AdoptionEngine:
         dropped. Abort if archiving any survivor fails — survivors stay on
         disk and the state entry is preserved so the next poll retries.
         """
-        from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
-        from agents_sync.shared_keyed_map_io import (
-            SharedKeyedMapRaceError,
-            SharedKeyedMapSlotCollisionError,
-            apply_slot,
-        )
-        # Narrow except set: I/O errors (archive_move, archive_text,
-        # atomic_write_text, read_text), parse errors from apply_slot's
-        # format handler, and the two lock/collision failures that
-        # apply_slot raises by contract. A bare ``except Exception`` here
-        # would also swallow TypeError / AttributeError from a logic bug,
-        # which we want to surface during testing.
-        _REMOVAL_FAILURES = (
-            OSError,
-            ValueError,
-            SharedKeyedMapRaceError,
-            SharedKeyedMapSlotCollisionError,
-        )
         for tool in survivors:
             survivor_info = info.agentic_tools[tool]
             survivor_io = self.agentic_tools[tool].io[info.kind]

@@ -3,12 +3,38 @@ from __future__ import annotations
 
 import textwrap
 
+import pytest
+
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
     default_agentic_tools,
 )
 from agents_sync.canonical import empty_canonical
+
+
+def test_agentic_tool_spec_rejects_drift_between_config_keys_and_io():
+    """Audit slice 05 · CQ-03: a missing key in either dict is a clear ValueError."""
+    io = CustomizationTypeIO(
+        parse=lambda *a, **k: {},
+        render=lambda *a, **k: "",
+        extract_pair_id=lambda *a, **k: None,
+        storage="single_file",
+        file_suffix=".md",
+    )
+    with pytest.raises(ValueError, match="capability matrix drift"):
+        AgenticToolSpec(
+            name="example",
+            config_dir_keys={"agent": "example_agents_dir"},
+            io={"agent": io, "skill": io},  # skill listed in io but not config
+        )
+
+    with pytest.raises(ValueError, match="capability matrix drift"):
+        AgenticToolSpec(
+            name="example",
+            config_dir_keys={"agent": "example_agents_dir", "skill": "example_skills_dir"},
+            io={"agent": io},  # skill listed in config but not io
+        )
 
 
 def test_default_registry_has_claude_codex_antigravity_and_opencode():

@@ -90,3 +90,46 @@ def save_canonical(state_dir: Path, pair_id: str, canonical: dict[str, Any]) -> 
         path,
         json.dumps(canonical, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
     )
+
+
+def apply_per_tool_partition(
+    canonical: dict[str, Any],
+    *,
+    agentic_tool_name: str,
+    frontmatter_data: dict[str, Any],
+    tool_only_fields: tuple[str, ...],
+    known_fields: frozenset[str] | set[str],
+) -> None:
+    """Project ``frontmatter_data`` into ``per_agentic_tool_only`` and
+    ``per_agentic_tool_extra`` under ``agentic_tool_name``.
+
+    - ``tool_only_fields`` is the ordered set of frontmatter keys this
+      adapter owns (rendered back into the tool's frontmatter on emit but
+      excluded from the cross-tool canonical surface).
+    - ``known_fields`` is the union of all keys this adapter knows about
+      (canonical fields *plus* tool-only fields); any key not in this set
+      lands in ``per_agentic_tool_extra`` so user-authored fields the
+      project does not yet model are not silently dropped.
+
+    Mutates ``canonical`` in place. Other agentic tools' entries are
+    preserved untouched — only this adapter's slice is rewritten.
+
+    This helper replaces three hand-rolled copies of the same eight-line
+    pattern that previously lived in ``rules_io.py`` and
+    ``slash_command_io.py`` (Phase 2.3 of the audit remediation).
+    """
+    per_only = dict(canonical.get("per_agentic_tool_only") or {})
+    per_only[agentic_tool_name] = {
+        field_name: frontmatter_data[field_name]
+        for field_name in tool_only_fields
+        if field_name in frontmatter_data
+    }
+    canonical["per_agentic_tool_only"] = per_only
+
+    per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
+    per_extra[agentic_tool_name] = {
+        key: value
+        for key, value in frontmatter_data.items()
+        if key not in known_fields
+    }
+    canonical["per_agentic_tool_extra"] = per_extra

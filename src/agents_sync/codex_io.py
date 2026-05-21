@@ -13,6 +13,9 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
+from agents_sync.canonical import empty_canonical, new_pair_id
+from agents_sync.yaml_frontmatter import split_frontmatter
+
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
@@ -247,8 +250,6 @@ def parse_codex_agent_toml(
     If `prior_canonical` is given, per-agentic-tool state for other agentic
     tools survives untouched; Codex-owned fields reflect the current TOML.
     """
-    from agents_sync.canonical import empty_canonical, new_pair_id
-
     text = _normalize_toml_text(text)
     data = tomllib.loads(text)
     if not isinstance(data, dict):
@@ -315,23 +316,7 @@ def parse_codex_skill_md(
     prior_canonical: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Parse a Codex skill SKILL.md into a canonical dict."""
-    from agents_sync.canonical import empty_canonical, new_pair_id
-    from agents_sync.claude_io import FRONTMATTER_RE, _yaml_load
-
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        frontmatter_data: dict[str, Any] = {}
-        body = text.strip()
-    else:
-        raw, body_raw = match.groups()
-        body = body_raw.strip()
-        loaded = _yaml_load(raw)
-        if loaded is None:
-            frontmatter_data = {}
-        elif not isinstance(loaded, dict):
-            raise ValueError("Codex SKILL.md frontmatter must be a YAML mapping")
-        else:
-            frontmatter_data = dict(loaded)
+    frontmatter_data, body = split_frontmatter(text, label="Codex SKILL.md")
 
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body

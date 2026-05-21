@@ -8,7 +8,11 @@ from typing import Any
 
 from agents_sync import archive
 from agents_sync.adoption import AdoptionEngine
-from agents_sync.agentic_tool_spec import AgenticToolSpec, default_agentic_tools
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    SharedKeyedMapLayout,
+    default_agentic_tools,
+)
 from agents_sync.canonical import is_private
 from agents_sync.config import expand_path, validate_config
 from agents_sync.discovery import DiscoveryWalker
@@ -259,7 +263,6 @@ class Syncer:
             loser_path = loser_info.path
             loser_io = self.agentic_tools[loser_tool].io[kind]
             try:
-                from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
                 if isinstance(loser_io.file_layout, SharedKeyedMapLayout):
                     loser_text = read_artifact_text(
                         loser_io, loser_path, slot=loser_info.slot,

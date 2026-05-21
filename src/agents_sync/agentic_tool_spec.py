@@ -36,7 +36,23 @@ class ParseFn(Protocol):
 
 
 class FileLayout(Protocol):
-    """Storage shape for one customization_type on one agentic_tool."""
+    """Storage shape for one customization_type on one agentic_tool.
+
+    Polymorphic methods (Phase 2.2 of the audit remediation) let callers
+    operate on a layout without sniffing its concrete subclass:
+
+    - ``probe_check_path(resolved)`` — given the resolved config value (a
+      file path or directory path), returns the Path that ``ToolStatusTracker``
+      should check for existence/permissions. For per-file layouts that is
+      the path itself; for shared-keyed-map layouts the shared file may not
+      yet exist on a fresh install, so the *parent directory* is probed
+      instead.
+    - ``tolerates_missing_config_key()`` — whether absence of the resolved
+      config value should mark the tool unavailable (``False``, the default)
+      or simply skip the cell silently (``True``, used by
+      ``SharedKeyedMapLayout`` whose ``shared_path_config_key`` is optional
+      until a user actually configures an MCP file).
+    """
 
     @property
     def storage(self) -> str:
@@ -48,6 +64,12 @@ class FileLayout(Protocol):
 
     @property
     def fixed_file_name(self) -> str | None:
+        ...
+
+    def probe_check_path(self, resolved: Path) -> Path:
+        ...
+
+    def tolerates_missing_config_key(self) -> bool:
         ...
 
 
@@ -73,10 +95,41 @@ class SingleFileLayout:
     def file_suffix(self) -> str:
         return self.extension
 
+    def probe_check_path(self, resolved: Path) -> Path:
+        return resolved
+
+    def tolerates_missing_config_key(self) -> bool:
+        return False
+
 
 @dataclass(frozen=True)
 class RulesFileLayout(SingleFileLayout):
     """Layout for v0.5 `rules` artifacts."""
+
+
+@dataclass(frozen=True)
+class DirectorySkillLayout:
+    """A skill artifact stored as a directory containing a ``SKILL.md`` plus
+    auxiliary files. The directory itself *is* the artifact identity.
+    """
+
+    @property
+    def storage(self) -> str:
+        return "directory_skill"
+
+    @property
+    def file_suffix(self) -> str:
+        return ""
+
+    @property
+    def fixed_file_name(self) -> str | None:
+        return None
+
+    def probe_check_path(self, resolved: Path) -> Path:
+        return resolved
+
+    def tolerates_missing_config_key(self) -> bool:
+        return False
 
 
 @dataclass(frozen=True)
@@ -114,6 +167,16 @@ class SharedKeyedMapLayout:
     @property
     def fixed_file_name(self) -> str | None:
         return None
+
+    def probe_check_path(self, resolved: Path) -> Path:
+        # The shared file itself may not exist yet — a fresh install starts
+        # with an empty ``~/.cursor/mcp.json`` directory. Probe the parent
+        # so the tool reads ``available`` once the directory is created,
+        # even before any MCP server is configured.
+        return resolved.parent
+
+    def tolerates_missing_config_key(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -173,6 +236,30 @@ class AgenticToolSpec:
     config_dir_keys: dict[str, str]
     io: dict[str, CustomizationTypeIO]
     disable_config_key: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject ``config_dir_keys`` / ``io`` drift at construction time.
+
+        The two dicts encode the same set of supported customization types
+        from two different angles (config-key surface vs. IO bundle).
+        ``ToolStatusTracker`` iterates ``config_dir_keys`` to probe roots,
+        while ``supported_customization_types`` reads ``io`` — historically a
+        single missing entry on either side caused either silent
+        "available without probe" status or a ``KeyError`` at probe time.
+        Catching the divergence at registry-build time (per audit slice
+        05 · CQ-03) turns a silent runtime corruption into a clear startup
+        failure that names the missing key and the tool involved.
+        """
+        config_keys = set(self.config_dir_keys.keys())
+        io_keys = set(self.io.keys())
+        if config_keys != io_keys:
+            only_in_config = sorted(config_keys - io_keys)
+            only_in_io = sorted(io_keys - config_keys)
+            raise ValueError(
+                f"AgenticToolSpec(name={self.name!r}) capability matrix drift: "
+                f"in config_dir_keys but not io: {only_in_config!r}; "
+                f"in io but not config_dir_keys: {only_in_io!r}"
+            )
 
     @property
     def supported_customization_types(self) -> frozenset[str]:
@@ -386,8 +473,7 @@ def _build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSp
                 parse=parse_skill,
                 render=render,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
             ),
             "slash_command": CustomizationTypeIO(
                 parse=parse_slash_command,
@@ -503,8 +589,7 @@ def _build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
                 parse=parse_skill,
                 render=render_skill,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
             ),
             "slash_command": CustomizationTypeIO(
                 parse=parse_slash_command,
@@ -563,8 +648,7 @@ def _build_antigravity_spec() -> AgenticToolSpec:
                 parse=parse_skill,
                 render=render_skill,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
             ),
         },
         disable_config_key="antigravity_enabled",

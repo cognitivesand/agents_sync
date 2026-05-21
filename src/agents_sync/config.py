@@ -133,35 +133,44 @@ def maybe_set(config: dict[str, Any], key: str, value: Any) -> None:
         config[key] = value
 
 
+# Maps each ``argparse`` attribute name to the merged-config key it writes
+# into. Listed in registration order so a new CLI flag is a one-line
+# addition (no four-place edit across the parser, this loop,
+# ``validate_config``, and the test fixture). When the two names differ
+# only by spelling (``interval`` -> ``poll_interval_seconds``,
+# ``mcp_server_secret_policy`` -> same), the table makes the divergence
+# explicit instead of buried in a ``maybe_set`` line.
+_ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
+    ("interval", "poll_interval_seconds"),
+    ("claude_agents_dir", "claude_agents_dir"),
+    ("claude_commands_dir", "claude_commands_dir"),
+    ("claude_skills_dir", "claude_skills_dir"),
+    ("claude_rules_dir", "claude_rules_dir"),
+    ("claude_mcp_servers_file", "claude_mcp_servers_file"),
+    ("codex_agents_dir", "codex_agents_dir"),
+    ("codex_prompts_dir", "codex_prompts_dir"),
+    ("codex_skills_dir", "codex_skills_dir"),
+    ("codex_rules_dir", "codex_rules_dir"),
+    ("codex_config_file", "codex_config_file"),
+    ("antigravity_skills_dir", "antigravity_skills_dir"),
+    ("antigravity_enabled", "antigravity_enabled"),
+    ("opencode_agents_dir", "opencode_agents_dir"),
+    ("opencode_commands_dir", "opencode_commands_dir"),
+    ("opencode_skills_dir", "opencode_skills_dir"),
+    ("opencode_rules_dir", "opencode_rules_dir"),
+    ("opencode_config_file", "opencode_config_file"),
+    ("opencode_enabled", "opencode_enabled"),
+    ("mcp_server_secret_policy", "mcp_server_secret_policy"),
+    ("state_path", "state_path"),
+)
+
+
 def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     config = dict(DEFAULTS)
     config_path = args.config if args.config is not None else default_config_path()
     config.update(load_external_config(config_path))
-    maybe_set(config, "poll_interval_seconds", args.interval)
-    maybe_set(config, "claude_agents_dir", args.claude_agents_dir)
-    maybe_set(config, "claude_commands_dir", getattr(args, "claude_commands_dir", None))
-    maybe_set(config, "claude_skills_dir", args.claude_skills_dir)
-    maybe_set(config, "claude_rules_dir", getattr(args, "claude_rules_dir", None))
-    maybe_set(config, "claude_mcp_servers_file", getattr(args, "claude_mcp_servers_file", None))
-    maybe_set(config, "codex_agents_dir", getattr(args, "codex_agents_dir", None))
-    maybe_set(config, "codex_prompts_dir", getattr(args, "codex_prompts_dir", None))
-    maybe_set(config, "codex_skills_dir", args.codex_skills_dir)
-    maybe_set(config, "codex_rules_dir", getattr(args, "codex_rules_dir", None))
-    maybe_set(config, "codex_config_file", getattr(args, "codex_config_file", None))
-    maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
-    maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
-    maybe_set(config, "opencode_agents_dir", getattr(args, "opencode_agents_dir", None))
-    maybe_set(config, "opencode_commands_dir", getattr(args, "opencode_commands_dir", None))
-    maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
-    maybe_set(config, "opencode_rules_dir", getattr(args, "opencode_rules_dir", None))
-    maybe_set(config, "opencode_config_file", getattr(args, "opencode_config_file", None))
-    maybe_set(config, "opencode_enabled", getattr(args, "opencode_enabled", None))
-    maybe_set(
-        config,
-        "mcp_server_secret_policy",
-        getattr(args, "mcp_server_secret_policy", None),
-    )
-    maybe_set(config, "state_path", args.state_path)
+    for arg_attr, config_key in _ARG_TO_CONFIG_KEY:
+        maybe_set(config, config_key, getattr(args, arg_attr, None))
     return config
 
 
