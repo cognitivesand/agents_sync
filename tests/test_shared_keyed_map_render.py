@@ -15,6 +15,10 @@ like once Phase 5 (mcp_server_io + secret policy) lands.
 """
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import json
 from pathlib import Path
 from typing import Any

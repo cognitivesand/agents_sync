@@ -1,6 +1,10 @@
 """Integration tests for v0.5 slash_command synchronization."""
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import json
 from pathlib import Path
 from typing import Any

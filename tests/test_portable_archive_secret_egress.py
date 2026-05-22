@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 from agents_sync.canonical import canonical_path, save_canonical
 from agents_sync.identity import validate_pair_id
 from agents_sync.portable_archive import (

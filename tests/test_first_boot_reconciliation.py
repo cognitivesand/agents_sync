@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 from agents_sync.sync import Syncer
 
 

@@ -1,6 +1,10 @@
 """Rules integration tests for Claude Code, Codex, and opencode adapters."""
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import json
 import os
 from pathlib import Path

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 from agents_sync.portable_archive import (
     CANONICAL_PREFIX,
     MANIFEST_NAME,

@@ -1,6 +1,10 @@
 """Integration tests for real Claude/Codex/opencode slash_command adapters."""
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import os
 from pathlib import Path
 

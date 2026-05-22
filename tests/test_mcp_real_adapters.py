@@ -1,6 +1,10 @@
 """End-to-end coverage for real Claude/Codex/OpenCode MCP adapters."""
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import json
 import tomllib
 from pathlib import Path
