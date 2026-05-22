@@ -209,14 +209,29 @@ def _check_legacy_install() -> int | None:
 def _run_export(args: argparse.Namespace, config: dict) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
+    secret_policy = str(
+        config.get("secret_policy")
+        or config.get("mcp_server_secret_policy")
+        or "secrets_refused"
+    )
     try:
-        report = export_to_zip(state_dir, args.output)
+        report = export_to_zip(state_dir, args.output, secret_policy=secret_policy)
     except OSError:
         logging.exception("Export failed")
         return 1
     logging.info(
         "Exported %d artifact(s) to %s", report.artifact_count, report.archive_path
     )
+    if report.skipped_secret_artifacts:
+        logging.info(
+            "Skipped %d secret-bearing artifact(s) under secret_policy=secrets_refused: %s",
+            len(report.skipped_secret_artifacts),
+            report.skipped_secret_artifacts,
+        )
+    if report.contains_secret_literals:
+        logging.info(
+            "Export carries literal secret material (manifest.contains_secret_literals=true)."
+        )
     return 0
 
 
@@ -267,6 +282,12 @@ def _run_import(args: argparse.Namespace, config: dict) -> int:
         "Import complete: accepted=%d skipped=%d archived_local=%d",
         len(report.accepted), len(report.skipped), len(report.archived_local),
     )
+    if report.skipped_secret_artifacts:
+        logging.info(
+            "Skipped %d secret-bearing artifact(s) under secret_policy=secrets_refused: %s",
+            len(report.skipped_secret_artifacts),
+            report.skipped_secret_artifacts,
+        )
     return 0
 
 

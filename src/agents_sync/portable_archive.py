@@ -46,6 +46,10 @@ from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.canonical import canonical_path, load_canonical, save_canonical
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
+from agents_sync.mcp_secret_policy import (
+    find_mcp_secret_literals,
+    normalize_secret_policy,
+)
 from agents_sync.rendering import render_to_agentic_tool, update_state_n_way
 from agents_sync.state import (
     CustomizationArtifactState,
@@ -74,6 +78,8 @@ class PortableArchiveError(ValueError):
 class ExportReport:
     archive_path: Path
     artifact_count: int
+    contains_secret_literals: bool = False
+    skipped_secret_artifacts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -81,6 +87,7 @@ class ImportReport:
     accepted: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     archived_local: list[tuple[str, str]] = field(default_factory=list)
+    skipped_secret_artifacts: list[str] = field(default_factory=list)
 
 
 # ---------------- export ----------------
@@ -92,7 +99,9 @@ def _agents_sync_version() -> str:
     return __version__
 
 
-def _build_manifest(artifact_count: int) -> dict[str, Any]:
+def _build_manifest(
+    artifact_count: int, *, contains_secret_literals: bool = False,
+) -> dict[str, Any]:
     return {
         "schema_version": PORTABLE_ARCHIVE_SCHEMA_VERSION,
         "exported_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
@@ -100,13 +109,35 @@ def _build_manifest(artifact_count: int) -> dict[str, Any]:
         "source_platform": platform.system(),
         "agents_sync_version": _agents_sync_version(),
         "artifact_count": artifact_count,
+        "contains_secret_literals": contains_secret_literals,
     }
 
 
-def export_to_zip(state_dir: Path, zip_path: Path) -> ExportReport:
-    """Write a customization library export to `zip_path` (atomic replace)."""
+def export_to_zip(
+    state_dir: Path,
+    zip_path: Path,
+    *,
+    secret_policy: str = "secrets_refused",
+) -> ExportReport:
+    """Write a customization library export to ``zip_path`` (atomic replace).
+
+    Applies the configured secret policy per-artifact (US-12 AC-12 / AC-13 /
+    AC-14). Under ``secrets_refused``, canonicals carrying literal secret
+    material are skipped with one structured WARNING each; the clean
+    canonicals still ship. Under ``secrets_accepted``, every canonical is
+    included verbatim and one summary WARNING lists the affected
+    ``customization_artifact_id``s. The manifest carries a
+    ``contains_secret_literals`` boolean reflecting what actually shipped
+    (always ``False`` under ``secrets_refused`` since the filter removed
+    anything that would have flipped it).
+    """
+    normalized_policy = normalize_secret_policy(
+        secret_policy, source="export_to_zip", warn_deprecated=False,
+    )
     state = load_state(state_dir)
     canonicals: dict[str, dict[str, Any]] = {}
+    skipped_secret_artifacts: list[str] = []
+    secret_bearing_artifacts: list[str] = []
     for pair_id, ps in state.items():
         canonical = load_canonical(state_dir, pair_id)
         if canonical is None:
@@ -115,6 +146,20 @@ def export_to_zip(state_dir: Path, zip_path: Path) -> ExportReport:
                 pair_id,
             )
             continue
+        findings = find_mcp_secret_literals(canonical)
+        if findings:
+            field_paths = [f.field_path for f in findings]
+            if normalized_policy == "secrets_refused":
+                logging.warning(
+                    "Skipping export of artifact with literal secret material "
+                    "under secret_policy=secrets_refused: "
+                    "pair_id=%s fields=%s",
+                    pair_id, field_paths,
+                )
+                skipped_secret_artifacts.append(pair_id)
+                continue
+            # secrets_accepted — include verbatim, summary warning emitted below
+            secret_bearing_artifacts.append(pair_id)
         entry = dict(canonical)
         entry["last_modified"] = (
             ps.last_modified if ps.last_modified is not None else 0.0
@@ -122,7 +167,17 @@ def export_to_zip(state_dir: Path, zip_path: Path) -> ExportReport:
         entry["generation"] = ps.generation
         canonicals[pair_id] = entry
 
-    manifest = _build_manifest(len(canonicals))
+    if secret_bearing_artifacts:
+        logging.warning(
+            "Customization library export under secret_policy=secrets_accepted: "
+            "%d artifact(s) carry literal secret material: %s",
+            len(secret_bearing_artifacts), secret_bearing_artifacts,
+        )
+
+    contains_secret_literals = bool(secret_bearing_artifacts)
+    manifest = _build_manifest(
+        len(canonicals), contains_secret_literals=contains_secret_literals,
+    )
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_fd, tmp_name = tempfile.mkstemp(
         prefix=f".{zip_path.name}.", suffix=".tmp", dir=str(zip_path.parent)
@@ -144,7 +199,12 @@ def export_to_zip(state_dir: Path, zip_path: Path) -> ExportReport:
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
-    return ExportReport(archive_path=zip_path, artifact_count=len(canonicals))
+    return ExportReport(
+        archive_path=zip_path,
+        artifact_count=len(canonicals),
+        contains_secret_literals=contains_secret_literals,
+        skipped_secret_artifacts=skipped_secret_artifacts,
+    )
 
 
 # ---------------- import ----------------
@@ -484,6 +544,47 @@ def import_from_zip(
     state = load_state(state_dir)
     decisions = _classify(canonicals, state, state_dir, strategy)
 
+    # Per-artifact secret filter (US-12 AC-15 / AC-16). The receiver's
+    # policy ALWAYS overrides whatever the source-host policy was. Under
+    # secrets_refused, secret-bearing canonicals are skipped with one
+    # structured WARNING each; under secrets_accepted, all are imported
+    # verbatim and one summary WARNING is emitted.
+    raw_policy = str(
+        config.get("secret_policy")
+        or config.get("mcp_server_secret_policy")
+        or "secrets_refused"
+    )
+    normalized_policy = normalize_secret_policy(
+        raw_policy, source="import_from_zip", warn_deprecated=False,
+    )
+    skipped_secret_artifacts: list[str] = []
+    secret_bearing_artifacts: list[str] = []
+    for decision in decisions:
+        if not decision.accepted:
+            continue
+        findings = find_mcp_secret_literals(decision.canonical)
+        if not findings:
+            continue
+        field_paths = [f.field_path for f in findings]
+        if normalized_policy == "secrets_refused":
+            logging.warning(
+                "Skipping import of artifact with literal secret material "
+                "under secret_policy=secrets_refused: "
+                "pair_id=%s fields=%s",
+                decision.pair_id, field_paths,
+            )
+            decision.accepted = False
+            skipped_secret_artifacts.append(decision.pair_id)
+        else:
+            secret_bearing_artifacts.append(decision.pair_id)
+
+    if secret_bearing_artifacts:
+        logging.warning(
+            "Customization library import under secret_policy=secrets_accepted: "
+            "%d artifact(s) carry literal secret material: %s",
+            len(secret_bearing_artifacts), secret_bearing_artifacts,
+        )
+
     tool_status = ToolStatusTracker(config, agentic_tools)
     tool_status.refresh()
 
@@ -522,7 +623,7 @@ def import_from_zip(
     # Phase C — handle displacements, tool-side projection, and state
     # updates. This is the only phase that can leak partial tool-side
     # files on failure; state.json is still written last.
-    report = ImportReport()
+    report = ImportReport(skipped_secret_artifacts=skipped_secret_artifacts)
     for decision in decisions:
         if not decision.accepted:
             report.skipped.append(decision.pair_id)
