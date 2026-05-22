@@ -66,18 +66,18 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ```mermaid
 flowchart LR
-    subgraph Tools["Tools"]
+    subgraph Tools["Supported tools"]
         direction TB
-        Claude["Claude Code<br/>agents + commands + skills + rules + MCP"]
-        Codex["Codex<br/>agents + prompts + skills + rules + MCP"]
-        Cursor["Cursor<br/>agents + commands + skills + rules + MCP"]
-        Antigravity["Antigravity<br/>skills only"]
-        Opencode["OpenCode<br/>agents + commands + skills + rules + MCP"]
+        Claude["Claude Code: agents, commands, skills, rules, MCP"]
+        Codex["Codex: agents, prompts, skills, rules, MCP"]
+        Cursor["Cursor: agents, commands, skills, rules, MCP"]
+        Antigravity["Antigravity: skills only"]
+        Opencode["OpenCode: agents, commands, skills, rules, MCP"]
     end
 
-    Sync["agents_sync<br/>watch + match + sync"]
-    State["State<br/>pair_id + digests"]
-    Archive["Archive<br/>before overwrite or removal"]
+    Sync["agents_sync: watch + match + sync"]
+    State["State: pair_id + digests"]
+    Archive["Archive before overwrite or removal"]
 
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
