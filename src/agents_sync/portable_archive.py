@@ -1,6 +1,6 @@
-"""Portable library snapshot — export and import for US-12 / FR-07 / FR-08.
+"""Customization library export and import for US-12.
 
-A portable library snapshot is a single zip file capturing every
+A customization library export is a single zip file capturing every
 managed customization_artifact's canonical document plus a small
 manifest. It is portable across hosts: `state.json` and the on-disk
 `archive/` directory are deliberately excluded because they hold
@@ -8,10 +8,10 @@ host-specific bytes.
 
 Two operations:
 
-  - `export_to_zip`: writes the snapshot. Read-only against the source
+  - `export_to_zip`: writes the export. Read-only against the source
     state directory; the zip is materialised atomically (write to a
     sibling temp file, then `os.replace`).
-  - `import_from_zip`: reads a snapshot and synchronously projects every
+  - `import_from_zip`: reads an export and synchronously projects every
     accepted customization_artifact onto every locally enabled,
     supporting, and `available` agentic_tool. Reuses `render_to_agentic_tool`
     and `update_state_n_way` from `rendering` — no new sync-engine
@@ -104,7 +104,7 @@ def _build_manifest(artifact_count: int) -> dict[str, Any]:
 
 
 def export_to_zip(state_dir: Path, zip_path: Path) -> ExportReport:
-    """Write a portable library snapshot to `zip_path` (atomic replace)."""
+    """Write a customization library export to `zip_path` (atomic replace)."""
     state = load_state(state_dir)
     canonicals: dict[str, dict[str, Any]] = {}
     for pair_id, ps in state.items():
@@ -453,7 +453,7 @@ def import_from_zip(
     config: dict[str, Any],
     agentic_tools: dict[str, AgenticToolSpec],
 ) -> ImportReport:
-    """Restore artifacts from a portable library snapshot.
+    """Restore artifacts from a customization library export.
 
     Transactional contract (AC-10):
 
