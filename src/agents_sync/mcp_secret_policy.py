@@ -9,7 +9,25 @@ from dataclasses import dataclass
 from typing import Any
 
 
-ALLOWED_MCP_SECRET_POLICIES = frozenset({"refuse", "redact", "permissive"})
+#: New, type-agnostic spellings — the only values the internal pipeline sees
+#: after :func:`normalize_secret_policy` runs at the config boundary. The
+#: ``redact`` mode that lived in earlier v0.5 drafts is intentionally gone —
+#: NFR-15 (2026-05-22 rewrite) is binary.
+ALLOWED_SECRET_POLICIES = frozenset({"secrets_refused", "secrets_accepted"})
+
+#: Maps the v0.5 pre-hardening spellings to the new ones. ``redact`` maps to
+#: ``secrets_refused`` (the safer default) — the rewrite removed the redact
+#: behaviour entirely; legacy redaction placeholders already in canonicals
+#: keep working because they are env-references, not literals.
+_OLD_POLICY_VALUE_MAP: dict[str, str] = {
+    "refuse": "secrets_refused",
+    "permissive": "secrets_accepted",
+    "redact": "secrets_refused",
+}
+
+#: Kept as a deprecated alias so external callers still resolve the symbol
+#: for one release. New code uses :data:`ALLOWED_SECRET_POLICIES`.
+ALLOWED_MCP_SECRET_POLICIES = ALLOWED_SECRET_POLICIES | frozenset(_OLD_POLICY_VALUE_MAP)
 _ENV_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 ENV_NAME_RE = re.compile(rf"^{_ENV_NAME}$")
 _ENV_REFERENCE_TOKEN_RE = re.compile(
@@ -75,7 +93,7 @@ class SecretFinding:
 
 
 class McpSecretLeakError(ValueError):
-    """Raised when ``mcp_server_secret_policy = refuse`` detects literals."""
+    """Raised when ``secret_policy = secrets_refused`` detects literals."""
 
     def __init__(
         self,
@@ -95,13 +113,56 @@ class McpSecretLeakError(ValueError):
         )
 
 
+def normalize_secret_policy(
+    policy: str,
+    *,
+    source: str = "config",
+    warn_deprecated: bool = True,
+) -> str:
+    """Return the canonical (post-2026-05-22) spelling of ``policy``.
+
+    Accepts both the new spellings (``secrets_refused``, ``secrets_accepted``)
+    and the v0.5 pre-hardening spellings (``refuse``, ``redact``,
+    ``permissive``). When an old spelling is supplied, logs one WARNING
+    naming ``source`` (typically a config file or CLI flag) so the operator
+    knows where to make the change. The deprecation shim is intended to be
+    removed in v0.6.
+
+    Raises :class:`ValueError` for any other input.
+    """
+    if policy in ALLOWED_SECRET_POLICIES:
+        return policy
+    if policy in _OLD_POLICY_VALUE_MAP:
+        new_value = _OLD_POLICY_VALUE_MAP[policy]
+        if warn_deprecated:
+            extra_note = (
+                " — note that 'redact' mode is gone in v0.5; treating as "
+                "'secrets_refused' (safer default)"
+                if policy == "redact"
+                else ""
+            )
+            logging.warning(
+                "DEPRECATED secret_policy value %r (from %s) — use %r instead%s",
+                policy,
+                source,
+                new_value,
+                extra_note,
+            )
+        return new_value
+    raise ValueError(
+        "secret_policy must be "
+        f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {policy!r}"
+    )
+
+
 def validate_mcp_secret_policy(policy: str) -> str:
-    if policy not in ALLOWED_MCP_SECRET_POLICIES:
-        raise ValueError(
-            "mcp_server_secret_policy must be "
-            f"{'|'.join(sorted(ALLOWED_MCP_SECRET_POLICIES))}, got {policy!r}"
-        )
-    return policy
+    """Backwards-compatible alias for :func:`normalize_secret_policy`.
+
+    Kept for callers that previously imported the function under this name.
+    Emits no deprecation log on its own (the wrapped function handles that);
+    new code should call :func:`normalize_secret_policy` directly.
+    """
+    return normalize_secret_policy(policy, source="validate_mcp_secret_policy")
 
 
 def env_reference_name(value: str) -> str | None:
@@ -175,46 +236,40 @@ def apply_mcp_secret_policy(
     into the canonical state for ``no findings`` and into the source document
     for ``permissive``.)
 
-    ``warning_cache`` lets callers scope the permissive-warning
+    ``warning_cache`` lets callers scope the ``secrets_accepted``-warning
     de-duplication memory. If omitted, the module-level
     ``_PERMISSIVE_WARNING_CACHE`` is used (which ``Syncer.sync_once`` resets
     each poll via :func:`reset_mcp_secret_warning_cache`). New code that
     instantiates a ``Syncer`` from a test should pass its own ``set`` so
     parallel tests do not share warning state.
+
+    ``policy`` is normalized via :func:`normalize_secret_policy`, so both
+    the new spellings (``secrets_refused``, ``secrets_accepted``) and the
+    deprecated v0.5 spellings (``refuse``, ``permissive``, ``redact``) are
+    accepted. The ``redact`` mode is gone — it maps to ``secrets_refused``
+    so a policy that previously redacted now refuses.
     """
-    validate_mcp_secret_policy(policy)
+    normalized_policy = normalize_secret_policy(policy, source="apply_mcp_secret_policy")
     findings = find_mcp_secret_literals(data)
     if not findings:
         return copy.deepcopy(data), []
 
     field_paths = [finding.field_path for finding in findings]
-    if policy == "refuse":
-        raise McpSecretLeakError(findings, policy=policy, artifact=artifact)
-    if policy == "permissive":
-        artifact_key = artifact or "<unknown>"
-        cache_key = (artifact_key, tuple(field_paths))
-        cache = warning_cache if warning_cache is not None else _PERMISSIVE_WARNING_CACHE
-        if cache_key not in cache:
-            logging.warning(
-                "MCP server secret policy permissive: artifact=%s fields=%s",
-                artifact_key,
-                field_paths,
-            )
-            cache.add(cache_key)
-        return copy.deepcopy(data), []
+    if normalized_policy == "secrets_refused":
+        raise McpSecretLeakError(findings, policy=normalized_policy, artifact=artifact)
 
-    redacted = copy.deepcopy(data)
-    redactions: list[dict[str, Any]] = []
-    for index, finding in enumerate(findings, start=1):
-        placeholder_env_var = f"AGENTS_SYNC_REDACTED_{index}"
-        placeholder = _placeholder_for_path(finding.path, placeholder_env_var)
-        _set_at_path(redacted, finding.path, placeholder)
-        redactions.append({
-            "field_path": finding.field_path,
-            "original_env_var": None,
-            "placeholder_env_var": placeholder_env_var,
-        })
-    return redacted, redactions
+    # secrets_accepted: admit literals verbatim with one deduplicated WARNING.
+    artifact_key = artifact or "<unknown>"
+    cache_key = (artifact_key, tuple(field_paths))
+    cache = warning_cache if warning_cache is not None else _PERMISSIVE_WARNING_CACHE
+    if cache_key not in cache:
+        logging.warning(
+            "secret_policy=secrets_accepted: artifact=%s fields=%s",
+            artifact_key,
+            field_paths,
+        )
+        cache.add(cache_key)
+    return copy.deepcopy(data), []
 
 
 def find_mcp_secret_literals(data: Any) -> list[SecretFinding]:
@@ -327,32 +382,8 @@ def _is_secret_header_path(normalized_path: tuple[str | int, ...]) -> bool:
     return leaf in {"authorization", "x-api-key"}
 
 
-def _placeholder_for_path(
-    path: tuple[str | int, ...], placeholder_env_var: str,
-) -> str:
-    normalized_path = _normalize_path(path)
-    if _expects_env_var_name(normalized_path):
-        return placeholder_env_var
-    return format_env_reference(placeholder_env_var)
-
-
-def _set_at_path(
-    data: dict[str, Any], path: tuple[str | int, ...], value: str,
-) -> None:
-    node: Any = data
-    for key in path[:-1]:
-        if isinstance(key, int):
-            node = node[key]
-        else:
-            node = node[key]
-    leaf = path[-1]
-    if isinstance(leaf, int):
-        node[leaf] = value
-    else:
-        node[leaf] = value
-
-
 __all__ = [
+    "ALLOWED_SECRET_POLICIES",
     "ALLOWED_MCP_SECRET_POLICIES",
     "McpSecretLeakError",
     "SecretFinding",
@@ -364,6 +395,7 @@ __all__ = [
     "format_env_reference",
     "is_safe_secret_reference",
     "is_valid_env_var_name",
+    "normalize_secret_policy",
     "reset_mcp_secret_warning_cache",
     "validate_mcp_secret_policy",
 ]

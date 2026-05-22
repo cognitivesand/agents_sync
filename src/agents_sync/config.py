@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import tomllib
 from pathlib import Path
 from typing import Any, Literal, TypedDict
+
+from agents_sync.mcp_secret_policy import (
+    ALLOWED_SECRET_POLICIES,
+    normalize_secret_policy,
+)
 
 
 class AgentsSyncConfig(TypedDict, total=False):
@@ -42,7 +48,7 @@ class AgentsSyncConfig(TypedDict, total=False):
     opencode_config_file: str
     opencode_enabled: bool
     # Cross-cutting
-    mcp_server_secret_policy: Literal["refuse", "redact", "permissive"]
+    secret_policy: Literal["secrets_refused", "secrets_accepted"]
     import_collision_strategy: Literal["skip", "mtime_wins", "overwrite"]
 
 
@@ -143,7 +149,7 @@ def platform_defaults(
         "opencode_config_file": str(opencode_root / "opencode.json"),
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",
-        "mcp_server_secret_policy": "refuse",
+        "secret_policy": "secrets_refused",
     }
 
 
@@ -199,7 +205,13 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
     ("opencode_rules_dir", "opencode_rules_dir"),
     ("opencode_config_file", "opencode_config_file"),
     ("opencode_enabled", "opencode_enabled"),
-    ("mcp_server_secret_policy", "mcp_server_secret_policy"),
+    # Two argparse attributes map to the same merged-config key — the
+    # canonical ``secret_policy`` and the deprecated alias
+    # ``mcp_server_secret_policy``. ``merged_config`` resolves the
+    # collision by preferring the canonical attribute when both are set
+    # and logging a DEPRECATION-WARNING for the alias.
+    ("secret_policy", "secret_policy"),
+    ("mcp_server_secret_policy", "secret_policy"),
     ("state_path", "state_path"),
 )
 
@@ -210,6 +222,30 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     config.update(load_external_config(config_path))
     for arg_attr, config_key in _ARG_TO_CONFIG_KEY:
         maybe_set(config, config_key, getattr(args, arg_attr, None))
+
+    # Compat shim (1/2): if an external config file or CLI flag used the
+    # deprecated key ``mcp_server_secret_policy``, copy its value into the
+    # canonical ``secret_policy`` slot (only when no explicit canonical
+    # value was provided), and emit one DEPRECATION-WARNING at startup.
+    # The deprecated key is then discarded so downstream code never sees
+    # it. To be removed in v0.6.
+    legacy_value = config.pop("mcp_server_secret_policy", None)
+    if legacy_value is not None:
+        if config.get("secret_policy") == DEFAULTS["secret_policy"]:
+            config["secret_policy"] = legacy_value
+        logging.warning(
+            "DEPRECATED config key 'mcp_server_secret_policy' — use 'secret_policy' instead",
+        )
+
+    # Compat shim (2/2): normalize the policy value through
+    # ``normalize_secret_policy`` so the old spellings (refuse/redact/permissive)
+    # become the new ones (secrets_refused/secrets_accepted). The shim logs
+    # the deprecation once at startup; downstream code sees only the new
+    # spelling.
+    raw_policy = config.get("secret_policy", DEFAULTS["secret_policy"])
+    config["secret_policy"] = normalize_secret_policy(
+        str(raw_policy), source="config", warn_deprecated=True,
+    )
     return config
 
 
@@ -266,12 +302,23 @@ def validate_config(config: dict[str, Any]) -> None:
             f"got {strategy!r}"
         )
 
-    mcp_secret_policy = config.get("mcp_server_secret_policy", "refuse")
-    if mcp_secret_policy not in {"refuse", "redact", "permissive"}:
-        raise ConfigError(
-            "mcp_server_secret_policy must be refuse|redact|permissive, "
-            f"got {mcp_secret_policy!r}"
+    # secret_policy validation: accept either the canonical key or the
+    # deprecated alias, accept either new or old value spellings, normalize
+    # silently here (the per-startup deprecation was already logged by
+    # merged_config). Reject anything outside the union.
+    raw_policy = config.get("secret_policy")
+    if raw_policy is None:
+        raw_policy = config.get("mcp_server_secret_policy", "secrets_refused")
+    try:
+        normalized = normalize_secret_policy(
+            str(raw_policy), source="validate_config", warn_deprecated=False,
         )
+    except ValueError as exc:
+        raise ConfigError(
+            "secret_policy must be "
+            f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
+        ) from exc
+    config["secret_policy"] = normalized
 
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent

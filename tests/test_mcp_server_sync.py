@@ -350,7 +350,9 @@ def test_mcp_secret_policy_refuse_blocks_adoption(
     for record in refusal_records:
         secret_error = record.exc_info[1]
         assert isinstance(secret_error, McpSecretLeakError)
-        assert secret_error.policy == "refuse"
+        # apply_mcp_secret_policy normalizes the policy at entry; the old
+        # spelling "refuse" comes through as the new "secrets_refused".
+        assert secret_error.policy == "secrets_refused"
         assert [finding.field_path for finding in secret_error.findings] == [
             "env.GITHUB_TOKEN",
         ]
@@ -360,7 +362,17 @@ def test_mcp_secret_policy_refuse_blocks_adoption(
     assert load_state(syncer.state_dir) == {}
 
 
-def test_mcp_secret_policy_redact_rewrites(tmp_path: Path):
+def test_legacy_redact_policy_value_now_refuses_with_deprecation(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Redact mode was removed in the 2026-05-22 security hardening rewrite.
+
+    The compat shim maps the deprecated ``"redact"`` value to
+    ``"secrets_refused"`` (safer default) so the artifact is refused, no
+    projection happens, and one DEPRECATION-WARNING is logged naming the
+    old value.
+    """
     syncer = _mcp_syncer(tmp_path, policy="redact")
     alpha_file = tmp_path / "alpha-mcp.json"
     beta_file = tmp_path / "beta-mcp.json"
@@ -374,28 +386,26 @@ def test_mcp_secret_policy_redact_rewrites(tmp_path: Path):
         },
     })
 
-    syncer.sync_once()
+    with caplog.at_level("WARNING"):
+        result = syncer.sync_once()
 
-    alpha = _read_json(alpha_file)
-    beta = _read_json(beta_file)
-    placeholder = "${env:AGENTS_SYNC_REDACTED_1}"
-    assert alpha["mcpServers"]["github"]["env"]["GITHUB_TOKEN"] == placeholder
-    assert beta["mcpServers"]["github"]["env"]["GITHUB_TOKEN"] == placeholder
-    pair_id = _pair_id_for_slot(syncer, "github")
-    canonical = load_canonical(syncer.state_dir, pair_id)
-    assert canonical is not None
-    assert canonical["secret_redactions"] == [{
-        "field_path": "env.GITHUB_TOKEN",
-        "original_env_var": None,
-        "placeholder_env_var": "AGENTS_SYNC_REDACTED_1",
-    }]
+    # Behaviour is now refused: no projection, no canonical, no pair_id injection.
+    assert result.changed == 0
+    assert not beta_file.exists()
+    assert "pair_id" not in _read_json(alpha_file)["mcpServers"]["github"]
+    assert load_state(syncer.state_dir) == {}
+    # Deprecation surfaced at least once.
+    assert any(
+        "DEPRECATED" in r.message and "redact" in r.message
+        for r in caplog.records
+    )
 
 
-def test_mcp_secret_policy_permissive_warns(
+def test_secrets_accepted_admits_literals_with_new_warning_message(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ):
-    syncer = _mcp_syncer(tmp_path, policy="permissive")
+    syncer = _mcp_syncer(tmp_path, policy="secrets_accepted")
     alpha_file = tmp_path / "alpha-mcp.json"
     _write_json(alpha_file, {
         "mcpServers": {
@@ -414,7 +424,7 @@ def test_mcp_secret_policy_permissive_warns(
     assert beta["mcpServers"]["github"]["env"]["GITHUB_TOKEN"] == "ghp_literal"
     warnings = [
         r for r in caplog.records
-        if "MCP server secret policy permissive" in r.message
+        if "secret_policy=secrets_accepted" in r.message
     ]
     assert len(warnings) == 1
 

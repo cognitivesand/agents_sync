@@ -271,68 +271,55 @@ def test_mcp_secret_policy_refuse_flags_secret_extra_exactly():
     ]
 
 
-def test_mcp_secret_policy_redact_rewrites_secret_extra_before_persisting():
-    canonical = parse_mcp_server_json(
-        json.dumps({
-            "name": "licensed",
-            "command": "licensed-mcp",
-            "license_key": "literal-license-key",
-        }),
-        None,
-        agentic_tool_name="alpha",
-        secret_policy="redact",
-    )
+def test_legacy_redact_policy_value_now_refuses_with_deprecation_warning(
+    caplog: pytest.LogCaptureFixture,
+):
+    """The redact mode was removed in the 2026-05-22 hardening rewrite.
 
-    placeholder = "${env:AGENTS_SYNC_REDACTED_1}"
-    rendered = json.loads(render_mcp_server_json(
-        canonical,
-        None,
-        agentic_tool_name="alpha",
-        secret_policy="redact",
-    ))
+    The compatibility shim maps ``redact`` to ``secrets_refused`` (the safer
+    default), so existing configs that say ``redact`` now refuse the
+    artifact and log one DEPRECATION-WARNING. See US-12 / NFR-15.
+    """
+    with caplog.at_level("WARNING"):
+        with pytest.raises(McpSecretLeakError):
+            parse_mcp_server_json(
+                json.dumps({
+                    "name": "licensed",
+                    "command": "licensed-mcp",
+                    "license_key": "literal-license-key",
+                }),
+                None,
+                agentic_tool_name="alpha",
+                secret_policy="redact",
+            )
 
-    assert canonical["per_agentic_tool_extra"]["alpha"] == {
-        "license_key": placeholder,
-    }
-    assert canonical["secret_redactions"] == [{
-        "field_path": "license_key",
-        "original_env_var": None,
-        "placeholder_env_var": "AGENTS_SYNC_REDACTED_1",
-    }]
-    assert rendered["license_key"] == placeholder
-    assert "literal-license-key" not in json.dumps(canonical)
-    assert "literal-license-key" not in json.dumps(rendered)
+    deprecation_records = [
+        r for r in caplog.records
+        if "DEPRECATED" in r.message and "redact" in r.message
+    ]
+    assert deprecation_records, "expected one DEPRECATED secret_policy log for 'redact'"
 
 
-def test_mcp_secret_policy_redact_rewrites_and_records_redactions():
-    canonical = parse_mcp_server_json(
-        json.dumps({
-            "name": "github",
-            "command": "gh",
-            "env": {"GITHUB_TOKEN": "ghp_literal"},
-        }),
-        None,
-        agentic_tool_name="alpha",
-        secret_policy="redact",
-    )
+def test_secrets_refused_blocks_secret_extra_before_persisting():
+    with pytest.raises(McpSecretLeakError) as exc_info:
+        parse_mcp_server_json(
+            json.dumps({
+                "name": "github",
+                "command": "gh",
+                "env": {"GITHUB_TOKEN": "ghp_literal"},
+            }),
+            None,
+            agentic_tool_name="alpha",
+            secret_policy="secrets_refused",
+        )
 
-    assert canonical["env"]["GITHUB_TOKEN"] == "${env:AGENTS_SYNC_REDACTED_1}"
-    assert canonical["secret_redactions"] == [{
-        "field_path": "env.GITHUB_TOKEN",
-        "original_env_var": None,
-        "placeholder_env_var": "AGENTS_SYNC_REDACTED_1",
-    }]
-
-    rendered = json.loads(render_mcp_server_json(
-        canonical,
-        None,
-        agentic_tool_name="alpha",
-        secret_policy="redact",
-    ))
-    assert rendered["env"]["GITHUB_TOKEN"] == "${env:AGENTS_SYNC_REDACTED_1}"
+    assert exc_info.value.policy == "secrets_refused"
+    assert [f.field_path for f in exc_info.value.findings] == ["env.GITHUB_TOKEN"]
 
 
-def test_mcp_secret_policy_permissive_logs_warning(caplog: pytest.LogCaptureFixture):
+def test_secrets_accepted_logs_warning_with_new_message(
+    caplog: pytest.LogCaptureFixture,
+):
     with caplog.at_level("WARNING"):
         canonical = parse_mcp_server_json(
             json.dumps({
@@ -342,11 +329,13 @@ def test_mcp_secret_policy_permissive_logs_warning(caplog: pytest.LogCaptureFixt
             }),
             None,
             agentic_tool_name="alpha",
-            secret_policy="permissive",
+            secret_policy="secrets_accepted",
         )
 
     assert canonical["env"]["GITHUB_TOKEN"] == "ghp_literal"
-    assert any("MCP server secret policy permissive" in r.message for r in caplog.records)
+    assert any(
+        "secret_policy=secrets_accepted" in r.message for r in caplog.records
+    )
 
 
 def test_env_reference_is_not_treated_as_literal_secret():
@@ -533,7 +522,15 @@ def test_codex_env_var_fields_reject_literal_values_under_refuse():
     ]
 
 
-def test_codex_env_var_fields_redact_literal_values_as_names():
+def test_codex_env_var_fields_refuse_literal_values_under_secrets_refused():
+    """Codex's TOML dialect exposes ``bearer_token_env_var`` and
+    ``env_http_headers`` as fields that should hold env-reference *names*,
+    not literals. Under the post-2026-05-22 binary policy the redact mode
+    is gone; ``secrets_refused`` (default) rejects the artifact outright
+    when those fields carry literals. The mixed-content case
+    (``X-Trace = "TRACE_TOKEN"``, which IS a valid env-var name) is left
+    alone — only the literal-bearing fields trigger the refusal.
+    """
     dialect = McpServerDialect(
         render_name_field=False,
         render_transport_field=False,
@@ -554,45 +551,19 @@ def test_codex_env_var_fields_redact_literal_values_as_names():
         "",
     ))
 
-    canonical = parse_mcp_server_json(
-        text,
-        None,
-        agentic_tool_name="codex",
-        dialect=dialect,
-        slot_format="toml",
-        secret_policy="redact",
-    )
-    rendered = tomllib.loads(render_mcp_server_json(
-        canonical,
-        text,
-        agentic_tool_name="codex",
-        dialect=dialect,
-        slot_format="toml",
-        secret_policy="redact",
-    ))
+    with pytest.raises(McpSecretLeakError) as exc_info:
+        parse_mcp_server_json(
+            text,
+            None,
+            agentic_tool_name="codex",
+            dialect=dialect,
+            slot_format="toml",
+            secret_policy="secrets_refused",
+        )
 
-    assert canonical["headers"] == {
-        "Authorization": "Bearer ${env:AGENTS_SYNC_REDACTED_1}",
-        "X-Auth": "${env:AGENTS_SYNC_REDACTED_2}",
-        "X-Trace": "${env:TRACE_TOKEN}",
-    }
-    assert canonical["secret_redactions"] == [
-        {
-            "field_path": "bearer_token_env_var",
-            "original_env_var": None,
-            "placeholder_env_var": "AGENTS_SYNC_REDACTED_1",
-        },
-        {
-            "field_path": "env_http_headers.X-Auth",
-            "original_env_var": None,
-            "placeholder_env_var": "AGENTS_SYNC_REDACTED_2",
-        },
-    ]
-    assert rendered["bearer_token_env_var"] == "AGENTS_SYNC_REDACTED_1"
-    assert rendered["env_http_headers"] == {
-        "X-Auth": "AGENTS_SYNC_REDACTED_2",
-        "X-Trace": "TRACE_TOKEN",
-    }
+    refused_fields = {f.field_path for f in exc_info.value.findings}
+    assert "bearer_token_env_var" in refused_fields
+    assert any(p.startswith("env_http_headers") for p in refused_fields)
 
 
 def test_codex_env_var_fields_accept_valid_env_names():
@@ -629,19 +600,19 @@ def test_codex_env_var_fields_accept_valid_env_names():
     assert "secret_redactions" not in canonical
 
 
-def test_invalid_mcp_secret_policy_rejected_by_config(tmp_path: Path):
+def test_invalid_secret_policy_rejected_by_config(tmp_path: Path):
     config = platform_defaults(os_name="posix", env={}, home=tmp_path)
     config["state_path"] = str(tmp_path / "state" / "state.json")
-    config["mcp_server_secret_policy"] = "leaky"
+    config["secret_policy"] = "leaky"
 
-    with pytest.raises(ConfigError, match="mcp_server_secret_policy"):
+    with pytest.raises(ConfigError, match="secret_policy"):
         validate_config(config)
 
 
-def test_default_config_uses_refuse_policy():
+def test_default_config_uses_secrets_refused_policy():
     defaults = platform_defaults(os_name="posix", env={}, home=Path("/home/tester"))
 
-    assert defaults["mcp_server_secret_policy"] == "refuse"
+    assert defaults["secret_policy"] == "secrets_refused"
 
 
 def test_secret_finding_field_path_distinguishes_list_index_from_dict_key():

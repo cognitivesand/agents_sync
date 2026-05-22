@@ -193,9 +193,23 @@ def test_merged_config_honors_cli_disable_flag():
     assert config["antigravity_enabled"] is False
 
 
-def test_merged_config_honors_mcp_secret_policy_override():
-    config = merged_config(_minimal_args(mcp_server_secret_policy="permissive"))
-    assert config["mcp_server_secret_policy"] == "permissive"
+def test_merged_config_honors_secret_policy_override():
+    config = merged_config(_minimal_args(secret_policy="secrets_accepted"))
+    assert config["secret_policy"] == "secrets_accepted"
+
+
+def test_merged_config_accepts_legacy_mcp_secret_policy_flag_with_deprecation(
+    caplog: pytest.LogCaptureFixture,
+):
+    """The deprecated --mcp-server-secret-policy flag must keep working for
+    one release. Old values map to new ones; old key is consumed and
+    replaced by the canonical ``secret_policy`` with a DEPRECATION-WARNING.
+    """
+    with caplog.at_level("WARNING"):
+        config = merged_config(_minimal_args(mcp_server_secret_policy="permissive"))
+    assert config["secret_policy"] == "secrets_accepted"
+    assert "mcp_server_secret_policy" not in config
+    assert any("DEPRECATED" in r.message for r in caplog.records)
 
 
 # ---------- Syncer status for antigravity ----------

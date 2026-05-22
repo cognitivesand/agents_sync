@@ -213,8 +213,15 @@ def test_opencode_jsonc_mcp_file_projects_to_claude_and_codex(tmp_path: Path):
 
 
 def test_real_adapters_honor_configured_secret_policy(tmp_path: Path):
+    """Under the post-2026-05-22 binary policy, ``secrets_refused`` (the
+    default) blocks any cross-tool projection of a literal-bearing MCP
+    server artifact. The redact mode is gone — its legacy in-place
+    placeholder mutation is replaced by full refusal at parse time, so the
+    literal never enters the canonical store and downstream adapters never
+    see it.
+    """
     config = _config(tmp_path)
-    config["mcp_server_secret_policy"] = "redact"
+    config["mcp_server_secret_policy"] = "secrets_refused"
     claude_file = Path(str(config["claude_mcp_servers_file"]))
     claude_file.write_text(
         json.dumps({
@@ -235,42 +242,21 @@ def test_real_adapters_honor_configured_secret_policy(tmp_path: Path):
     opencode_file = Path(str(config["opencode_config_file"]))
     state_path = Path(str(config["state_path"]))
 
-    claude_text = claude_file.read_text()
-    codex_text = codex_file.read_text()
-    opencode_text = opencode_file.read_text()
-    state_text = state_path.read_text()
+    # The artifact must be refused, so no downstream projection happens
+    # and no canonical is written.
+    assert not codex_file.exists()
+    assert not opencode_file.exists()
+    canonical_dir = state_path.parent / "canonical"
+    canonical_files = list(canonical_dir.glob("*.json")) if canonical_dir.exists() else []
+    assert canonical_files == []
 
-    claude = json.loads(claude_text)
-    codex = tomllib.loads(codex_text)
-    opencode = json.loads(opencode_text)
+    # The source file is left untouched; the literal stays where the user
+    # wrote it (this is the point of refusal — no destructive rewrite).
+    claude_after = json.loads(claude_file.read_text())
     assert (
-        claude["mcpServers"]["github"]["env"]["GITHUB_TOKEN"]
-        == "${AGENTS_SYNC_REDACTED_1}"
+        claude_after["mcpServers"]["github"]["env"]["GITHUB_TOKEN"]
+        == "literal-token"
     )
-    assert (
-        codex["mcp_servers"]["github"]["env"]["GITHUB_TOKEN"]
-        == "${env:AGENTS_SYNC_REDACTED_1}"
-    )
-    assert (
-        opencode["mcp"]["github"]["environment"]["GITHUB_TOKEN"]
-        == "{env:AGENTS_SYNC_REDACTED_1}"
-    )
-
-    canonical_files = list((state_path.parent / "canonical").glob("*.json"))
-    assert len(canonical_files) == 1
-    canonical_text = canonical_files[0].read_text()
-    canonical = json.loads(canonical_text)
-    assert canonical["secret_redactions"] == [{
-        "field_path": "env.GITHUB_TOKEN",
-        "original_env_var": None,
-        "placeholder_env_var": "AGENTS_SYNC_REDACTED_1",
-    }]
-
-    for persisted_text in (
-        claude_text,
-        codex_text,
-        opencode_text,
-        state_text,
-        canonical_text,
-    ):
-        assert "literal-token" not in persisted_text
+    # And the literal never landed in any tool's persisted state.
+    state_text = state_path.read_text() if state_path.exists() else ""
+    assert "literal-token" not in state_text

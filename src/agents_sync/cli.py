@@ -126,13 +126,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Toggle opencode participation in the sync (default: enabled).",
     )
     parser.add_argument(
-        "--mcp-server-secret-policy",
-        choices=["refuse", "redact", "permissive"],
+        "--secret-policy",
+        choices=["secrets_refused", "secrets_accepted"],
         default=None,
         help=(
-            "How to handle literal secrets in MCP server configs "
-            "(default: refuse)."
+            "How to handle customization_artifacts that carry literal "
+            "secret material (default: secrets_refused). "
+            "Applied at every artifact-egress boundary (parse, customization "
+            "library export, customization library import)."
         ),
+    )
+    # Deprecated alias for the canonical --secret-policy flag. Accepts the
+    # old value spellings (refuse / redact / permissive) plus the new ones,
+    # so existing scripts keep working while the deprecation warning
+    # surfaces in the logs. To be removed in v0.6.
+    parser.add_argument(
+        "--mcp-server-secret-policy",
+        choices=[
+            "refuse", "redact", "permissive",
+            "secrets_refused", "secrets_accepted",
+        ],
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
