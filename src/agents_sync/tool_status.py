@@ -56,10 +56,9 @@ class ToolStatusTracker:
             if not self._is_tool_enabled(spec):
                 continue
             for kind, config_key in spec.config_dir_keys.items():
+                if config_key not in self.config:
+                    continue
                 layout = spec.io[kind].file_layout
-                if layout is not None and layout.tolerates_missing_config_key():
-                    if config_key not in self.config:
-                        continue
                 resolved = expand_path(self.config[config_key])
                 parent = (
                     layout.probe_check_path(resolved)
@@ -124,9 +123,10 @@ class ToolStatusTracker:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
         for kind, config_key in spec.config_dir_keys.items():
             layout = spec.io[kind].file_layout
-            if layout is not None and layout.tolerates_missing_config_key():
-                if config_key not in self.config:
+            if config_key not in self.config:
+                if layout is not None and layout.tolerates_missing_config_key():
                     continue
+                return "unavailable", (config_key, "config key missing")
             resolved = expand_path(self.config[config_key])
             probe_path = (
                 layout.probe_check_path(resolved)

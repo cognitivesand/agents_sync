@@ -34,6 +34,7 @@ Examples:
 ```
 src/agents_sync/agentic_tools/claude.py
 src/agents_sync/agentic_tools/codex.py
+src/agents_sync/agentic_tools/cursor.py
 src/agents_sync/agentic_tools/antigravity.py
 src/agents_sync/agentic_tools/opencode.py
 ```
@@ -303,7 +304,7 @@ An `mcp_server` artifact is one MCP-server definition. Unlike `agent`/`skill`/`r
   - **Write**: rendering produces a slot value. The sync core reads the current `shared_path`, replaces (or inserts) the slot under `map_key_path`, and atomically writes the merged file. Sibling slots are preserved byte-for-byte. The file's keys outside `map_key_path` are preserved byte-for-byte.
   - **Archive granularity**: per-slot, matching US-05 AC-1 without exception. When a slot's bytes change, the prior slot value is serialised independently (one JSON or TOML fragment) and written to `archive/<customization_artifact_id>/<agentic_tool_name>/<slot-key>.<file-extension>.<ISO-timestamp>`. Sibling slots whose bytes did not change produce no archive entries on this poll, even if the slot we are writing forces a rewrite of the shared file as a whole. The bytes of the shared file outside the slot's `map_key_path` entry are never archived — they are preserved on disk byte-for-byte.
   - **Identity injection**: when the sync engine creates a slot, it writes the managed identity as top-level `pair_id`. JSON/JSONC and TOML handlers preserve that value; future YAML handlers must preserve the same recoverable canonical identity.
-  - **Real adapter field aliases**: Claude Code renders HTTP/OAuth config with `type`, `headers`, and `oauth`; Codex renders HTTP authentication as `bearer_token_env_var`, `http_headers`, and `env_http_headers`; OpenCode renders MCP servers under `mcp` with `type: "local" | "remote"`, local command arrays, `headers`, and `oauth`.
+  - **Real adapter field aliases**: Claude Code renders HTTP/OAuth config with `type`, `headers`, and `oauth`; Codex renders HTTP authentication as `bearer_token_env_var`, `http_headers`, and `env_http_headers`; Cursor renders under `mcpServers` with `type`, `url`, `headers`, and `auth`; OpenCode renders MCP servers under `mcp` with `type: "local" | "remote"`, local command arrays, `headers`, and `oauth`.
   - **Format support**: JSON/JSONC shared keyed-map files are accepted for JSON-based tools, and TOML is registered for Codex `config.toml[mcp_servers]`. YAML handlers land with the tool-adapter PRs that need them.
 
 ## Versioning

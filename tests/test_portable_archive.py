@@ -387,6 +387,61 @@ def test_import_pair_id_collision_overwrite_archives_local(
     assert report.archived_local  # every local tool-side file got archived
 
 
+def test_import_overwrite_archives_shared_map_slot_not_whole_file(
+    syncer: Syncer, tmp_path: Path
+):
+    claude_file = syncer.tool_root("claude", "mcp_server")
+    claude_file.write_text(
+        json.dumps({
+            "mcpServers": {
+                "github": {
+                    "type": "stdio",
+                    "command": "gh-mcp",
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    syncer.sync_once()
+    pair_id = next(iter(load_state(syncer.state_dir)))
+
+    zip_path = tmp_path / "mcp.zip"
+    export_to_zip(syncer.state_dir, zip_path)
+
+    cursor_file = syncer.tool_root("cursor", "mcp_server")
+    cursor_config = json.loads(cursor_file.read_text(encoding="utf-8"))
+    cursor_config["mcpServers"]["github"]["command"] = "local-change"
+    cursor_config["mcpServers"]["local-only"] = {
+        "type": "stdio",
+        "command": "local-server",
+    }
+    cursor_file.write_text(
+        json.dumps(cursor_config, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    report = import_from_zip(
+        syncer.state_dir,
+        zip_path,
+        strategy="overwrite",
+        config=syncer.config,
+        agentic_tools=syncer.agentic_tools,
+    )
+
+    assert report.accepted == [pair_id]
+    cursor_after = json.loads(cursor_file.read_text(encoding="utf-8"))
+    assert cursor_after["mcpServers"]["github"]["command"] == "gh-mcp"
+    assert cursor_after["mcpServers"]["local-only"]["command"] == "local-server"
+
+    archive_dir = syncer.state_dir / "archive" / pair_id / "cursor"
+    archived = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in archive_dir.iterdir()
+    ]
+    assert any(obj.get("command") == "local-change" for obj in archived)
+    assert all("mcpServers" not in obj for obj in archived)
+
+
 # ---------------- AC-7: slug collision ----------------
 
 

@@ -44,6 +44,10 @@ CONFIG_DIRS: dict[str, str] = {
     "codex_prompts_dir": "xp",
     "codex_skills_dir": "xs",
     "codex_rules_dir": "xr",
+    "cursor_agents_dir": "cura",
+    "cursor_commands_dir": "curc",
+    "cursor_skills_dir": "curs",
+    "cursor_rules_dir": "curr",
     "antigravity_skills_dir": "as",
     "opencode_agents_dir": "oa",
     "opencode_commands_dir": "oc",
@@ -57,6 +61,7 @@ def make_config(
     *,
     antigravity_enabled: bool = True,
     opencode_enabled: bool = True,
+    cursor_enabled: bool = True,
     **overrides: Any,
 ) -> dict[str, Any]:
     """Return a Syncer-ready config dict over ``tmp_path``.
@@ -75,8 +80,10 @@ def make_config(
         "state_path": str(state_dir / "state.json"),
         "antigravity_enabled": antigravity_enabled,
         "opencode_enabled": opencode_enabled,
+        "cursor_enabled": cursor_enabled,
         "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_config_file": str(tmp_path / "codex-config.toml"),
+        "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
         "opencode_config_file": str(tmp_path / "opencode.json"),
     }
     for config_key, dir_name in CONFIG_DIRS.items():
@@ -90,6 +97,7 @@ def make_syncer(
     *,
     antigravity_enabled: bool = True,
     opencode_enabled: bool = True,
+    cursor_enabled: bool = True,
     **overrides: Any,
 ) -> Syncer:
     """Instantiate a Syncer from a tmp_path-rooted config."""
@@ -98,6 +106,7 @@ def make_syncer(
             tmp_path,
             antigravity_enabled=antigravity_enabled,
             opencode_enabled=opencode_enabled,
+            cursor_enabled=cursor_enabled,
             **overrides,
         )
     )

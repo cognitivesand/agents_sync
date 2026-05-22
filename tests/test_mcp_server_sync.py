@@ -23,7 +23,7 @@ from agents_sync.mcp_server_io import (
     parse_mcp_server_json,
     render_mcp_server_json,
 )
-from agents_sync.state import load_state
+from agents_sync.state import load_state, save_state
 from agents_sync.sync import Syncer
 
 
@@ -638,6 +638,7 @@ def test_mcp_occupied_slot_with_different_pair_id_blocks_adoption(
     assert alpha_file.read_text(encoding="utf-8") == alpha_before
     assert beta_file.read_text(encoding="utf-8") == beta_before
 
+
 def test_mcp_servers_key_order_preserved_across_render(tmp_path: Path):
     """Audit slice 03 · CQ-11: when the shared file already lists slots in a
     user-visible order, that order must survive a sync that touches one of
@@ -672,4 +673,36 @@ def test_mcp_servers_key_order_preserved_across_render(tmp_path: Path):
     beta_after = _read_json(beta_file)
     assert list(alpha_after['mcpServers']) == ['zulu', 'alpha', 'mike']
     assert list(beta_after['mcpServers']) == ['zulu', 'alpha', 'mike']
+
+
+def test_mcp_extend_refuses_unmanaged_existing_target_slot(tmp_path: Path):
+    syncer = _mcp_syncer(tmp_path)
+    alpha_file = tmp_path / "alpha-mcp.json"
+    beta_file = tmp_path / "beta-mcp.json"
+    _write_json(alpha_file, {
+        "mcpServers": {
+            "github": {"name": "github", "command": "managed"},
+        },
+    })
+
+    syncer.sync_once()
+    pair_id = _pair_id_for_slot(syncer, "github")
+
+    state = load_state(syncer.state_dir)
+    del state[pair_id].agentic_tools["beta"]
+    save_state(syncer.state_dir, state)
+    _write_json(beta_file, {
+        "mcpServers": {
+            "github": {"name": "github", "command": "foreign"},
+        },
+    })
+
+    result = syncer.sync_once()
+    changed = result.changed
+
+    assert changed == 0
+    beta = _read_json(beta_file)
+    assert beta["mcpServers"]["github"]["command"] == "foreign"
+    assert "pair_id" not in beta["mcpServers"]["github"]
+    assert set(load_state(syncer.state_dir)[pair_id].agentic_tools) == {"alpha"}
 

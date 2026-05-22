@@ -114,6 +114,7 @@ def platform_defaults(
 ) -> dict[str, Any]:
     platform_name = os.name if os_name is None else os_name
     home_dir = _home_dir(home)
+    cursor_root = home_dir / ".cursor"
     if platform_name == "nt":
         opencode_root = _windows_data_dir(
             "APPDATA",
@@ -136,6 +137,12 @@ def platform_defaults(
         "codex_skills_dir": str(home_dir / ".codex" / "skills"),
         "codex_rules_dir": str(home_dir / ".codex"),
         "codex_config_file": str(home_dir / ".codex" / "config.toml"),
+        "cursor_agents_dir": str(cursor_root / "agents"),
+        "cursor_skills_dir": str(cursor_root / "skills"),
+        "cursor_rules_dir": str(cursor_root / "rules"),
+        "cursor_commands_dir": str(cursor_root / "commands"),
+        "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
+        "cursor_enabled": True,
         # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
         # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
         # handles the per-OS separator). Set antigravity_enabled=False to skip
@@ -197,6 +204,12 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
     ("codex_skills_dir", "codex_skills_dir"),
     ("codex_rules_dir", "codex_rules_dir"),
     ("codex_config_file", "codex_config_file"),
+    ("cursor_agents_dir", "cursor_agents_dir"),
+    ("cursor_skills_dir", "cursor_skills_dir"),
+    ("cursor_rules_dir", "cursor_rules_dir"),
+    ("cursor_commands_dir", "cursor_commands_dir"),
+    ("cursor_mcp_servers_file", "cursor_mcp_servers_file"),
+    ("cursor_enabled", "cursor_enabled"),
     ("antigravity_skills_dir", "antigravity_skills_dir"),
     ("antigravity_enabled", "antigravity_enabled"),
     ("opencode_agents_dir", "opencode_agents_dir"),
@@ -265,6 +278,17 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "opencode_rules_dir",
 )
 
+OPTIONAL_PATH_KEYS: tuple[str, ...] = (
+    "claude_mcp_servers_file",
+    "codex_config_file",
+    "cursor_agents_dir",
+    "cursor_skills_dir",
+    "cursor_rules_dir",
+    "cursor_commands_dir",
+    "cursor_mcp_servers_file",
+    "opencode_config_file",
+)
+
 
 def validate_config(config: dict[str, Any]) -> None:
     """Structural validation only.
@@ -293,6 +317,10 @@ def validate_config(config: dict[str, Any]) -> None:
         if key not in config:
             raise ConfigError(f"missing required config key: {key}")
         if not isinstance(config[key], (str, Path)):
+            raise ConfigError(f"{key} must be a path string")
+
+    for key in OPTIONAL_PATH_KEYS:
+        if key in config and not isinstance(config[key], (str, Path)):
             raise ConfigError(f"{key} must be a path string")
 
     strategy = config.get("import_collision_strategy", "mtime_wins")

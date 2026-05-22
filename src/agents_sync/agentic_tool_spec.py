@@ -1,7 +1,7 @@
 """AgenticToolSpec registry — data model + default registry.
 
 One `AgenticToolSpec` represents one agentic tool (e.g. claude, codex,
-antigravity, opencode). It declares which customization_types the tool
+cursor, antigravity, opencode). It declares which customization_types the tool
 supports (agent and/or skill), where on disk each customization_type lives
 (config keys), and how to parse / render / extract the pair_id for each
 (tool, type) cell via `CustomizationTypeIO`.
@@ -288,6 +288,7 @@ def default_agentic_tools(
         build_antigravity_spec,
         build_claude_spec,
         build_codex_spec,
+        build_cursor_spec,
         build_opencode_spec,
     )
 
@@ -295,5 +296,6 @@ def default_agentic_tools(
         "antigravity": build_antigravity_spec(),
         "claude": build_claude_spec(config),
         "codex": build_codex_spec(config),
+        "cursor": build_cursor_spec(config),
         "opencode": build_opencode_spec(config),
     }
