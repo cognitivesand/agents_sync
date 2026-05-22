@@ -17,6 +17,7 @@ from typing import Any
 
 from agents_sync.state import _quarantine_corrupt, atomic_write_text
 from agents_sync.identity import validate_pair_id
+from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded
 
 
 SCHEMA_VERSION = 2
@@ -157,7 +158,11 @@ def load_canonical(state_dir: Path, pair_id: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        text = path.read_text(encoding="utf-8")
+        text = read_text_bounded(path, label=f"canonical {pair_id}")
+    except ParserBoundsExceeded:
+        logging.exception("Canonical exceeds parser bounds: %s", path)
+        _quarantine_corrupt(state_dir, path, reason="exceeds parser bounds")
+        return None
     except (OSError, UnicodeDecodeError):
         logging.exception("Could not read canonical for %s: %s", pair_id, path)
         _quarantine_corrupt(state_dir, path, reason="unreadable bytes")

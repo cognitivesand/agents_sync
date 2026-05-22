@@ -347,9 +347,17 @@ def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
 
 
 def _read_text_for_recovery(path: Path) -> str | None:
-    """Read ``path`` as UTF-8, returning ``None`` on read or decode failure."""
+    """Read ``path`` as UTF-8, returning ``None`` on read or decode failure
+    or when the file exceeds :data:`parser_bounds.MAX_PARSE_BYTES`."""
+    # Lazy import — parser_bounds depends on yaml_frontmatter at module load
+    # time, and state.py is imported early in the chain.
+    from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded
+
     try:
-        return path.read_text(encoding="utf-8")
+        return read_text_bounded(path, label=str(path))
+    except ParserBoundsExceeded:
+        logging.exception("State file exceeds parser bounds: %s", path)
+        return None
     except (OSError, UnicodeDecodeError):
         logging.exception("Could not read %s", path)
         return None

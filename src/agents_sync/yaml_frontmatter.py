@@ -54,11 +54,24 @@ class AdapterParseError(ValueError):
 
 
 def make_yaml() -> YAML:
-    """``ruamel.yaml.YAML`` configured for round-trip preservation."""
+    """``ruamel.yaml.YAML`` configured for round-trip preservation.
+
+    The composer is the bounded variant defined in
+    :mod:`agents_sync.parser_bounds`, which counts node compositions and
+    aborts pathological YAML alias graphs (Phase 3 / SEC-C-01). The cap
+    is set high enough that legitimate frontmatter never trips it.
+    """
+    # Lazy import — parser_bounds imports AdapterParseError from this
+    # module; bringing parser_bounds in at module load time would form a
+    # cycle. The composer class is a stable callable cached by ruamel
+    # internals after first construction.
+    from agents_sync.parser_bounds import make_bounded_composer_class
+
     yml = YAML(typ="rt")
     yml.preserve_quotes = True
     yml.width = 4096
     yml.indent(mapping=2, sequence=4, offset=2)
+    yml.Composer = make_bounded_composer_class()
     return yml
 
 
@@ -117,14 +130,25 @@ def split_frontmatter(
       body verbatim — required for prompt-template artifacts (slash
       commands) where trailing whitespace is semantically significant.
     """
+    # Lazy import (parser_bounds depends on this module for
+    # AdapterParseError).
+    from agents_sync.parser_bounds import enforce_frontmatter_window
+
     text = normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
+    # Bound the FRONTMATTER_RE linear scan to the leading window so a
+    # multi-MB body cannot make the regex walk the whole document. The
+    # body past the window is preserved by slicing the original text
+    # from ``match.start(2)`` after the regex finds the frontmatter span
+    # inside ``head``.
+    head = enforce_frontmatter_window(text)
+    match = FRONTMATTER_RE.match(head)
     if match is None:
         body = strip_bom_prefix(text)
         if strip_body:
             body = body.strip()
         return {}, body
-    raw_frontmatter, body_raw = match.groups()
+    raw_frontmatter = match.group(1)
+    body_raw = text[match.start(2):]
     body = strip_bom_prefix(body_raw)
     if strip_body:
         body = body.strip()

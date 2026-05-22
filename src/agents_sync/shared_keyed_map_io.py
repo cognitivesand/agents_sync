@@ -33,6 +33,7 @@ from typing import Any
 
 from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
 from agents_sync.filesystem_lock import LockTimeoutError, lock_file
+from agents_sync.parser_bounds import read_text_bounded
 from agents_sync.shared_keyed_map_formats import get_format
 from agents_sync.state import atomic_write_text
 
@@ -49,7 +50,7 @@ def read_slots(
     propagated."""
     if not shared_path.exists():
         return {}, "file-missing"
-    text = shared_path.read_text(encoding="utf-8")
+    text = read_text_bounded(shared_path)
     format_handler = get_format(layout.file_format)
     root = format_handler.deserialize(text)
     node: Any = root
@@ -151,7 +152,7 @@ def _read_root_and_node(
     return ``(root, node)`` where ``node`` is the inner map at
     ``layout.map_key_path`` ready for slot insertion / deletion."""
     before_text = (
-        shared_path.read_text(encoding="utf-8")
+        read_text_bounded(shared_path)
         if shared_path.exists() else ""
     )
     root = (

@@ -5,10 +5,13 @@ import json
 import tomllib
 from typing import Any
 
+from agents_sync.parser_bounds import enforce_text_bound
+
 
 def loads_slot(text: str | None, *, slot_format: str = "json") -> dict[str, Any]:
     if text is None or not text.strip():
         return {}
+    text = enforce_text_bound(text, label=f"mcp_server {slot_format} slot")
     if slot_format == "json":
         obj = json.loads(text)
     elif slot_format == "toml":

@@ -8,9 +8,11 @@ from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 from agents_sync.formats.jsonc_tokenizer import strip_utf8_bom
+from agents_sync.parser_bounds import enforce_text_bound
 
 
 def deserialize(text: str) -> MutableMapping[str, Any]:
+    text = enforce_text_bound(text, label="shared keyed-map TOML")
     text = strip_utf8_bom(text)
     if not text or not text.strip():
         return {}
