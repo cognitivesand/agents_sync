@@ -69,6 +69,7 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "cura", "curc", "curs", "curr",
         "as",
         "oa", "oc", "os", "or",
     ):
@@ -86,6 +87,12 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "codex_skills_dir": str(root / "xs"),
         "codex_rules_dir": str(root / "xr"),
         "codex_config_file": str(root / "codex-config.toml"),
+        "cursor_agents_dir": str(root / "cura"),
+        "cursor_commands_dir": str(root / "curc"),
+        "cursor_skills_dir": str(root / "curs"),
+        "cursor_rules_dir": str(root / "curr"),
+        "cursor_mcp_servers_file": str(root / "cursor-mcp.json"),
+        "cursor_enabled": True,
         "antigravity_skills_dir": str(root / "as"),
         "antigravity_enabled": True,
         "opencode_agents_dir": str(root / "oa"),
@@ -116,7 +123,7 @@ def test_cli_export_then_import_roundtrip(syncer: Syncer, tmp_path: Path):
     exit_code = main(["--config", str(target_cfg), "import", str(out_zip)])
 
     assert exit_code == 0
-    for sub in ("cs", "xs", "as", "os"):
+    for sub in ("cs", "xs", "curs", "as", "os"):
         assert (target_root / sub / "foo" / "SKILL.md").exists()
 
 
