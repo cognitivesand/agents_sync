@@ -54,6 +54,17 @@ class AgentsSyncConfig(TypedDict, total=False):
     gemini_cli_rules_dir: str
     gemini_cli_settings_file: str
     gemini_cli_enabled: bool
+    # Copilot
+    copilot_enabled: bool
+    copilot_cli_enabled: bool
+    copilot_vscode_user_profile_enabled: bool
+    copilot_cli_agents_dir: str
+    copilot_cli_skills_dir: str
+    copilot_cli_mcp_config_file: str
+    copilot_vscode_user_agents_dir: str | None
+    copilot_vscode_user_instructions_dir: str | None
+    copilot_vscode_user_prompts_dir: str | None
+    copilot_vscode_user_mcp_file: str | None
     # opencode
     opencode_agents_dir: str
     opencode_commands_dir: str
@@ -175,6 +186,16 @@ def platform_defaults(
         "opencode_rules_dir": str(opencode_root),
         "opencode_config_file": str(opencode_root / "opencode.json"),
         "opencode_enabled": True,
+        "copilot_enabled": True,
+        "copilot_cli_enabled": True,
+        "copilot_vscode_user_profile_enabled": True,
+        "copilot_cli_agents_dir": str(home_dir / ".copilot" / "agents"),
+        "copilot_cli_skills_dir": str(home_dir / ".copilot" / "skills"),
+        "copilot_cli_mcp_config_file": str(home_dir / ".copilot" / "mcp-config.json"),
+        "copilot_vscode_user_agents_dir": None,
+        "copilot_vscode_user_instructions_dir": None,
+        "copilot_vscode_user_prompts_dir": None,
+        "copilot_vscode_user_mcp_file": None,
         "import_collision_strategy": "mtime_wins",
         "secret_policy": "secrets_refused",
     }
@@ -244,6 +265,16 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
     ("opencode_rules_dir", "opencode_rules_dir"),
     ("opencode_config_file", "opencode_config_file"),
     ("opencode_enabled", "opencode_enabled"),
+    ("copilot_enabled", "copilot_enabled"),
+    ("copilot_cli_enabled", "copilot_cli_enabled"),
+    ("copilot_vscode_user_profile_enabled", "copilot_vscode_user_profile_enabled"),
+    ("copilot_cli_agents_dir", "copilot_cli_agents_dir"),
+    ("copilot_cli_skills_dir", "copilot_cli_skills_dir"),
+    ("copilot_cli_mcp_config_file", "copilot_cli_mcp_config_file"),
+    ("copilot_vscode_user_agents_dir", "copilot_vscode_user_agents_dir"),
+    ("copilot_vscode_user_instructions_dir", "copilot_vscode_user_instructions_dir"),
+    ("copilot_vscode_user_prompts_dir", "copilot_vscode_user_prompts_dir"),
+    ("copilot_vscode_user_mcp_file", "copilot_vscode_user_mcp_file"),
     # Two argparse attributes map to the same merged-config key — the
     # canonical ``secret_policy`` and the deprecated alias
     # ``mcp_server_secret_policy``. ``merged_config`` resolves the
@@ -314,6 +345,23 @@ OPTIONAL_PATH_KEYS: tuple[str, ...] = (
     "cursor_mcp_servers_file",
     "gemini_cli_settings_file",
     "opencode_config_file",
+    "copilot_cli_agents_dir",
+    "copilot_cli_skills_dir",
+    "copilot_cli_mcp_config_file",
+    "copilot_vscode_user_agents_dir",
+    "copilot_vscode_user_instructions_dir",
+    "copilot_vscode_user_prompts_dir",
+    "copilot_vscode_user_mcp_file",
+)
+
+OPTIONAL_BOOL_KEYS: tuple[str, ...] = (
+    "antigravity_enabled",
+    "cursor_enabled",
+    "gemini_cli_enabled",
+    "opencode_enabled",
+    "copilot_enabled",
+    "copilot_cli_enabled",
+    "copilot_vscode_user_profile_enabled",
 )
 
 
@@ -347,8 +395,14 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigError(f"{key} must be a path string")
 
     for key in OPTIONAL_PATH_KEYS:
-        if key in config and not isinstance(config[key], (str, Path)):
-            raise ConfigError(f"{key} must be a path string")
+        if key not in config or config[key] is None:
+            continue
+        if not isinstance(config[key], (str, Path)):
+            raise ConfigError(f"{key} must be a path string when set")
+
+    for key in OPTIONAL_BOOL_KEYS:
+        if key in config and not isinstance(config[key], bool):
+            raise ConfigError(f"{key} must be a boolean")
 
     strategy = config.get("import_collision_strategy", "mtime_wins")
     if strategy not in {"skip", "mtime_wins", "overwrite"}:

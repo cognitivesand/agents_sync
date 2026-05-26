@@ -14,7 +14,7 @@ under :mod:`agents_sync.tool_specs`; sync-loop wiring lives in
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -198,6 +198,7 @@ class CustomizationTypeIO:
     slugify_name: SlugifyFn | None = None
     recursive: bool = False
     reserved_names: frozenset[str] = frozenset()
+    accepted_file_suffixes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.file_layout is None:
@@ -237,6 +238,8 @@ class AgenticToolSpec:
     config_dir_keys: dict[str, str]
     io: dict[str, CustomizationTypeIO]
     disable_config_key: str | None = None
+    partial_availability: bool = False
+    kind_disable_config_keys: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Reject ``config_dir_keys`` / ``io`` drift at construction time.
@@ -289,6 +292,7 @@ def default_agentic_tools(
         build_antigravity_spec,
         build_claude_spec,
         build_codex_spec,
+        build_copilot_spec,
         build_cursor_spec,
         build_gemini_cli_spec,
         build_opencode_spec,
@@ -298,6 +302,7 @@ def default_agentic_tools(
         "antigravity": build_antigravity_spec(),
         "claude": build_claude_spec(config),
         "codex": build_codex_spec(config),
+        "copilot": build_copilot_spec(config),
         "cursor": build_cursor_spec(config),
         "gemini_cli": build_gemini_cli_spec(config),
         "opencode": build_opencode_spec(config),

@@ -37,11 +37,12 @@ def test_agentic_tool_spec_rejects_drift_between_config_keys_and_io():
         )
 
 
-def test_default_registry_has_claude_codex_cursor_gemini_antigravity_and_opencode():
+def test_default_registry_has_all_supported_tools():
     registry = default_agentic_tools()
     assert set(registry.keys()) == {
         "claude",
         "codex",
+        "copilot",
         "cursor",
         "gemini_cli",
         "antigravity",
@@ -176,6 +177,50 @@ def test_gemini_cli_spec_supports_file_backed_user_surfaces():
     assert spec.io["slash_command"].recursive is True
     assert spec.io["rules"].fixed_file_name == "GEMINI.md"
     assert spec.io["mcp_server"].storage == "shared_keyed_map"
+
+
+def test_copilot_spec_supports_cli_and_vscode_user_surfaces():
+    spec = default_agentic_tools()["copilot"]
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "rules",
+        "slash_command",
+        "mcp_server",
+    })
+    assert spec.config_dir_keys == {
+        "agent": "copilot_cli_agents_dir",
+        "skill": "copilot_cli_skills_dir",
+        "rules": "copilot_vscode_user_instructions_dir",
+        "slash_command": "copilot_vscode_user_prompts_dir",
+        "mcp_server": "copilot_cli_mcp_config_file",
+    }
+    assert spec.disable_config_key == "copilot_enabled"
+    assert spec.partial_availability is True
+    assert spec.kind_disable_config_keys == {
+        "agent": "copilot_cli_enabled",
+        "skill": "copilot_cli_enabled",
+        "mcp_server": "copilot_cli_enabled",
+        "rules": "copilot_vscode_user_profile_enabled",
+        "slash_command": "copilot_vscode_user_profile_enabled",
+    }
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".agent.md"
+    assert spec.io["agent"].accepted_file_suffixes == (
+        ".agent.md",
+        ".chatmode.md",
+        ".md",
+    )
+    assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["rules"].file_suffix == ".instructions.md"
+    assert spec.io["slash_command"].file_suffix == ".prompt.md"
+    assert spec.io["slash_command"].recursive is True
+    assert spec.io["mcp_server"].storage == "shared_keyed_map"
+    assert spec.io["mcp_server"].file_layout is not None
+    assert spec.io["mcp_server"].file_layout.shared_path_config_key == (
+        "copilot_cli_mcp_config_file"
+    )
+    assert spec.io["mcp_server"].file_layout.map_key_path == ("servers",)
 
 
 def test_opencode_spec_supports_agents_and_skills_with_disable_key():

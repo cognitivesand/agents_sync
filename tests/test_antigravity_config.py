@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from agents_sync.cli import build_parser
-from agents_sync.config import merged_config, platform_defaults
+from agents_sync.config import ConfigError, merged_config, platform_defaults, validate_config
 from agents_sync.sync import Syncer
 
 
@@ -135,6 +135,27 @@ def test_cli_parser_accepts_mcp_server_secret_policy_flag():
     args = parser.parse_args(["--mcp-server-secret-policy", "redact"])
 
     assert args.mcp_server_secret_policy == "redact"
+
+
+def test_cli_parser_accepts_copilot_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--copilot-cli-agents-dir",
+        "/copilot/agents",
+        "--copilot-cli-skills-dir",
+        "/copilot/skills",
+        "--copilot-vscode-user-instructions-dir",
+        "/copilot/instructions",
+        "--copilot-vscode-user-prompts-dir",
+        "/copilot/prompts",
+        "--no-copilot-cli-enabled",
+    ])
+
+    assert args.copilot_cli_agents_dir == "/copilot/agents"
+    assert args.copilot_cli_skills_dir == "/copilot/skills"
+    assert args.copilot_vscode_user_instructions_dir == "/copilot/instructions"
+    assert args.copilot_vscode_user_prompts_dir == "/copilot/prompts"
+    assert args.copilot_cli_enabled is False
 
 
 # ---------- merged_config ----------
@@ -258,6 +279,29 @@ def test_merged_config_accepts_legacy_mcp_secret_policy_flag_with_deprecation(
     assert config["secret_policy"] == "secrets_accepted"
     assert "mcp_server_secret_policy" not in config
     assert any("DEPRECATED" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize(
+    "flag_name",
+    [
+        "antigravity_enabled",
+        "cursor_enabled",
+        "gemini_cli_enabled",
+        "opencode_enabled",
+        "copilot_enabled",
+        "copilot_cli_enabled",
+        "copilot_vscode_user_profile_enabled",
+    ],
+)
+def test_validate_config_rejects_non_boolean_enable_flags(
+    tmp_path: Path,
+    flag_name: str,
+):
+    config = _test_config(tmp_path)
+    config[flag_name] = "false"
+
+    with pytest.raises(ConfigError, match=f"{flag_name} must be a boolean"):
+        validate_config(config)
 
 
 # ---------- Syncer status for antigravity ----------

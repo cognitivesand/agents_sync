@@ -128,6 +128,15 @@ codex_rules_dir = "~/.codex"
 # opencode_skills_dir = "~/.config/opencode/skills"
 # opencode_rules_dir = "~/.config/opencode"
 # opencode_enabled = false
+
+# GitHub Copilot CLI agents and skills are enabled by default.
+# VS Code user-profile instructions/prompts are path-configured because
+# profile locations vary by install.
+# copilot_cli_agents_dir = "~/.copilot/agents"
+# copilot_cli_skills_dir = "~/.copilot/skills"
+# copilot_vscode_user_instructions_dir = "/path/to/vscode/profile/instructions"
+# copilot_vscode_user_prompts_dir = "/path/to/vscode/profile/prompts"
+# copilot_enabled = false
 EOF
 fi
 

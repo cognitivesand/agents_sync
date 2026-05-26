@@ -39,8 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Continuous sync of Claude Code, Codex, Cursor, Gemini CLI, "
-            "Antigravity, and opencode customizations."
+            "Continuous sync of Claude Code, Codex, Copilot, Cursor, "
+            "Gemini CLI, Antigravity, and opencode customizations."
         ),
     )
     parser.add_argument(
@@ -186,6 +186,59 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Toggle opencode participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--copilot-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle GitHub Copilot participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--copilot-cli-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle the Copilot CLI/user-home half (agents and skills).",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-profile-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle the VS Code user-profile Copilot half (instructions and prompts).",
+    )
+    parser.add_argument(
+        "--copilot-cli-agents-dir",
+        type=str,
+        help="GitHub Copilot user agents root. Defaults to ~/.copilot/agents.",
+    )
+    parser.add_argument(
+        "--copilot-cli-skills-dir",
+        type=str,
+        help="GitHub Copilot Agent Skills root. Defaults to ~/.copilot/skills.",
+    )
+    parser.add_argument(
+        "--copilot-cli-mcp-config-file",
+        type=str,
+        help="GitHub Copilot CLI MCP config file reserved for v0.5 MCP support.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-agents-dir",
+        type=str,
+        help="VS Code user-profile Copilot agents root. Reserved for multi-root agent support.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-instructions-dir",
+        type=str,
+        help="VS Code user-profile Copilot instructions root for *.instructions.md.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-prompts-dir",
+        type=str,
+        help="VS Code user-profile Copilot prompts root for *.prompt.md.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-mcp-file",
+        type=str,
+        help="VS Code user-profile MCP file reserved for v0.5 MCP support.",
     )
     parser.add_argument(
         "--secret-policy",

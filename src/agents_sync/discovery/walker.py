@@ -62,6 +62,8 @@ class DiscoveryWalker(
             if not self.tool_status.is_available(tool_name):
                 continue
             for customization_type in sorted(spec.supported_customization_types):
+                if not self.tool_status.is_kind_available(tool_name, customization_type):
+                    continue
                 io = spec.io[customization_type]
                 if isinstance(io.file_layout, SharedKeyedMapLayout):
                     self._discover_shared_keyed_map(
