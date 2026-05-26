@@ -15,6 +15,9 @@ def test_platform_defaults_include_gemini_cli_roots():
     assert defaults["gemini_cli_commands_dir"] == str(home / ".gemini" / "commands")
     assert defaults["gemini_cli_skills_dir"] == str(home / ".gemini" / "skills")
     assert defaults["gemini_cli_rules_dir"] == str(home / ".gemini")
+    assert defaults["gemini_cli_settings_file"] == str(
+        home / ".gemini" / "settings.json"
+    )
     assert defaults["gemini_cli_enabled"] is True
     assert defaults["antigravity_skills_dir"] == str(
         home / ".gemini" / "antigravity" / "skills"
@@ -32,6 +35,8 @@ def test_cli_parser_accepts_gemini_cli_flags():
         "/gemini/skills",
         "--gemini-cli-rules-dir",
         "/gemini",
+        "--gemini-cli-settings-file",
+        "/gemini/settings.json",
         "--no-gemini-cli-enabled",
     ])
 
@@ -39,6 +44,7 @@ def test_cli_parser_accepts_gemini_cli_flags():
     assert args.gemini_cli_commands_dir == "/gemini/commands"
     assert args.gemini_cli_skills_dir == "/gemini/skills"
     assert args.gemini_cli_rules_dir == "/gemini"
+    assert args.gemini_cli_settings_file == "/gemini/settings.json"
     assert args.gemini_cli_enabled is False
 
 
@@ -47,10 +53,13 @@ def test_merged_config_honors_gemini_cli_overrides():
     args = parser.parse_args([
         "--gemini-cli-agents-dir",
         "/custom/agents",
+        "--gemini-cli-settings-file",
+        "/custom/settings.json",
         "--no-gemini-cli-enabled",
     ])
 
     config = merged_config(args)
 
     assert config["gemini_cli_agents_dir"] == "/custom/agents"
+    assert config["gemini_cli_settings_file"] == "/custom/settings.json"
     assert config["gemini_cli_enabled"] is False

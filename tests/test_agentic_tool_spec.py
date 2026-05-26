@@ -159,12 +159,14 @@ def test_gemini_cli_spec_supports_file_backed_user_surfaces():
         "skill",
         "slash_command",
         "rules",
+        "mcp_server",
     })
     assert spec.config_dir_keys == {
         "agent": "gemini_cli_agents_dir",
         "slash_command": "gemini_cli_commands_dir",
         "skill": "gemini_cli_skills_dir",
         "rules": "gemini_cli_rules_dir",
+        "mcp_server": "gemini_cli_settings_file",
     }
     assert spec.disable_config_key == "gemini_cli_enabled"
     assert spec.io["agent"].storage == "single_file"
@@ -174,6 +176,7 @@ def test_gemini_cli_spec_supports_file_backed_user_surfaces():
     assert spec.io["slash_command"].file_suffix == ".toml"
     assert spec.io["slash_command"].recursive is True
     assert spec.io["rules"].fixed_file_name == "GEMINI.md"
+    assert spec.io["mcp_server"].storage == "shared_keyed_map"
 
 
 def test_copilot_spec_supports_cli_and_vscode_user_surfaces():
@@ -301,6 +304,7 @@ from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
     [
         ("claude", ("mcpServers",), "json"),
         ("codex", ("mcp_servers",), "toml"),
+        ("gemini_cli", ("mcpServers",), "json"),
         ("opencode", ("mcp",), "json"),
     ],
 )
@@ -317,7 +321,7 @@ def test_mcp_server_layout_per_tool(
     assert io.file_layout.key_field == "name"
 
 
-@pytest.mark.parametrize("tool_name", ["claude", "codex", "opencode"])
+@pytest.mark.parametrize("tool_name", ["claude", "codex", "gemini_cli", "opencode"])
 def test_mcp_server_round_trip_per_tool(tool_name: str):
     """Adapter-dialect smoke test: a stdio entry parses then renders back to
     a shape carrying name + command for that tool, with the per-tool slot
@@ -325,7 +329,7 @@ def test_mcp_server_round_trip_per_tool(tool_name: str):
     spec = default_agentic_tools()[tool_name]
     io = spec.io["mcp_server"]
     canonical = empty_canonical("mcp_server")
-    canonical["pair_id"] = f"00000000-0000-4000-8000-00000000000{ {'claude':1,'codex':2,'opencode':3}[tool_name] }"
+    canonical["pair_id"] = f"00000000-0000-4000-8000-00000000000{ {'claude':1,'codex':2,'gemini_cli':3,'opencode':4}[tool_name] }"
     canonical["name"] = "filesystem"
     canonical["transport"] = "stdio"
     canonical["command"] = "fs-mcp"

@@ -304,6 +304,6 @@ def default_agentic_tools(
         "codex": build_codex_spec(config),
         "copilot": build_copilot_spec(config),
         "cursor": build_cursor_spec(config),
-        "gemini_cli": build_gemini_cli_spec(),
+        "gemini_cli": build_gemini_cli_spec(config),
         "opencode": build_opencode_spec(config),
     }

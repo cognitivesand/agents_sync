@@ -218,6 +218,7 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "gemini_cli_commands_dir": str(tmp_path / "gc"),
         "gemini_cli_skills_dir": str(tmp_path / "gs"),
         "gemini_cli_rules_dir": str(tmp_path / "gr"),
+        "gemini_cli_settings_file": str(tmp_path / "gemini-settings.json"),
         "gemini_cli_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_commands_dir": str(tmp_path / "oc"),
@@ -236,6 +237,7 @@ def test_merged_config_falls_back_to_default_antigravity_dir():
     assert "gemini_cli_commands_dir" in config
     assert "gemini_cli_skills_dir" in config
     assert "gemini_cli_rules_dir" in config
+    assert "gemini_cli_settings_file" in config
     assert config["gemini_cli_enabled"] is True
     assert "opencode_agents_dir" in config
     assert "opencode_commands_dir" in config

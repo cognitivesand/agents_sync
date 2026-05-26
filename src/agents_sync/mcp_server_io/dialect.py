@@ -27,6 +27,8 @@ class McpServerDialect:
     render_name_field: bool = True
     transport_fields: tuple[str, ...] = ("transport", "type", "transportType")
     url_fields: tuple[str, ...] = ("url", "httpUrl", "serverUrl")
+    transport_from_fields: tuple[tuple[str, str], ...] = ()
+    url_render_fields: tuple[tuple[str, str], ...] = ()
     headers_fields: tuple[str, ...] = ("headers",)
     headers_render_field: str = "headers"
     env_http_headers_field: str | None = None

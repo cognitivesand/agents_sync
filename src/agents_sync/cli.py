@@ -146,6 +146,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Gemini CLI rules root. Defaults to ~/.gemini, containing GEMINI.md.",
     )
     parser.add_argument(
+        "--gemini-cli-settings-file",
+        type=str,
+        help="Gemini CLI settings.json file containing mcpServers. Defaults to ~/.gemini/settings.json.",
+    )
+    parser.add_argument(
         "--gemini-cli-enabled",
         action=argparse.BooleanOptionalAction,
         default=None,

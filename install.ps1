@@ -151,6 +151,14 @@ codex_rules_dir = "~/.codex"
 # cursor_mcp_servers_file = "~/.cursor/mcp.json"
 # cursor_enabled = false
 
+# Gemini CLI. Enabled by default for user-level file surfaces.
+# gemini_cli_agents_dir = "~/.gemini/agents"
+# gemini_cli_commands_dir = "~/.gemini/commands"
+# gemini_cli_skills_dir = "~/.gemini/skills"
+# gemini_cli_rules_dir = "~/.gemini"
+# gemini_cli_settings_file = "~/.gemini/settings.json"
+# gemini_cli_enabled = false
+
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
 # On Antigravity v1.19.6 the directory is "global_skills" not "skills";

@@ -109,7 +109,7 @@ def _render_transport_fields(
         tool_only.get("url_field"),
         prior_obj,
         dialect.url_fields,
-        dialect.url_fields[0],
+        _default_url_field_for_transport(transport, dialect),
     )
     obj[url_field] = canonical["url"]
     render_http_headers(canonical, obj, dialect, tool_only, prior_obj)
@@ -168,3 +168,11 @@ def _render_transport_value(
     if transport in render_values:
         return render_values[transport]
     return transport
+
+
+def _default_url_field_for_transport(
+    transport: str,
+    dialect: McpServerDialect,
+) -> str:
+    render_fields = dict(dialect.url_render_fields)
+    return render_fields.get(transport, dialect.url_fields[0])

@@ -100,6 +100,7 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "gemini_cli_commands_dir": str(root / "gc"),
         "gemini_cli_skills_dir": str(root / "gs"),
         "gemini_cli_rules_dir": str(root / "gr"),
+        "gemini_cli_settings_file": str(root / "gemini-settings.json"),
         "gemini_cli_enabled": False,
         "opencode_agents_dir": str(root / "oa"),
         "opencode_commands_dir": str(root / "oc"),

@@ -87,6 +87,77 @@ def test_parse_http_aliases_preserve_tool_spellings_on_render():
     assert rendered["alwaysAllow"] == ["search"]
 
 
+def test_gemini_cli_dialect_distinguishes_http_url_from_sse_url():
+    dialect = McpServerDialect(
+        render_name_field=False,
+        render_transport_field=False,
+        url_fields=("httpUrl", "url", "serverUrl"),
+        transport_from_fields=(
+            ("httpUrl", "http"),
+            ("url", "sse"),
+            ("command", "stdio"),
+        ),
+        url_render_fields=(
+            ("http", "httpUrl"),
+            ("streamable-http", "httpUrl"),
+            ("sse", "url"),
+        ),
+        auth_fields=("oauth", "auth"),
+        auth_render_field="oauth",
+        env_reference_style="gemini",
+    )
+    http_text = json.dumps({
+        "name": "docs",
+        "httpUrl": "https://example.test/mcp",
+        "headers": {"Authorization": "Bearer $DOCS_TOKEN"},
+        "trust": False,
+        "includeTools": ["search"],
+    })
+    sse_text = json.dumps({
+        "name": "events",
+        "url": "https://example.test/sse",
+    })
+
+    http = parse_mcp_server_json(
+        http_text,
+        None,
+        agentic_tool_name="gemini_cli",
+        dialect=dialect,
+    )
+    sse = parse_mcp_server_json(
+        sse_text,
+        None,
+        agentic_tool_name="gemini_cli",
+        dialect=dialect,
+    )
+    rendered_http = json.loads(render_mcp_server_json(
+        http,
+        None,
+        agentic_tool_name="gemini_cli",
+        dialect=dialect,
+    ))
+    rendered_sse = json.loads(render_mcp_server_json(
+        sse,
+        None,
+        agentic_tool_name="gemini_cli",
+        dialect=dialect,
+    ))
+
+    assert http["transport"] == "http"
+    assert http["headers"]["Authorization"] == "Bearer ${env:DOCS_TOKEN}"
+    assert http["per_agentic_tool_extra"]["gemini_cli"] == {
+        "trust": False,
+        "includeTools": ["search"],
+    }
+    assert rendered_http["httpUrl"] == "https://example.test/mcp"
+    assert rendered_http["headers"]["Authorization"] == "Bearer ${DOCS_TOKEN}"
+    assert "transport" not in rendered_http
+    assert "type" not in rendered_http
+    assert sse["transport"] == "sse"
+    assert rendered_sse["url"] == "https://example.test/sse"
+    assert "httpUrl" not in rendered_sse
+
+
 def test_extract_pair_id_from_mcp_server_json():
     pair_id = extract_pair_id_from_mcp_server_json(json.dumps({
         "pair_id": "00000000-0000-4000-8000-000000000001",
