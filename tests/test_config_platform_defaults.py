@@ -29,6 +29,9 @@ def test_linux_defaults_use_home_conventions():
     assert defaults["cursor_rules_dir"] == str(home / ".cursor" / "rules")
     assert defaults["cursor_mcp_servers_file"] == str(home / ".cursor" / "mcp.json")
     assert defaults["cursor_enabled"] is True
+    assert defaults["gemini_cli_settings_file"] == str(
+        home / ".gemini" / "settings.json"
+    )
     assert defaults["opencode_agents_dir"] == str(home / ".config" / "opencode" / "agents")
     assert defaults["opencode_commands_dir"] == str(home / ".config" / "opencode" / "commands")
     assert defaults["opencode_skills_dir"] == str(home / ".config" / "opencode" / "skills")
@@ -76,6 +79,9 @@ def test_windows_defaults_prefer_appdata_and_localappdata():
     )
     assert _portable_path(defaults["cursor_mcp_servers_file"]) == (
         "C:/Users/tester/.cursor/mcp.json"
+    )
+    assert _portable_path(defaults["gemini_cli_settings_file"]) == (
+        "C:/Users/tester/.gemini/settings.json"
     )
 
 

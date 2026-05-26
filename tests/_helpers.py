@@ -90,6 +90,7 @@ def make_config(
         "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_config_file": str(tmp_path / "codex-config.toml"),
         "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
+        "gemini_cli_settings_file": str(tmp_path / "gemini-settings.json"),
         "opencode_config_file": str(tmp_path / "opencode.json"),
     }
     for config_key, dir_name in CONFIG_DIRS.items():
