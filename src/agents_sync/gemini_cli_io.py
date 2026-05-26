@@ -143,7 +143,7 @@ def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
     if prior_match is None:
         return yml.load("{}\n")
 
-    loaded = _yaml_load(prior_match.group(1))
+    loaded = yaml_load(prior_match.group(1))
     return loaded if isinstance(loaded, dict) else yml.load("{}\n")
 
 
