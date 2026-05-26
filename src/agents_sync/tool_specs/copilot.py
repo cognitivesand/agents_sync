@@ -1,14 +1,19 @@
 """AgenticToolSpec factory for GitHub Copilot."""
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
     RulesFileLayout,
 )
+from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 
 
-def build_copilot_spec() -> AgenticToolSpec:
+def build_copilot_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.copilot_io import (
         copilot_skill_slug,
         extract_pair_id_from_copilot_agent_md,
@@ -33,6 +38,7 @@ def build_copilot_spec() -> AgenticToolSpec:
             "skill": "copilot_cli_skills_dir",
             "rules": "copilot_vscode_user_instructions_dir",
             "slash_command": "copilot_vscode_user_prompts_dir",
+            "mcp_server": "copilot_cli_mcp_config_file",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -66,12 +72,26 @@ def build_copilot_spec() -> AgenticToolSpec:
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),
+            "mcp_server": build_mcp_server_io(
+                "copilot",
+                "copilot_cli_mcp_config_file",
+                ("servers",),
+                file_format="json",
+                config=config,
+                dialect=McpServerDialect(
+                    render_name_field=False,
+                    transport_fields=("type", "transport", "transportType"),
+                    auth_fields=("oauth", "auth"),
+                    auth_render_field="oauth",
+                ),
+            ),
         },
         disable_config_key="copilot_enabled",
         partial_availability=True,
         kind_disable_config_keys={
             "agent": "copilot_cli_enabled",
             "skill": "copilot_cli_enabled",
+            "mcp_server": "copilot_cli_enabled",
             "rules": "copilot_vscode_user_profile_enabled",
             "slash_command": "copilot_vscode_user_profile_enabled",
         },

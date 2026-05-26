@@ -302,7 +302,7 @@ def default_agentic_tools(
         "antigravity": build_antigravity_spec(),
         "claude": build_claude_spec(config),
         "codex": build_codex_spec(config),
-        "copilot": build_copilot_spec(),
+        "copilot": build_copilot_spec(config),
         "cursor": build_cursor_spec(config),
         "gemini_cli": build_gemini_cli_spec(),
         "opencode": build_opencode_spec(config),
