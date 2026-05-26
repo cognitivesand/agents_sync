@@ -16,18 +16,25 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    CustomizationTypeIO,
+    SharedKeyedMapLayout,
+)
 from agents_sync.config import expand_path
 from agents_sync.filesystem_windows_retry import retry_fs
+from agents_sync.shared_keyed_map_io import apply_slot, read_slots
 from agents_sync.state import (
     AgenticToolState,
     CustomizationArtifactState,
     atomic_write_text,
     ignored_tree_names,
     sha256_file,
+    sha256_text,
     sha256_tree,
     target_slug,
 )
+from agents_sync.sync_types import RenderResult
 
 
 # ---------- path identity ----------
@@ -44,6 +51,14 @@ def path_collision_key(path: Path) -> str:
     elif os.name != "nt" and normcased != normalized:
         return normcased
     return normalized
+
+
+def slot_aware_collision_key(path: Path, slot: str | None) -> tuple[str, str | None]:
+    """Composite collision key for both per-file and shared-keyed-map
+    artifacts. Two slots in the same shared file are distinct artifacts;
+    two artifacts targeting the same (file, None) per-file path collide
+    as before."""
+    return (path_collision_key(path), slot)
 
 
 def assert_target_available(target: Path, existing_path: Path | None) -> None:
@@ -109,19 +124,56 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
 
 # ---------- artifact rendering ----------
 
-def read_artifact_text(io: CustomizationTypeIO, path: Path) -> str:
-    """Read the artifact-metadata text for an artifact at `path`."""
+def read_artifact_text(
+    io: CustomizationTypeIO, path: Path, slot: str | None = None,
+) -> str:
+    """Read the artifact-metadata text for an artifact at `path`.
+
+    For ``SharedKeyedMapLayout`` artifacts, ``slot`` must be supplied;
+    the function reads the shared file, extracts the slot's value, and
+    returns it serialised via the layout's format handler. For per-file
+    artifacts ``slot`` must be ``None``.
+    """
+    if isinstance(io.file_layout, SharedKeyedMapLayout):
+        if slot is None:
+            raise ValueError("SharedKeyedMapLayout requires a slot to read")
+        slots, _ = read_slots(path, io.file_layout)
+        return slots.get(slot, "")
     if io.storage == "single_file":
         return path.read_text(encoding="utf-8")
     return (path / "SKILL.md").read_text(encoding="utf-8")
 
 
-def write_artifact_inplace(io: CustomizationTypeIO, path: Path, text: str) -> None:
-    """Write `text` back to the artifact-metadata location at `path`."""
+def write_artifact_inplace(
+    io: CustomizationTypeIO,
+    path: Path,
+    text: str,
+    slot: str | None = None,
+) -> str | None:
+    """Write ``text`` back to the artifact-metadata location at ``path``.
+
+    For ``SharedKeyedMapLayout`` artifacts the write is a slot
+    insert / replace inside the shared file; the prior slot text is
+    returned so the caller can archive it (the shared file as a whole
+    is never archived, only the changed slot). For per-file artifacts
+    returns ``None``.
+    """
+    if isinstance(io.file_layout, SharedKeyedMapLayout):
+        if slot is None:
+            raise ValueError("SharedKeyedMapLayout requires a slot to write")
+        return apply_slot(
+            path,
+            io.file_layout,
+            slot,
+            text,
+            expected_pair_id=io.extract_pair_id(text),
+            allow_unpaired_existing=True,
+        )
     if io.storage == "single_file":
         atomic_write_text(path, text)
     else:
         atomic_write_text(path / "SKILL.md", text)
+    return None
 
 
 def render_to_agentic_tool(
@@ -133,33 +185,101 @@ def render_to_agentic_tool(
     existing_path: Path | None,
     prior_text: str | None,
     source_dir: Path | None,
-) -> Path:
-    """Render `canonical` onto one target tool. Returns the resulting path.
+    existing_slot: str | None = None,
+    allow_unpaired_existing_slot: bool = False,
+) -> RenderResult:
+    """Render ``canonical`` onto one target tool. Returns where it landed.
 
-    `prior_text` lets renderers that preserve user-frontmatter ordering reuse
-    the existing on-disk bytes. `source_dir` is the directory whose
-    non-SKILL.md siblings must be staged forward (directory_skill only).
+    ``prior_text`` lets renderers that preserve user-frontmatter ordering
+    reuse the existing on-disk bytes. ``source_dir`` is the directory
+    whose non-SKILL.md siblings must be staged forward (directory_skill
+    only). ``existing_slot`` is the slot key for keyed-map targets that
+    already have an entry under this pair_id; the renderer rewrites
+    that slot rather than minting a new one.
     """
     io = spec.io[kind]
-    root = expand_path(config[spec.config_dir_keys[kind]])
     slugger = io.slugify_name or target_slug
     slug = slugger(canonical["name"])
+    if isinstance(io.file_layout, SharedKeyedMapLayout):
+        return _render_keyed_map_slot(
+            config, io, canonical, slug,
+            existing_slot=existing_slot,
+            allow_unpaired_existing_slot=allow_unpaired_existing_slot,
+            prior_text=prior_text,
+        )
+    root = expand_path(config[spec.config_dir_keys[kind]])
     if io.storage == "single_file":
-        target = existing_path or single_file_target(root, io, slug)
-        assert_target_available(target, existing_path)
-        atomic_write_text(target, io.render(canonical, prior_text))
-        return target
+        return _render_single_file(
+            io, canonical, root, slug, existing_path, prior_text,
+        )
     if io.storage == "directory_skill":
-        target_dir = existing_path or (root / slug)
-        assert_target_available(target_dir, existing_path)
-        skill_md_text = io.render(canonical, prior_text)
-        if source_dir is not None and target_dir != source_dir:
-            stage_skill_dir(source_dir, target_dir, skill_md_text)
-        else:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(target_dir / "SKILL.md", skill_md_text)
-        return target_dir
+        return _render_directory_skill(
+            io, canonical, root, slug, existing_path, prior_text, source_dir,
+        )
     raise ValueError(f"Unknown storage shape: {io.storage}")
+
+
+def _render_keyed_map_slot(
+    config: dict[str, Any],
+    io: CustomizationTypeIO,
+    canonical: dict[str, Any],
+    slug: str,
+    *,
+    existing_slot: str | None,
+    allow_unpaired_existing_slot: bool,
+    prior_text: str | None,
+) -> RenderResult:
+    layout = io.file_layout
+    assert isinstance(layout, SharedKeyedMapLayout)
+    shared_path = expand_path(config[layout.shared_path_config_key])
+    slot_key = existing_slot or str(canonical.get(layout.key_field, slug))
+    slot_text = io.render(canonical, prior_text)
+    pair_id = canonical.get("pair_id")
+    prior_slot_text = apply_slot(
+        shared_path,
+        layout,
+        slot_key,
+        slot_text,
+        expected_pair_id=str(pair_id) if pair_id else None,
+        allow_unpaired_existing=allow_unpaired_existing_slot,
+    )
+    return RenderResult(
+        path=shared_path, slot=slot_key, prior_slot_text=prior_slot_text,
+    )
+
+
+def _render_single_file(
+    io: CustomizationTypeIO,
+    canonical: dict[str, Any],
+    root: Path,
+    slug: str,
+    existing_path: Path | None,
+    prior_text: str | None,
+) -> RenderResult:
+    target = existing_path or single_file_target(root, io, slug)
+    assert_target_available(target, existing_path)
+    atomic_write_text(target, io.render(canonical, prior_text))
+    return RenderResult(path=target)
+
+
+def _render_directory_skill(
+    io: CustomizationTypeIO,
+    canonical: dict[str, Any],
+    root: Path,
+    slug: str,
+    existing_path: Path | None,
+    prior_text: str | None,
+    source_dir: Path | None,
+) -> RenderResult:
+    target_dir = existing_path or (root / slug)
+    assert_target_available(target_dir, existing_path)
+    skill_md_text = io.render(canonical, prior_text)
+    if source_dir is not None and target_dir != source_dir:
+        stage_skill_dir(source_dir, target_dir, skill_md_text)
+    else:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(target_dir / "SKILL.md", skill_md_text)
+    return RenderResult(path=target_dir)
 
 
 def single_file_target(root: Path, io: CustomizationTypeIO, slug: str) -> Path:
@@ -174,26 +294,37 @@ def update_state_n_way(
     state: dict[str, CustomizationArtifactState],
     pair_id: str,
     kind: str,
-    paths: dict[str, Path],
+    results: dict[str, RenderResult],
     agentic_tools: dict[str, AgenticToolSpec],
 ) -> None:
-    """Record `paths` (one per tool) into `state[pair_id]`, computing digests.
+    """Record ``results`` (one per tool) into ``state[pair_id]``, computing
+    digests.
 
     Also stamps ``last_modified`` on the pair so cross-host export/import
     comparisons (US-12 mtime_wins) have a persisted timestamp to consult.
     Every render-and-record is treated as a meaningful change.
+
+    For ``SharedKeyedMapLayout`` results the digest is over the slot text
+    (re-read from the shared file via ``read_slots``); for per-file
+    results it is the existing ``sha256_file`` / ``sha256_tree``.
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
-    ps.last_modified = time.time()
-    for tool_name, path in paths.items():
+    ps.bump(now=time.time())
+    for tool_name, result in results.items():
         spec = agentic_tools[tool_name]
         io = spec.io[kind]
-        digest = (
-            sha256_file(path) if io.storage == "single_file" else sha256_tree(path)
-        )
+        if isinstance(io.file_layout, SharedKeyedMapLayout):
+            slots, _ = read_slots(result.path, io.file_layout)
+            slot_text = slots.get(result.slot or "", "")
+            digest = sha256_text(slot_text)
+        elif io.storage == "single_file":
+            digest = sha256_file(result.path)
+        else:
+            digest = sha256_tree(result.path)
         ps.agentic_tools[tool_name] = AgenticToolState(
-            path=str(path),
+            path=result.path,
             last_seen=digest,
             last_written=digest,
+            slot=result.slot,
         )

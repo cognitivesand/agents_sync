@@ -1,3 +1,12 @@
+"""Simulated case-only-collision tests.
+
+This file used to be named ``test_windows_slug_collision.py``, which
+overpromised: the case-insensitive lookups monkeypatch
+``os.path.normcase`` rather than relying on real NTFS case-folding. They
+pin the *logic* of the case-only collision detector but they do **not**
+exercise the inode-shared-between-two-names behaviour real NTFS / APFS
+exhibits (audit slice 10 · CQ-12).
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,9 +45,9 @@ def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch:
             kind="skill",
             agentic_tools={
                 "claude": AgenticToolState(
-                    path=str(syncer.tool_root("claude", "skill") / "alpha"),
+                    path=syncer.tool_root("claude", "skill") / "alpha",
                 ),
-                "codex": AgenticToolState(path=str(codex_path)),
+                "codex": AgenticToolState(path=codex_path),
             },
         )
     }
@@ -55,9 +64,10 @@ def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: py
         "pair-a": CustomizationArtifactInfo(kind="skill"),
         "pair-b": CustomizationArtifactInfo(kind="skill"),
     }
+    from agents_sync.sync_types import PlannedTarget
     targets = iter([
-        syncer.tool_root("codex", "skill") / "Alpha",
-        syncer.tool_root("codex", "skill") / "alpha",
+        PlannedTarget(syncer.tool_root("codex", "skill") / "Alpha"),
+        PlannedTarget(syncer.tool_root("codex", "skill") / "alpha"),
     ])
     monkeypatch.setattr(
         syncer.discovery, "_planned_adoption_targets", lambda info: [next(targets)]

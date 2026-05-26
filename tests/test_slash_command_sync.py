@@ -1,6 +1,10 @@
 """Integration tests for v0.5 slash_command synchronization."""
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import json
 from pathlib import Path
 from typing import Any
@@ -34,6 +38,11 @@ def _required_config(tmp_path: Path, state_dir: Path) -> dict[str, Any]:
         "codex_skills_dir": str(tmp_path / "unused-xs"),
         "codex_rules_dir": str(tmp_path / "unused-xr"),
         "antigravity_skills_dir": str(tmp_path / "unused-as"),
+        "gemini_cli_agents_dir": str(tmp_path / "unused-ga"),
+        "gemini_cli_commands_dir": str(tmp_path / "unused-gc"),
+        "gemini_cli_skills_dir": str(tmp_path / "unused-gs"),
+        "gemini_cli_rules_dir": str(tmp_path / "unused-gr"),
+        "gemini_cli_enabled": False,
         "opencode_agents_dir": str(tmp_path / "unused-oa"),
         "opencode_commands_dir": str(tmp_path / "unused-oc"),
         "opencode_skills_dir": str(tmp_path / "unused-os"),
@@ -150,7 +159,7 @@ def test_slash_command_syncs_markdown_to_toml_with_namespace(tmp_path: Path):
     source.parent.mkdir(parents=True)
     source.write_text(body, encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     injected = source.read_text(encoding="utf-8")
     pair_id = extract_pair_id_from_slash_command_markdown(injected)
@@ -212,7 +221,7 @@ def test_slash_command_syncs_toml_to_markdown_preserving_prompt_grammar(
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_toml(
         source.read_text(encoding="utf-8")
@@ -265,7 +274,7 @@ def test_reserved_slash_command_name_skips_only_that_target(tmp_path: Path, capl
     source = source_root / "plan.md"
     source.write_text("Plan with {{args}}.\n", encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_slash_command_markdown(
         source.read_text(encoding="utf-8")

@@ -6,19 +6,19 @@ them into the existing agent / skill / rules / slash_command sync paths.
 """
 from __future__ import annotations
 
-import io
 import re
 from pathlib import Path
 from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import (
+from agents_sync.yaml_frontmatter import (
     FRONTMATTER_RE,
-    _make_yaml,
-    _normalize_markdown_text,
-    _strip_bom_prefix,
-    _yaml_load,
     extract_pair_id_from_md,
+    frontmatter_for_render,
+    normalize_markdown_text,
+    strip_bom_prefix,
+    yaml_dump,
+    yaml_load,
 )
 from agents_sync.state import target_slug
 
@@ -104,9 +104,7 @@ PROMPT_TOOL_ONLY_FIELDS: tuple[str, ...] = ("agent",)
 
 
 def _yaml_dump(data: Any) -> str:
-    buffer = io.StringIO()
-    _make_yaml().dump(data, buffer)
-    return buffer.getvalue()
+    return yaml_dump(data)
 
 
 def _split_frontmatter(
@@ -115,14 +113,14 @@ def _split_frontmatter(
     *,
     strip_body: bool = True,
 ) -> tuple[dict[str, Any], str]:
-    text = _normalize_markdown_text(text)
+    text = normalize_markdown_text(text)
     match = FRONTMATTER_RE.match(text)
     if match is None:
-        body = _strip_bom_prefix(text)
+        body = strip_bom_prefix(text)
         return {}, body.strip() if strip_body else body
 
     raw_frontmatter, body_raw = match.groups()
-    loaded = _yaml_load(raw_frontmatter)
+    loaded = yaml_load(raw_frontmatter)
     if loaded is None:
         frontmatter_data: dict[str, Any] = {}
     elif not isinstance(loaded, dict):
@@ -130,22 +128,12 @@ def _split_frontmatter(
     else:
         frontmatter_data = dict(loaded)
 
-    body = _strip_bom_prefix(body_raw)
+    body = strip_bom_prefix(body_raw)
     return frontmatter_data, body.strip() if strip_body else body
 
 
 def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    yml = _make_yaml()
-    if prior_text is None:
-        return yml.load("{}\n")
-
-    prior_text = _normalize_markdown_text(prior_text)
-    prior_match = FRONTMATTER_RE.match(prior_text)
-    if prior_match is None:
-        return yml.load("{}\n")
-
-    loaded = _yaml_load(prior_match.group(1))
-    return loaded if isinstance(loaded, dict) else yml.load("{}\n")
+    return frontmatter_for_render(prior_text)
 
 
 def _render_markdown(frontmatter: dict[str, Any], body: str, *, final_newline: bool = True) -> str:

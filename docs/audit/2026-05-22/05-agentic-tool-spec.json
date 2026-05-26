@@ -1,0 +1,43 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/agentic_tool_spec.py, src/agents_sync/tool_specs/{__init__,claude,codex,antigravity,opencode,_rules_factory,_mcp_server_factory}.py, src/agents_sync/tool_status.py, tests/test_agentic_tool_spec.py, tests/test_agentic_tool_status.py",
+  "date": "2026-05-22",
+  "files_analyzed": 10,
+  "total_lines": 1567,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "All MAJOR findings from the prior audit (God Module, Long Functions, capability-matrix drift, isinstance-on-FileLayout coupling, under-pinned per-tool capability tests) are closed; only two minor INFO residuals remain.",
+  "remediation_diff_summary": "Phase 4a split the 721-line `agentic_tool_spec.py` into a 300-line data-model/registry module plus a `tool_specs/` package with one factory per tool (each 45-153 lines) and two shared factories (`_rules_factory.py`, `_mcp_server_factory.py`). Phase 2 introduced polymorphic `FileLayout` methods (`probe_check_path`, `tolerates_missing_config_key`), eliminating the `isinstance` switches in `tool_status.py`. Phase 1 added an `AgenticToolSpec.__post_init__` that rejects `config_dir_keys`/`io` key-set drift at construction. Tests now pin per-tool `map_key_path`, `file_format`, `key_field`, and round-trip `rules`, `mcp_server`, and `slash_command` cells for every tool.",
+  "detailed_analysis": "Slice 05 has been fully reworked. CQ-01 (God Module): agentic_tool_spec.py is now 300 lines. CQ-02 (Long Functions): the five 100+-line builder functions are gone; per-tool factories range 46-153 lines, with declarative return AgenticToolSpec(...) literals and ~1 cyclomatic complexity. CQ-03 (capability-matrix drift): AgenticToolSpec.__post_init__ raises ValueError on config_dir_keys/io key drift; test pins both directions. CQ-04 (Data Clumps on McpServerDialect): mitigated structurally but dialect still typed Any; INFO. CQ-05 (Any|None on _mcp_server_io): persists as INFO — quoted forward reference would safely restore static checking. CQ-06 (unused-parameter closures): intrinsic to ParseFn protocol; INFO. CQ-07 (isinstance switch in ToolStatusTracker): closed by polymorphism — ensure_roots and _probe_tool_roots both call layout.probe_check_path/tolerates_missing_config_key. CQ-08 (asymmetric missing-config-key guard): closed via the predicate. CQ-09 (per-tool capability matrix under-pinned): closed by test_mcp_server_layout_per_tool parametrized over claude/codex/opencode. CQ-10 (round-trip coverage holes): closed by test_mcp_server_round_trip_per_tool + test_slash_command_round_trip_per_tool + test_rules_round_trip_per_tool. No new findings.",
+  "findings": [
+    {
+      "id": "CQ-04",
+      "severity": "INFO",
+      "category": "W4 Data Clumps / W8 Primitive Obsession (mitigated)",
+      "file": "src/agents_sync/tool_specs/_mcp_server_factory.py",
+      "line": 20,
+      "description": "Per-tool MCP differences are still expressed as a bag of optional McpServerDialect kwargs rather than typed per-tool subclasses. Severity is materially reduced because each tool's dialect literal is now co-located with that tool's factory and test_mcp_server_layout_per_tool pins the load-bearing differences. The smell persists at the type level.",
+      "recommendation": "Replace `dialect: Any | None` with `'McpServerDialect | None'` forward reference; this would catch field-name typos via mypy without forcing a runtime import.",
+      "prior_audit_ref": "CQ-04"
+    },
+    {
+      "id": "CQ-05",
+      "severity": "INFO",
+      "category": "I1 Missing/weakened type annotation",
+      "file": "src/agents_sync/tool_specs/_mcp_server_factory.py",
+      "line": 20,
+      "description": "`dialect: Any | None = None` on `build_mcp_server_io` keeps the public-shape factory weakly typed to dodge a runtime import. Since `from __future__ import annotations` is in effect, a quoted forward reference is safe.",
+      "recommendation": "Change to `dialect: 'McpServerDialect | None' = None` to restore mypy coverage at no runtime cost.",
+      "prior_audit_ref": "CQ-05"
+    },
+    {
+      "id": "CQ-06",
+      "severity": "INFO",
+      "category": "I2-adjacent unused-parameter (protocol-driven)",
+      "file": "src/agents_sync/tool_specs/{claude,codex,opencode,antigravity,_rules_factory}.py",
+      "line": null,
+      "description": "Inner parse_* closures still accept artifact_path and artifact_root kwargs that several of them ignore. This is forced by the ParseFn protocol signature.",
+      "recommendation": "No structural fix recommended — noise is intrinsic to the protocol contract and now scoped to short per-tool closures.",
+      "prior_audit_ref": "CQ-06"
+    }
+  ]
+}

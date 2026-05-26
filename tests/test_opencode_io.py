@@ -219,3 +219,29 @@ def test_opencode_skill_slug_normalises_underscores_for_render():
 def test_extract_pair_id_from_md():
     text = "---\npair_id: 00000000-0000-4000-8000-000000000006\n---\nbody"
     assert extract_pair_id_from_md(text) == "00000000-0000-4000-8000-000000000006"
+
+
+def test_parse_opencode_agent_md_raises_when_no_name_source():
+    """Audit slice 07 · CQ-01 (Liskov fix): when artifact_path is omitted and
+    neither prior canonical nor frontmatter carries a name, the parser must
+    raise instead of silently minting name=''."""
+    text = "---\ndescription: nameless\n---\nbody"
+    with pytest.raises(ValueError, match="needs either artifact_path"):
+        parse_opencode_agent_md(text)
+
+
+def test_parse_opencode_agent_md_accepts_frontmatter_name_without_artifact_path():
+    """Fallback path: prior_canonical None, no artifact_path, but frontmatter
+    explicitly carries name."""
+    text = "---\nname: explicit\ndescription: x\n---\nbody"
+    canonical = parse_opencode_agent_md(text)
+    assert canonical["name"] == "explicit"
+
+
+def test_parse_opencode_agent_md_accepts_prior_canonical_name():
+    """Fallback path: artifact_path omitted but prior canonical knows the name."""
+    text = "---\ndescription: updated\n---\nbody"
+    prior = empty_canonical("agent")
+    prior["name"] = "from-prior"
+    canonical = parse_opencode_agent_md(text, prior)
+    assert canonical["name"] == "from-prior"

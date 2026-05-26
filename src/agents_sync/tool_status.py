@@ -41,14 +41,6 @@ class ToolStatusTracker:
         return self._status.get(tool_name) == "available"
 
     def is_kind_available(self, tool_name: str, kind: str) -> bool:
-        """Whether one customization type is reachable for a tool this poll."""
-        if self._status.get(tool_name) != "available":
-            return False
-        spec = self.agentic_tools.get(tool_name)
-        if spec is None:
-            return False
-        if not spec.partial_availability:
-            return kind in spec.supported_customization_types
         return kind in self._available_kinds.get(tool_name, set())
 
     def snapshot(self) -> dict[str, str]:
@@ -73,14 +65,19 @@ class ToolStatusTracker:
                 raw_root = self.config.get(config_key)
                 if raw_root is None:
                     continue
-                root = expand_path(raw_root)
+                layout = spec.io[kind].file_layout
+                resolved = expand_path(raw_root)
+                parent = (
+                    layout.probe_check_path(resolved)
+                    if layout is not None else resolved
+                )
                 try:
-                    root.mkdir(parents=True, exist_ok=True)
+                    parent.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
                     logging.warning(
                         "Could not pre-create %s root %s (%s: %s); "
                         "next poll will mark this tool unavailable.",
-                        spec.name, root, type(exc).__name__, exc,
+                        spec.name, parent, type(exc).__name__, exc,
                     )
 
     # ---------- per-poll refresh ----------
@@ -95,16 +92,16 @@ class ToolStatusTracker:
           - ``available`` ⇒ tool is enabled and every root is reachable.
         """
         new_status: dict[str, str] = {}
-        new_available_kinds: dict[str, set[str]] = {}
         reasons: dict[str, tuple[str, str]] = {}
+        available_kinds: dict[str, set[str]] = {}
         for tool_name, spec in self.agentic_tools.items():
             if not self._is_tool_enabled(spec):
                 new_status[tool_name] = "disabled"
-                new_available_kinds[tool_name] = set()
+                available_kinds[tool_name] = set()
                 continue
-            status, reason, available_kinds = self._probe_tool_roots(spec)
+            status, reason, kinds = self._probe_tool_roots(spec)
             new_status[tool_name] = status
-            new_available_kinds[tool_name] = available_kinds
+            available_kinds[tool_name] = kinds
             if reason is not None:
                 reasons[tool_name] = reason
 
@@ -116,7 +113,7 @@ class ToolStatusTracker:
                 tool_name, prev, status, reasons.get(tool_name)
             )
         self._status = new_status
-        self._available_kinds = new_available_kinds
+        self._available_kinds = available_kinds
 
     # ---------- internals ----------
 
@@ -150,36 +147,53 @@ class ToolStatusTracker:
             if not self._is_kind_enabled(spec, kind):
                 continue
             enabled_kind_count += 1
-            status, reason = self._probe_kind_root(config_key)
-            if status == "available":
-                available_kinds.add(kind)
+            layout = spec.io[kind].file_layout
+            if config_key not in self.config:
+                if layout is not None and layout.tolerates_missing_config_key():
+                    continue
+                reason = (config_key, "config key missing")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
                 continue
-            if first_reason is None:
-                first_reason = reason
-            if not spec.partial_availability:
-                return "unavailable", reason, set()
-
-        if available_kinds:
-            return "available", None, available_kinds
-        if enabled_kind_count == 0:
-            return "disabled", None, set()
-        return "unavailable", first_reason, set()
-
-    def _probe_kind_root(
-        self,
-        config_key: str,
-    ) -> tuple[str, tuple[str, str] | None]:
-        raw_root = self.config.get(config_key)
-        if raw_root is None:
-            return "unavailable", (config_key, "path is not configured")
-        root = expand_path(raw_root)
-        if not root.exists():
-            return "unavailable", (str(root), "path does not exist")
-        try:
-            next(root.iterdir(), None)
-        except OSError as exc:
-            return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
-        return "available", None
+            raw_root = self.config.get(config_key)
+            if raw_root is None:
+                reason = (config_key, "path is not configured")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
+            resolved = expand_path(raw_root)
+            probe_path = (
+                layout.probe_check_path(resolved)
+                if layout is not None else resolved
+            )
+            if not probe_path.exists():
+                reason = (str(probe_path), "path does not exist")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
+            try:
+                next(probe_path.iterdir(), None)
+            except OSError as exc:
+                reason = (str(probe_path), f"{type(exc).__name__}: {exc}")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
+            available_kinds.add(kind)
+        if spec.partial_availability:
+            if available_kinds:
+                return "available", None, available_kinds
+            if enabled_kind_count == 0:
+                return "disabled", None, set()
+            return "unavailable", first_reason, set()
+        return "available", None, available_kinds
 
     def _log_status_transition(
         self,

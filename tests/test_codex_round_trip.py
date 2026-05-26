@@ -109,6 +109,22 @@ def test_codex_agent_parse_strips_legacy_review_metadata():
     assert c["body"] == "real body"
 
 
+def test_codex_agent_parse_preserves_marker_when_prior_canonical_is_modern():
+    """A v0.4+ prior canonical (schema_version >= 4) means the marker is user-
+    authored content, not v0.1 conversion fallout — preserve it verbatim
+    (audit slice 07 · CQ-16)."""
+    text = (
+        'pair_id = "abc"\n'
+        'name = "x"\n'
+        'description = "y"\n'
+        'developer_instructions = "real body\\n\\n---\\nConverted Claude-specific metadata for manual review:\\n{}"\n'
+    )
+    prior = {"pair_id": "abc", "kind": "agent", "schema_version": 4}
+    c = parse_codex_agent_toml(text, prior_canonical=prior)
+    # Marker tail preserved because prior is at modern schema.
+    assert "Converted Claude-specific metadata" in c["body"]
+
+
 def test_codex_agent_parse_preserves_unknown_fields_in_per_agentic_tool_extra():
     text = (
         'pair_id = "abc"\n'

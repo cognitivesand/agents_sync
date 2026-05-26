@@ -1,10 +1,79 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
+
+from agents_sync.mcp_secret_policy import (
+    ALLOWED_SECRET_POLICIES,
+    normalize_secret_policy,
+)
+
+
+class AgentsSyncConfig(TypedDict, total=False):
+    """Shape of the merged config dict after ``merged_config``.
+
+    Documents the keys ``Syncer`` and its collaborators consume. Used as a
+    hint at function boundaries (``dict[str, Any]`` stays in place for
+    interior code that constructs / mutates the dict, since TypedDicts do
+    not compose well with ``dict.update`` and our config-loading is union-
+    based by design).
+    """
+
+    poll_interval_seconds: float
+    state_path: str
+    # Claude
+    claude_agents_dir: str
+    claude_commands_dir: str
+    claude_skills_dir: str
+    claude_rules_dir: str
+    claude_mcp_servers_file: str
+    # Codex
+    codex_agents_dir: str
+    codex_prompts_dir: str
+    codex_skills_dir: str
+    codex_rules_dir: str
+    codex_config_file: str
+    # Cursor
+    cursor_agents_dir: str
+    cursor_commands_dir: str
+    cursor_skills_dir: str
+    cursor_rules_dir: str
+    cursor_mcp_servers_file: str
+    cursor_enabled: bool
+    # Antigravity
+    antigravity_skills_dir: str
+    antigravity_enabled: bool
+    # Gemini CLI
+    gemini_cli_agents_dir: str
+    gemini_cli_commands_dir: str
+    gemini_cli_skills_dir: str
+    gemini_cli_rules_dir: str
+    gemini_cli_enabled: bool
+    # Copilot
+    copilot_enabled: bool
+    copilot_cli_enabled: bool
+    copilot_vscode_user_profile_enabled: bool
+    copilot_cli_agents_dir: str
+    copilot_cli_skills_dir: str
+    copilot_cli_mcp_config_file: str
+    copilot_vscode_user_agents_dir: str | None
+    copilot_vscode_user_instructions_dir: str | None
+    copilot_vscode_user_prompts_dir: str | None
+    copilot_vscode_user_mcp_file: str | None
+    # opencode
+    opencode_agents_dir: str
+    opencode_commands_dir: str
+    opencode_skills_dir: str
+    opencode_rules_dir: str
+    opencode_config_file: str
+    opencode_enabled: bool
+    # Cross-cutting
+    secret_policy: Literal["secrets_refused", "secrets_accepted"]
+    import_collision_strategy: Literal["skip", "mtime_wins", "overwrite"]
 
 
 def _home_dir(home: Path | None = None) -> Path:
@@ -69,6 +138,7 @@ def platform_defaults(
 ) -> dict[str, Any]:
     platform_name = os.name if os_name is None else os_name
     home_dir = _home_dir(home)
+    cursor_root = home_dir / ".cursor"
     if platform_name == "nt":
         opencode_root = _windows_data_dir(
             "APPDATA",
@@ -85,20 +155,34 @@ def platform_defaults(
         "claude_commands_dir": str(home_dir / ".claude" / "commands"),
         "claude_skills_dir": str(home_dir / ".claude" / "skills"),
         "claude_rules_dir": str(home_dir / ".claude"),
+        "claude_mcp_servers_file": str(home_dir / ".claude.json"),
         "codex_agents_dir": str(home_dir / ".codex" / "agents"),
         "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
         "codex_skills_dir": str(home_dir / ".codex" / "skills"),
         "codex_rules_dir": str(home_dir / ".codex"),
+        "codex_config_file": str(home_dir / ".codex" / "config.toml"),
+        "cursor_agents_dir": str(cursor_root / "agents"),
+        "cursor_skills_dir": str(cursor_root / "skills"),
+        "cursor_rules_dir": str(cursor_root / "rules"),
+        "cursor_commands_dir": str(cursor_root / "commands"),
+        "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
+        "cursor_enabled": True,
         # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
         # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
         # handles the per-OS separator). Set antigravity_enabled=False to skip
         # registration entirely.
         "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
         "antigravity_enabled": True,
+        "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
+        "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
+        "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
+        "gemini_cli_rules_dir": str(home_dir / ".gemini"),
+        "gemini_cli_enabled": True,
         "opencode_agents_dir": str(opencode_root / "agents"),
         "opencode_commands_dir": str(opencode_root / "commands"),
         "opencode_skills_dir": str(opencode_root / "skills"),
         "opencode_rules_dir": str(opencode_root),
+        "opencode_config_file": str(opencode_root / "opencode.json"),
         "opencode_enabled": True,
         "copilot_enabled": True,
         "copilot_cli_enabled": True,
@@ -111,6 +195,7 @@ def platform_defaults(
         "copilot_vscode_user_prompts_dir": None,
         "copilot_vscode_user_mcp_file": None,
         "import_collision_strategy": "mtime_wins",
+        "secret_policy": "secrets_refused",
     }
 
 
@@ -139,61 +224,95 @@ def maybe_set(config: dict[str, Any], key: str, value: Any) -> None:
         config[key] = value
 
 
+# Maps each ``argparse`` attribute name to the merged-config key it writes
+# into. Listed in registration order so a new CLI flag is a one-line
+# addition (no four-place edit across the parser, this loop,
+# ``validate_config``, and the test fixture). When the two names differ
+# only by spelling (``interval`` -> ``poll_interval_seconds``,
+# ``mcp_server_secret_policy`` -> same), the table makes the divergence
+# explicit instead of buried in a ``maybe_set`` line.
+_ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
+    ("interval", "poll_interval_seconds"),
+    ("claude_agents_dir", "claude_agents_dir"),
+    ("claude_commands_dir", "claude_commands_dir"),
+    ("claude_skills_dir", "claude_skills_dir"),
+    ("claude_rules_dir", "claude_rules_dir"),
+    ("claude_mcp_servers_file", "claude_mcp_servers_file"),
+    ("codex_agents_dir", "codex_agents_dir"),
+    ("codex_prompts_dir", "codex_prompts_dir"),
+    ("codex_skills_dir", "codex_skills_dir"),
+    ("codex_rules_dir", "codex_rules_dir"),
+    ("codex_config_file", "codex_config_file"),
+    ("cursor_agents_dir", "cursor_agents_dir"),
+    ("cursor_skills_dir", "cursor_skills_dir"),
+    ("cursor_rules_dir", "cursor_rules_dir"),
+    ("cursor_commands_dir", "cursor_commands_dir"),
+    ("cursor_mcp_servers_file", "cursor_mcp_servers_file"),
+    ("cursor_enabled", "cursor_enabled"),
+    ("antigravity_skills_dir", "antigravity_skills_dir"),
+    ("antigravity_enabled", "antigravity_enabled"),
+    ("gemini_cli_agents_dir", "gemini_cli_agents_dir"),
+    ("gemini_cli_commands_dir", "gemini_cli_commands_dir"),
+    ("gemini_cli_skills_dir", "gemini_cli_skills_dir"),
+    ("gemini_cli_rules_dir", "gemini_cli_rules_dir"),
+    ("gemini_cli_enabled", "gemini_cli_enabled"),
+    ("opencode_agents_dir", "opencode_agents_dir"),
+    ("opencode_commands_dir", "opencode_commands_dir"),
+    ("opencode_skills_dir", "opencode_skills_dir"),
+    ("opencode_rules_dir", "opencode_rules_dir"),
+    ("opencode_config_file", "opencode_config_file"),
+    ("opencode_enabled", "opencode_enabled"),
+    ("copilot_enabled", "copilot_enabled"),
+    ("copilot_cli_enabled", "copilot_cli_enabled"),
+    ("copilot_vscode_user_profile_enabled", "copilot_vscode_user_profile_enabled"),
+    ("copilot_cli_agents_dir", "copilot_cli_agents_dir"),
+    ("copilot_cli_skills_dir", "copilot_cli_skills_dir"),
+    ("copilot_cli_mcp_config_file", "copilot_cli_mcp_config_file"),
+    ("copilot_vscode_user_agents_dir", "copilot_vscode_user_agents_dir"),
+    ("copilot_vscode_user_instructions_dir", "copilot_vscode_user_instructions_dir"),
+    ("copilot_vscode_user_prompts_dir", "copilot_vscode_user_prompts_dir"),
+    ("copilot_vscode_user_mcp_file", "copilot_vscode_user_mcp_file"),
+    # Two argparse attributes map to the same merged-config key — the
+    # canonical ``secret_policy`` and the deprecated alias
+    # ``mcp_server_secret_policy``. ``merged_config`` resolves the
+    # collision by preferring the canonical attribute when both are set
+    # and logging a DEPRECATION-WARNING for the alias.
+    ("secret_policy", "secret_policy"),
+    ("mcp_server_secret_policy", "secret_policy"),
+    ("state_path", "state_path"),
+)
+
+
 def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     config = dict(DEFAULTS)
     config_path = args.config if args.config is not None else default_config_path()
     config.update(load_external_config(config_path))
-    maybe_set(config, "poll_interval_seconds", args.interval)
-    maybe_set(config, "claude_agents_dir", args.claude_agents_dir)
-    maybe_set(config, "claude_commands_dir", getattr(args, "claude_commands_dir", None))
-    maybe_set(config, "claude_skills_dir", args.claude_skills_dir)
-    maybe_set(config, "claude_rules_dir", getattr(args, "claude_rules_dir", None))
-    maybe_set(config, "codex_agents_dir", getattr(args, "codex_agents_dir", None))
-    maybe_set(config, "codex_prompts_dir", getattr(args, "codex_prompts_dir", None))
-    maybe_set(config, "codex_skills_dir", args.codex_skills_dir)
-    maybe_set(config, "codex_rules_dir", getattr(args, "codex_rules_dir", None))
-    maybe_set(config, "antigravity_skills_dir", getattr(args, "antigravity_skills_dir", None))
-    maybe_set(config, "antigravity_enabled", getattr(args, "antigravity_enabled", None))
-    maybe_set(config, "opencode_agents_dir", getattr(args, "opencode_agents_dir", None))
-    maybe_set(config, "opencode_commands_dir", getattr(args, "opencode_commands_dir", None))
-    maybe_set(config, "opencode_skills_dir", getattr(args, "opencode_skills_dir", None))
-    maybe_set(config, "opencode_rules_dir", getattr(args, "opencode_rules_dir", None))
-    maybe_set(config, "opencode_enabled", getattr(args, "opencode_enabled", None))
-    maybe_set(config, "copilot_enabled", getattr(args, "copilot_enabled", None))
-    maybe_set(config, "copilot_cli_enabled", getattr(args, "copilot_cli_enabled", None))
-    maybe_set(
-        config,
-        "copilot_vscode_user_profile_enabled",
-        getattr(args, "copilot_vscode_user_profile_enabled", None),
+    for arg_attr, config_key in _ARG_TO_CONFIG_KEY:
+        maybe_set(config, config_key, getattr(args, arg_attr, None))
+
+    # Compat shim (1/2): if an external config file or CLI flag used the
+    # deprecated key ``mcp_server_secret_policy``, copy its value into the
+    # canonical ``secret_policy`` slot (only when no explicit canonical
+    # value was provided), and emit one DEPRECATION-WARNING at startup.
+    # The deprecated key is then discarded so downstream code never sees
+    # it. To be removed in v0.6.
+    legacy_value = config.pop("mcp_server_secret_policy", None)
+    if legacy_value is not None:
+        if config.get("secret_policy") == DEFAULTS["secret_policy"]:
+            config["secret_policy"] = legacy_value
+        logging.warning(
+            "DEPRECATED config key 'mcp_server_secret_policy' — use 'secret_policy' instead",
+        )
+
+    # Compat shim (2/2): normalize the policy value through
+    # ``normalize_secret_policy`` so the old spellings (refuse/redact/permissive)
+    # become the new ones (secrets_refused/secrets_accepted). The shim logs
+    # the deprecation once at startup; downstream code sees only the new
+    # spelling.
+    raw_policy = config.get("secret_policy", DEFAULTS["secret_policy"])
+    config["secret_policy"] = normalize_secret_policy(
+        str(raw_policy), source="config", warn_deprecated=True,
     )
-    maybe_set(config, "copilot_cli_agents_dir", getattr(args, "copilot_cli_agents_dir", None))
-    maybe_set(config, "copilot_cli_skills_dir", getattr(args, "copilot_cli_skills_dir", None))
-    maybe_set(
-        config,
-        "copilot_cli_mcp_config_file",
-        getattr(args, "copilot_cli_mcp_config_file", None),
-    )
-    maybe_set(
-        config,
-        "copilot_vscode_user_agents_dir",
-        getattr(args, "copilot_vscode_user_agents_dir", None),
-    )
-    maybe_set(
-        config,
-        "copilot_vscode_user_instructions_dir",
-        getattr(args, "copilot_vscode_user_instructions_dir", None),
-    )
-    maybe_set(
-        config,
-        "copilot_vscode_user_prompts_dir",
-        getattr(args, "copilot_vscode_user_prompts_dir", None),
-    )
-    maybe_set(
-        config,
-        "copilot_vscode_user_mcp_file",
-        getattr(args, "copilot_vscode_user_mcp_file", None),
-    )
-    maybe_set(config, "state_path", args.state_path)
     return config
 
 
@@ -214,6 +333,14 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
 )
 
 OPTIONAL_PATH_KEYS: tuple[str, ...] = (
+    "claude_mcp_servers_file",
+    "codex_config_file",
+    "cursor_agents_dir",
+    "cursor_skills_dir",
+    "cursor_rules_dir",
+    "cursor_commands_dir",
+    "cursor_mcp_servers_file",
+    "opencode_config_file",
     "copilot_cli_agents_dir",
     "copilot_cli_skills_dir",
     "copilot_cli_mcp_config_file",
@@ -225,6 +352,8 @@ OPTIONAL_PATH_KEYS: tuple[str, ...] = (
 
 OPTIONAL_BOOL_KEYS: tuple[str, ...] = (
     "antigravity_enabled",
+    "cursor_enabled",
+    "gemini_cli_enabled",
     "opencode_enabled",
     "copilot_enabled",
     "copilot_cli_enabled",
@@ -277,6 +406,24 @@ def validate_config(config: dict[str, Any]) -> None:
             f"import_collision_strategy must be skip|mtime_wins|overwrite, "
             f"got {strategy!r}"
         )
+
+    # secret_policy validation: accept either the canonical key or the
+    # deprecated alias, accept either new or old value spellings, normalize
+    # silently here (the per-startup deprecation was already logged by
+    # merged_config). Reject anything outside the union.
+    raw_policy = config.get("secret_policy")
+    if raw_policy is None:
+        raw_policy = config.get("mcp_server_secret_policy", "secrets_refused")
+    try:
+        normalized = normalize_secret_policy(
+            str(raw_policy), source="validate_config", warn_deprecated=False,
+        )
+    except ValueError as exc:
+        raise ConfigError(
+            "secret_policy must be "
+            f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
+        ) from exc
+    config["secret_policy"] = normalized
 
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent

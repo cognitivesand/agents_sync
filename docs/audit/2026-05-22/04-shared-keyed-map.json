@@ -1,0 +1,93 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/shared_keyed_map_formats.py, src/agents_sync/shared_keyed_map_io.py, src/agents_sync/formats/{__init__,json_format,toml_format,jsonc_tokenizer}.py, src/agents_sync/filesystem_lock.py, tests/test_shared_keyed_map_layout.py, tests/test_shared_keyed_map_discovery.py, tests/test_shared_keyed_map_render.py",
+  "date": "2026-05-22",
+  "files_analyzed": 9,
+  "total_lines": 1443,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "The CRITICAL TOCTOU race (CQ-01) is now closed by a real cross-process fcntl/msvcrt sidecar-lock implementation in filesystem_lock.py; CQ-03, CQ-07, CQ-11, CQ-14 also closed; no CRITICAL findings; residuals are WARNING/INFO.",
+  "remediation_diff_summary": "Phase 1.1 introduced src/agents_sync/filesystem_lock.py with a real POSIX fcntl.flock + Windows msvcrt.locking sidecar-lock context manager; apply_slot now runs read-modify-write inside `with lock_file(shared_path):` instead of the prior optimistic re-read. shared_keyed_map_formats.py was split: per-format handlers and a string-aware jsonc_tokenizer.py moved under src/agents_sync/formats/, leaving the registry alone. _toml_deserialize lost its JSON-first fallback (now calls tomllib.loads directly), _navigate_or_create now raises on non-mapping path segments instead of overwriting, and apply_slot was split via _read_root_and_node so the body is back under the 40-line guideline.",
+  "detailed_analysis": "apply_slot's optimistic re-read masquerading as race detection has been replaced by a genuine cross-process lock. The implementation in filesystem_lock.py acquires the lock on a sidecar `<path>.lock` rather than on the protected file itself — correct because os.replace can swap the protected file's inode inside the critical section without invalidating the lock fd. On POSIX the lock is fcntl.flock(LOCK_EX|LOCK_NB) with a bounded retry loop that converts a timeout into LockTimeoutError; on Windows it is msvcrt.locking on byte 0 of a 1-byte sentinel file with the same retry loop. The exit path uses finally to LOCK_UN and os.close even on yield-time exceptions. test_apply_slot_serializes_concurrent_writers confirms two threads against a shared file leave both slots intact. The format-handler split is a clean SRP improvement: registry stays in shared_keyed_map_formats.py (77 lines); JSON, TOML, JSONC tokenizer moved to formats/. _toml_deserialize lost its bogus json-first try/except. _navigate_or_create raises ValueError on a non-mapping path segment; test_apply_slot_refuses_non_object_map_key_path_without_rewriting asserts protected file's bytes unchanged when the error is raised. apply_slot is now ~33 lines of body. The JSONC tokenizer was extracted into a dedicated module with a string-aware state machine; correct handling on inspection, but dedicated unit tests for the four pathological inputs called out in CQ-05 are still absent. Residual issues: CQ-02 (read/write asymmetry for key_field) is now codified by test_read_slots_injects_missing_key_field_from_slot_key as intended behaviour, with conflict cases promoted to ValueError; still mutates user data on disk on first round-trip. CQ-04 (module-level _FORMAT_REGISTRY mutated at import) persists. CQ-08 (None prior_value ambiguity: absent vs JSON null) unchanged. CQ-10 (last-slot-removal: does engine prune empty mcpServers subtree or leave {}?) still lacks a test. CQ-12 (_baseline_config 19-key dict duplicated verbatim across two test files) unchanged. CQ-13 (no positive collision test for two identical (file, slot) targets) unchanged.",
+  "findings": [
+    {
+      "id": "CQ-02",
+      "severity": "WARNING",
+      "category": "read-write-asymmetry",
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "line": 66,
+      "description": "read_slots still injects layout.key_field into the slot mapping when absent; apply_slot does not strip key_field on write. A user file containing `{\"github\": {\"command\": \"gh-mcp\"}}` is still transformed to `{\"github\": {\"name\": \"github\", \"command\": \"gh-mcp\"}}` on first round-trip. The conflicting-inline case is now explicit (test_read_slots_rejects_conflicting_inline_key_field); the auto-inject case is codified by test_read_slots_injects_missing_key_field_from_slot_key — intentional but still mutates user data on disk.",
+      "recommendation": "Either (a) strip layout.key_field from the slot's serialised text before storing it when the field value equals the slot key, restoring on-disk byte equality, or (b) document the normalisation in README.",
+      "prior_audit_ref": "CQ-02"
+    },
+    {
+      "id": "CQ-04",
+      "severity": "WARNING",
+      "category": "global-mutable-state",
+      "file": "src/agents_sync/shared_keyed_map_formats.py",
+      "line": 39,
+      "description": "_FORMAT_REGISTRY is still a module-level mutable dict populated by import-time register_format calls. test_register_format_is_idempotent_under_replacement still requires the manual restore ritual.",
+      "recommendation": "Wrap the registry in a small class with a `with overridden_format(name, handler)` context manager, or switch to a pytest fixture that snapshots-and-restores the dict around each test.",
+      "prior_audit_ref": "CQ-04"
+    },
+    {
+      "id": "CQ-05",
+      "severity": "WARNING",
+      "category": "test-coverage",
+      "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+      "line": 35,
+      "description": "The string-aware state machine was extracted into its own module, but there is no unit test file covering: (a) `//` inside a string literal preserved, (b) `/*` inside a string literal preserved, (c) `\\\\\"` not closing the string, (d) a comma inside a string literal followed by `]`. The integration test exercises only the happy path.",
+      "recommendation": "Add tests/test_jsonc_tokenizer.py with the four edge cases. Each is a one-line assertion.",
+      "prior_audit_ref": "CQ-05"
+    },
+    {
+      "id": "CQ-06",
+      "severity": "WARNING",
+      "category": "format-coverage",
+      "file": "src/agents_sync/formats/toml_format.py",
+      "line": 39,
+      "description": "_toml_scalar still does not handle None, datetime, date, time, or bytes — they raise the generic `unsupported TOML scalar: <type>`. None in particular is plausible since a canonical JSON document may contain null. No test confirms that the nested-mapping path produces equivalent round-trips.",
+      "recommendation": "Either map None to omission (skip the key) with a documented note, or raise a typed TomlUnsupportedValueError naming the offending field path. Add a round-trip test for a list-of-tables case.",
+      "prior_audit_ref": "CQ-06"
+    },
+    {
+      "id": "CQ-08",
+      "severity": "WARNING",
+      "category": "ambiguous-sentinel",
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "line": 115,
+      "description": "`prior_value = node.get(slot_key)` and the subsequent `prior_text = serialize(prior_value) if prior_value is not None else None` still collapse two distinct states (slot absent vs slot present with value null) into the same None return.",
+      "recommendation": "Use a sentinel: `prior_value = node.get(slot_key, _MISSING)` and branch on `prior_value is _MISSING`. Adjust the return contract so prior_text can distinguish missing from null.",
+      "prior_audit_ref": "CQ-08"
+    },
+    {
+      "id": "CQ-10",
+      "severity": "WARNING",
+      "category": "test-coverage",
+      "file": "tests/test_shared_keyed_map_render.py",
+      "line": 230,
+      "description": "test_removal_deletes_slot_preserving_siblings still does not cover the case where the LAST slot under map_key_path is removed. The current implementation leaves `{\"mcpServers\": {}}` on disk; the behaviour is unpinned.",
+      "recommendation": "Add a single test that pre-populates exactly one slot, removes it, and asserts the explicit shape of the resulting shared file.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "CQ-12",
+      "severity": "WARNING",
+      "category": "shotgun-surgery",
+      "file": "tests/test_shared_keyed_map_discovery.py",
+      "line": 91,
+      "description": "_baseline_config (19 config keys), _mcp_spec, _slot_parse, _slot_render, _slot_extract_pair_id are duplicated verbatim across tests/test_shared_keyed_map_discovery.py and tests/test_shared_keyed_map_render.py.",
+      "recommendation": "Extract into tests/_shared_keyed_map_fixtures.py and import.",
+      "prior_audit_ref": "CQ-12"
+    },
+    {
+      "id": "CQ-13",
+      "severity": "WARNING",
+      "category": "test-coverage",
+      "file": "tests/test_shared_keyed_map_discovery.py",
+      "line": 213,
+      "description": "test_two_slots_in_same_file_do_not_collide asserts the negative (two distinct pairs don't collide) but there is no test asserting the positive (two adapters configured to write to the same (file, slot_key) DO get blocked by block_target_collisions).",
+      "recommendation": "Add a test that wires two AgenticToolSpec instances pointing at the same shared_path and the same map_key_path, runs block_target_collisions, and asserts the pair_id is in the returned blocked set.",
+      "prior_audit_ref": "CQ-13"
+    }
+  ]
+}

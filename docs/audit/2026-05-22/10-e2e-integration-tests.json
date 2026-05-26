@@ -1,0 +1,73 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "tests/conftest.py, tests/_helpers.py, tests/test_e2e_sync.py, tests/test_first_boot_reconciliation.py, tests/test_v0_4_1_matrix.py, tests/test_migrate_v0_4.py, tests/test_migrate_v0_4_e2e.py, tests/test_path_collision_key_simulated.py, tests/test_slug_collision_simulated.py, tests/test_install_ps1_text.py, tests/test_state_schema_v3.py, pyproject.toml",
+  "date": "2026-05-22",
+  "files_analyzed": 12,
+  "total_lines": 1564,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "11 of 16 prior findings are fully closed and 4 are partially closed; one MAJOR finding (TQ-01 unapplied markers) survives but does not gate the audit since no test correctness regression — only fast-path discipline is unenforced.",
+  "remediation_diff_summary": "Phase 2.7 extracted tests/_helpers.py (Syncer factory + skill builders + state readers), shrinking conftest.py to a 22-line passthrough. Phase 4c renamed mislabeled platform files and added module docstrings disclaiming platform integration. A new test_migrate_v0_4_e2e.py materialises a real v0.3 layout and runs run_migration end-to-end with post-migration filesystem assertions. The §5.5 tripwire test now carries @pytest.mark.xfail(strict=True). The prior_text-unreadable test was rewritten to assert on a structured `event='prior_text_unreadable'` log record. The duplicate-pair_id test now asserts state.json content. Slow/integration markers are registered in pyproject.toml but applied to zero test modules.",
+  "detailed_analysis": "CQ-01 / CQ-12 (mislabeled platform tests): closed by rename. Files now carry honest names and module docstrings citing the audit slice. CQ-02 (grep-as-test for install.ps1): closed — test_install_ps1_text.py declares itself a static-text safety net. CQ-03 (migration script never tested): closed — test_migrate_v0_4_e2e.py builds a believable v0.3 layout under tmp_path, monkeypatches the migration script's module-level constants, runs the real run_migration, and six post-migration assertions verify codex_skills_dir rewrite, projected directory move-out, user foo/ survival, pair_id strip, state.json wipe, and backup directory contents. CQ-04 (god fixture): partially closed — _helpers.py exists with documented CONFIG_DIRS mapping but the single 4-tool / 13-directory fixture remains the default. CQ-05 (duplicated fixture wiring in §5.5 test): closed. CQ-07 (log message substring coupling): closed — caplog asserts on `event='prior_text_unreadable'`. CQ-09 (test documents a known defect): closed — §5.5 test carries @pytest.mark.xfail(strict=True) with explicit reason, body asserts the correct outcome so it flips green automatically when production catches up. CQ-13 (duplicated macOS-metadata setup): closed via _helpers.skill_with_macos_metadata. CQ-14 (duplicated helpers across files): partially closed — _helpers exists but test_e2e_sync.py / test_first_boot_reconciliation.py / test_v0_4_1_matrix.py still define their own _skill_md/_set_mtime/_archive_files_for/_list_state instead of importing. CQ-15 (missing speed/scope markers): partially closed — markers are registered in pyproject.toml but applied to zero test modules. `pytest -m 'not integration'` deselects nothing today. CQ-16 (duplicate-pair_id test missing state.json assertion): closed. CQ-06 (sleep-based flakiness) and CQ-08/CQ-10 (eager tests) persist as WARNING-tier.",
+  "findings": [
+    {
+      "id": "TQ-01",
+      "severity": "MAJOR",
+      "category": "P14_slow_test (unmarked legitimately-slow)",
+      "file": "tests/test_e2e_sync.py, tests/test_first_boot_reconciliation.py, tests/test_v0_4_1_matrix.py, tests/test_migrate_v0_4_e2e.py",
+      "line": null,
+      "description": "Slow / integration markers are declared in pyproject.toml (lines 31-34) but applied to zero test modules in this slice. Every test that builds a 13-directory tmp tree and instantiates a 4-tool Syncer is still selected by both fast and full paths. `pytest -m 'not integration'` deselects nothing, despite the pyproject.toml comment promising the opposite. The §7.1 fast-path policy in ~/.claude/CLAUDE.md is therefore not enforced.",
+      "recommendation": "Add module-level `pytestmark = pytest.mark.integration` (and `pytest.mark.slow` where appropriate) to test_e2e_sync.py, test_first_boot_reconciliation.py, test_v0_4_1_matrix.py, and test_migrate_v0_4_e2e.py. Confirm per-test wall time with `uv run pytest --durations=20 -m integration`.",
+      "prior_audit_ref": "CQ-15"
+    },
+    {
+      "id": "TQ-02",
+      "severity": "WARNING",
+      "category": "P14_slow_test (short sleep / flakiness vector)",
+      "file": "tests/test_state_schema_v3.py",
+      "line": 192,
+      "description": "`time.sleep(0.01)` is still used to force `last_modified` to advance between two `sync_once()` calls. On a system whose `time.time()` resolution is coarser than 10 ms, the subsequent assertion fails non-deterministically.",
+      "recommendation": "Replace the wall-clock dependency with an injected clock fixture, or assert `second >= first` while bumping the SUT's internal clock through a deterministic monkeypatch. Use `generation` as the strict-monotonic invariant.",
+      "prior_audit_ref": "CQ-06"
+    },
+    {
+      "id": "TQ-03",
+      "severity": "WARNING",
+      "category": "P7_eager_test",
+      "file": "tests/test_e2e_sync.py",
+      "line": 180,
+      "description": "test_unreadable_prior_text_logs_warning_and_skips_target verifies two distinct contracts in one Arrange/Act: (a) the structured event fires AND (b) the target file is not overwritten.",
+      "recommendation": "Split into test_unreadable_prior_text_emits_structured_event and test_unreadable_prior_text_does_not_overwrite_target.",
+      "prior_audit_ref": "CQ-08"
+    },
+    {
+      "id": "TQ-04",
+      "severity": "WARNING",
+      "category": "P9_assertion_roulette",
+      "file": "tests/test_v0_4_1_matrix.py",
+      "line": 67,
+      "description": "test_codex_agent_adopts_to_claude_and_opencode carries nine bare asserts spanning four behaviours (codex frontmatter injection, claude projection, opencode field stripping, codex-only field preservation).",
+      "recommendation": "Either split into four tests or attach msg=... to each bare assert.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "TQ-05",
+      "severity": "INFO",
+      "category": "P12_mystery_guest (residual duplication)",
+      "file": "tests/test_e2e_sync.py, tests/test_first_boot_reconciliation.py, tests/test_v0_4_1_matrix.py",
+      "line": null,
+      "description": "Despite the Phase 2.7 extraction of _helpers.py, three test modules still define their own _skill_md/_set_mtime/_list_state/_archive_files_for/_read_state helpers instead of importing from tests._helpers. Future drift now structurally easier to introduce.",
+      "recommendation": "Replace the local definitions with imports from tests._helpers.",
+      "prior_audit_ref": "CQ-14"
+    },
+    {
+      "id": "TQ-06",
+      "severity": "INFO",
+      "category": "P3_excessive_mocking (acceptable simulation)",
+      "file": "tests/test_e2e_sync.py",
+      "line": 209,
+      "description": "The prior_text-unreadable test patches adopter_mod.read_artifact_text and privacy_gate_mod.read_artifact_text to simulate an OSError. The patch is a controlled boundary-failure simulation, acceptable per CLAUDE.md §7, but the choice is undocumented.",
+      "recommendation": "Add a one-line comment above the monkeypatch block explaining that the patch is simulating a filesystem boundary failure, not stubbing internal logic.",
+      "prior_audit_ref": "new observation"
+    }
+  ]
+}

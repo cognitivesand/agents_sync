@@ -1,17 +1,19 @@
-"""AgenticToolSpec registry — descriptor for each agentic tool participating
-in the sync.
+"""AgenticToolSpec registry — data model + default registry.
 
 One `AgenticToolSpec` represents one agentic tool (e.g. claude, codex,
-antigravity, opencode). It declares which customization_types the tool
+cursor, antigravity, gemini_cli, opencode). It declares which
+customization_types the tool
 supports (agent and/or skill), where on disk each customization_type lives
 (config keys), and how to parse / render / extract the pair_id for each
 (tool, type) cell via `CustomizationTypeIO`.
 
-This module is a passive descriptor. Enumeration, dispatch, and sync-loop
-wiring live in `sync.py`.
+This module is a passive descriptor. Per-tool factory functions live
+under :mod:`agents_sync.tool_specs`; sync-loop wiring lives in
+:mod:`agents_sync.sync`.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -35,7 +37,23 @@ class ParseFn(Protocol):
 
 
 class FileLayout(Protocol):
-    """Storage shape for one customization_type on one agentic_tool."""
+    """Storage shape for one customization_type on one agentic_tool.
+
+    Polymorphic methods (Phase 2.2 of the audit remediation) let callers
+    operate on a layout without sniffing its concrete subclass:
+
+    - ``probe_check_path(resolved)`` — given the resolved config value (a
+      file path or directory path), returns the Path that ``ToolStatusTracker``
+      should check for existence/permissions. For per-file layouts that is
+      the path itself; for shared-keyed-map layouts the shared file may not
+      yet exist on a fresh install, so the *parent directory* is probed
+      instead.
+    - ``tolerates_missing_config_key()`` — whether absence of the resolved
+      config value should mark the tool unavailable (``False``, the default)
+      or simply skip the cell silently (``True``, used by
+      ``SharedKeyedMapLayout`` whose ``shared_path_config_key`` is optional
+      until a user actually configures an MCP file).
+    """
 
     @property
     def storage(self) -> str:
@@ -47,6 +65,12 @@ class FileLayout(Protocol):
 
     @property
     def fixed_file_name(self) -> str | None:
+        ...
+
+    def probe_check_path(self, resolved: Path) -> Path:
+        ...
+
+    def tolerates_missing_config_key(self) -> bool:
         ...
 
 
@@ -72,10 +96,88 @@ class SingleFileLayout:
     def file_suffix(self) -> str:
         return self.extension
 
+    def probe_check_path(self, resolved: Path) -> Path:
+        return resolved
+
+    def tolerates_missing_config_key(self) -> bool:
+        return False
+
 
 @dataclass(frozen=True)
 class RulesFileLayout(SingleFileLayout):
     """Layout for v0.5 `rules` artifacts."""
+
+
+@dataclass(frozen=True)
+class DirectorySkillLayout:
+    """A skill artifact stored as a directory containing a ``SKILL.md`` plus
+    auxiliary files. The directory itself *is* the artifact identity.
+    """
+
+    @property
+    def storage(self) -> str:
+        return "directory_skill"
+
+    @property
+    def file_suffix(self) -> str:
+        return ""
+
+    @property
+    def fixed_file_name(self) -> str | None:
+        return None
+
+    def probe_check_path(self, resolved: Path) -> Path:
+        return resolved
+
+    def tolerates_missing_config_key(self) -> bool:
+        return False
+
+
+@dataclass(frozen=True)
+class SharedKeyedMapLayout:
+    """A customization artifact stored as one slot inside a shared keyed-map file.
+
+    Unlike ``SingleFileLayout``, the artifact is *not* one file on disk —
+    multiple artifacts share the same file, each owning one entry in a
+    keyed map nested at ``map_key_path`` inside that file.
+
+    ``shared_path_config_key`` names the config entry that resolves to
+    the shared file path (e.g. ``mcp_servers_file`` for Cursor's
+    ``~/.cursor/mcp.json``). ``map_key_path`` is the tuple of keys to
+    walk into the parsed mapping to reach the map of slots (e.g.
+    ``("mcpServers",)``). ``key_field`` names the canonical field whose
+    value becomes the slot key (``"name"`` for every v0.5 ``mcp_server``
+    adapter). ``file_format`` selects the registered format handler in
+    ``shared_keyed_map_formats``.
+    """
+
+    shared_path_config_key: str
+    map_key_path: tuple[str, ...]
+    key_field: str = "name"
+    file_format: str = "json"
+
+    @property
+    def storage(self) -> str:
+        return "shared_keyed_map"
+
+    @property
+    def file_suffix(self) -> str:
+        from agents_sync.shared_keyed_map_formats import get_format
+        return get_format(self.file_format).extension
+
+    @property
+    def fixed_file_name(self) -> str | None:
+        return None
+
+    def probe_check_path(self, resolved: Path) -> Path:
+        # The shared file itself may not exist yet — a fresh install starts
+        # with an empty ``~/.cursor/mcp.json`` directory. Probe the parent
+        # so the tool reads ``available`` once the directory is created,
+        # even before any MCP server is configured.
+        return resolved.parent
+
+    def tolerates_missing_config_key(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -139,6 +241,30 @@ class AgenticToolSpec:
     partial_availability: bool = False
     kind_disable_config_keys: dict[str, str] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Reject ``config_dir_keys`` / ``io`` drift at construction time.
+
+        The two dicts encode the same set of supported customization types
+        from two different angles (config-key surface vs. IO bundle).
+        ``ToolStatusTracker`` iterates ``config_dir_keys`` to probe roots,
+        while ``supported_customization_types`` reads ``io`` — historically a
+        single missing entry on either side caused either silent
+        "available without probe" status or a ``KeyError`` at probe time.
+        Catching the divergence at registry-build time (per audit slice
+        05 · CQ-03) turns a silent runtime corruption into a clear startup
+        failure that names the missing key and the tool involved.
+        """
+        config_keys = set(self.config_dir_keys.keys())
+        io_keys = set(self.io.keys())
+        if config_keys != io_keys:
+            only_in_config = sorted(config_keys - io_keys)
+            only_in_io = sorted(io_keys - config_keys)
+            raise ValueError(
+                f"AgenticToolSpec(name={self.name!r}) capability matrix drift: "
+                f"in config_dir_keys but not io: {only_in_config!r}; "
+                f"in io but not config_dir_keys: {only_in_io!r}"
+            )
+
     @property
     def supported_customization_types(self) -> frozenset[str]:
         return frozenset(self.io.keys())
@@ -153,476 +279,31 @@ def is_reserved_customization_name(io: CustomizationTypeIO, name: str) -> bool:
     return bool(candidates & reserved)
 
 
-def _global_rules_io(
-    agentic_tool_name: str,
-    fixed_file_name: str,
-) -> CustomizationTypeIO:
-    from agents_sync.rules_io import (
-        GLOBAL_RULE_NAME,
-        extract_pair_id_from_rules_md,
-        parse_rules_md,
-        render_rules_md,
-    )
-
-    def parse_rules(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_rules_md(
-            text,
-            prior_canonical,
-            agentic_tool_name=agentic_tool_name,
-            artifact_path=artifact_path,
-            canonical_name=GLOBAL_RULE_NAME,
-        )
-
-    def render_rules(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_rules_md(
-            canonical,
-            prior_text,
-            agentic_tool_name=agentic_tool_name,
-        )
-
-    return CustomizationTypeIO(
-        parse=parse_rules,
-        render=render_rules,
-        extract_pair_id=extract_pair_id_from_rules_md,
-        file_layout=RulesFileLayout(
-            extension=".md",
-            fixed_file_name=fixed_file_name,
-        ),
-    )
-
-
-def _build_claude_spec() -> AgenticToolSpec:
-    from agents_sync.claude_io import (
-        extract_pair_id_from_md,
-        parse_claude_md,
-        render_claude_md,
-    )
-    from agents_sync.slash_command_io import (
-        parse_slash_command_markdown,
-        render_slash_command_markdown,
-        slash_command_slug,
-    )
-
-    def parse_agent(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_claude_md(text, prior_canonical=prior_canonical, kind="agent")
-
-    def parse_skill(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_claude_md(text, prior_canonical=prior_canonical, kind="skill")
-
-    def render(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_claude_md(canonical, prior_text=prior_text)
-
-    def parse_slash_command(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_slash_command_markdown(
-            text,
-            prior_canonical,
-            agentic_tool_name="claude",
-            artifact_path=artifact_path,
-            artifact_root=artifact_root,
-        )
-
-    def render_slash_command(
-        canonical: dict[str, Any],
-        prior_text: str | None,
-    ) -> str:
-        return render_slash_command_markdown(
-            canonical,
-            prior_text,
-            agentic_tool_name="claude",
-        )
-
-    return AgenticToolSpec(
-        name="claude",
-        config_dir_keys={
-            "agent": "claude_agents_dir",
-            "skill": "claude_skills_dir",
-            "slash_command": "claude_commands_dir",
-            "rules": "claude_rules_dir",
-        },
-        io={
-            "agent": CustomizationTypeIO(
-                parse=parse_agent,
-                render=render,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
-            ),
-            "skill": CustomizationTypeIO(
-                parse=parse_skill,
-                render=render,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
-            ),
-            "slash_command": CustomizationTypeIO(
-                parse=parse_slash_command,
-                render=render_slash_command,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
-                slugify_name=slash_command_slug,
-                recursive=True,
-            ),
-            "rules": _global_rules_io("claude", "CLAUDE.md"),
-        },
-    )
-
-
-def _build_codex_spec() -> AgenticToolSpec:
-    from agents_sync.claude_io import extract_pair_id_from_md
-    from agents_sync.codex_io import (
-        extract_pair_id,
-        parse_codex_agent_toml,
-        parse_codex_skill_md,
-        render_codex_agent_toml,
-        render_codex_skill_md,
-    )
-    from agents_sync.slash_command_io import (
-        parse_slash_command_markdown,
-        render_slash_command_markdown,
-        slash_command_slug,
-    )
-
-    def parse_agent(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_codex_agent_toml(text, prior_canonical=prior_canonical)
-
-    def render_agent(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_codex_agent_toml(canonical, prior_text=prior_text)
-
-    def parse_skill(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_codex_skill_md(text, prior_canonical=prior_canonical)
-
-    def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_codex_skill_md(canonical)
-
-    def parse_slash_command(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_slash_command_markdown(
-            text,
-            prior_canonical,
-            agentic_tool_name="codex",
-            artifact_path=artifact_path,
-            artifact_root=artifact_root,
-        )
-
-    def render_slash_command(
-        canonical: dict[str, Any],
-        prior_text: str | None,
-    ) -> str:
-        return render_slash_command_markdown(
-            canonical,
-            prior_text,
-            agentic_tool_name="codex",
-        )
-
-    return AgenticToolSpec(
-        name="codex",
-        config_dir_keys={
-            "agent": "codex_agents_dir",
-            "skill": "codex_skills_dir",
-            "slash_command": "codex_prompts_dir",
-            "rules": "codex_rules_dir",
-        },
-        io={
-            "agent": CustomizationTypeIO(
-                parse=parse_agent,
-                render=render_agent,
-                extract_pair_id=extract_pair_id,
-                storage="single_file",
-                file_suffix=".toml",
-            ),
-            "skill": CustomizationTypeIO(
-                parse=parse_skill,
-                render=render_skill,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
-            ),
-            "slash_command": CustomizationTypeIO(
-                parse=parse_slash_command,
-                render=render_slash_command,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
-                slugify_name=slash_command_slug,
-                recursive=True,
-            ),
-            "rules": _global_rules_io("codex", "AGENTS.md"),
-        },
-    )
-
-
-def _build_antigravity_spec() -> AgenticToolSpec:
-    from agents_sync.antigravity_io import (
-        extract_pair_id_from_md,
-        parse_antigravity_skill_md,
-        render_antigravity_skill_md,
-    )
-
-    def parse_skill(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_antigravity_skill_md(text, prior_canonical=prior_canonical)
-
-    def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_antigravity_skill_md(canonical, prior_text=prior_text)
-
-    return AgenticToolSpec(
-        name="antigravity",
-        config_dir_keys={"skill": "antigravity_skills_dir"},
-        io={
-            "skill": CustomizationTypeIO(
-                parse=parse_skill,
-                render=render_skill,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
-            ),
-        },
-        disable_config_key="antigravity_enabled",
-    )
-
-
-def _build_opencode_spec() -> AgenticToolSpec:
-    from agents_sync.opencode_io import (
-        extract_pair_id_from_md,
-        opencode_skill_slug,
-        parse_opencode_agent_md,
-        parse_opencode_skill_md,
-        render_opencode_agent_md,
-        render_opencode_skill_md,
-    )
-    from agents_sync.slash_command_io import (
-        parse_slash_command_markdown,
-        render_slash_command_markdown,
-        slash_command_slug,
-    )
-
-    def parse_agent(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_opencode_agent_md(
-            text,
-            prior_canonical=prior_canonical,
-            artifact_path=artifact_path,
-        )
-
-    def render_agent(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_opencode_agent_md(canonical, prior_text=prior_text)
-
-    def parse_skill(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_opencode_skill_md(text, prior_canonical=prior_canonical)
-
-    def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_opencode_skill_md(canonical, prior_text=prior_text)
-
-    def parse_slash_command(
-        text: str,
-        prior_canonical: dict[str, Any] | None,
-        *,
-        artifact_path: Path | None = None,
-        artifact_root: Path | None = None,
-    ) -> dict[str, Any]:
-        return parse_slash_command_markdown(
-            text,
-            prior_canonical,
-            agentic_tool_name="opencode",
-            artifact_path=artifact_path,
-            artifact_root=artifact_root,
-        )
-
-    def render_slash_command(
-        canonical: dict[str, Any],
-        prior_text: str | None,
-    ) -> str:
-        return render_slash_command_markdown(
-            canonical,
-            prior_text,
-            agentic_tool_name="opencode",
-        )
-
-    return AgenticToolSpec(
-        name="opencode",
-        config_dir_keys={
-            "agent": "opencode_agents_dir",
-            "skill": "opencode_skills_dir",
-            "slash_command": "opencode_commands_dir",
-            "rules": "opencode_rules_dir",
-        },
-        io={
-            "agent": CustomizationTypeIO(
-                parse=parse_agent,
-                render=render_agent,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
-            ),
-            "skill": CustomizationTypeIO(
-                parse=parse_skill,
-                render=render_skill,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
-                slugify_name=opencode_skill_slug,
-            ),
-            "slash_command": CustomizationTypeIO(
-                parse=parse_slash_command,
-                render=render_slash_command,
-                extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
-                slugify_name=slash_command_slug,
-                recursive=True,
-                reserved_names=frozenset({
-                    "build",
-                    "plan",
-                    "general",
-                    "explore",
-                    "scout",
-                }),
-            ),
-            "rules": _global_rules_io("opencode", "AGENTS.md"),
-        },
-        disable_config_key="opencode_enabled",
-    )
-
-
-def _build_copilot_spec() -> AgenticToolSpec:
-    from agents_sync.copilot_io import (
-        copilot_skill_slug,
-        extract_pair_id_from_copilot_agent_md,
-        extract_pair_id_from_copilot_instruction_md,
-        extract_pair_id_from_copilot_prompt_md,
-        extract_pair_id_from_copilot_skill_md,
-        parse_copilot_agent_md,
-        parse_copilot_instruction_md,
-        parse_copilot_prompt_md,
-        parse_copilot_skill_md,
-        render_copilot_agent_md,
-        render_copilot_instruction_md,
-        render_copilot_prompt_md,
-        render_copilot_skill_md,
-    )
-    from agents_sync.slash_command_io import slash_command_slug
-
-    return AgenticToolSpec(
-        name="copilot",
-        config_dir_keys={
-            "agent": "copilot_cli_agents_dir",
-            "skill": "copilot_cli_skills_dir",
-            "rules": "copilot_vscode_user_instructions_dir",
-            "slash_command": "copilot_vscode_user_prompts_dir",
-        },
-        io={
-            "agent": CustomizationTypeIO(
-                parse=parse_copilot_agent_md,
-                render=render_copilot_agent_md,
-                extract_pair_id=extract_pair_id_from_copilot_agent_md,
-                storage="single_file",
-                file_suffix=".agent.md",
-                accepted_file_suffixes=(".agent.md", ".chatmode.md", ".md"),
-            ),
-            "skill": CustomizationTypeIO(
-                parse=parse_copilot_skill_md,
-                render=render_copilot_skill_md,
-                extract_pair_id=extract_pair_id_from_copilot_skill_md,
-                storage="directory_skill",
-                file_suffix="",
-                slugify_name=copilot_skill_slug,
-            ),
-            "rules": CustomizationTypeIO(
-                parse=parse_copilot_instruction_md,
-                render=render_copilot_instruction_md,
-                extract_pair_id=extract_pair_id_from_copilot_instruction_md,
-                file_layout=RulesFileLayout(extension=".instructions.md"),
-            ),
-            "slash_command": CustomizationTypeIO(
-                parse=parse_copilot_prompt_md,
-                render=render_copilot_prompt_md,
-                extract_pair_id=extract_pair_id_from_copilot_prompt_md,
-                storage="single_file",
-                file_suffix=".prompt.md",
-                slugify_name=slash_command_slug,
-                recursive=True,
-            ),
-        },
-        disable_config_key="copilot_enabled",
-        partial_availability=True,
-        kind_disable_config_keys={
-            "agent": "copilot_cli_enabled",
-            "skill": "copilot_cli_enabled",
-            "rules": "copilot_vscode_user_profile_enabled",
-            "slash_command": "copilot_vscode_user_profile_enabled",
-        },
-    )
-
-
-def default_agentic_tools() -> dict[str, AgenticToolSpec]:
+def default_agentic_tools(
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, AgenticToolSpec]:
     """Return the default registry of agentic tools participating in the sync.
 
     Order matters for deterministic discovery iteration and for the §5.5
     mtime-tie tiebreaker (alphabetical by tool name). Antigravity is
     skill-only; the daemon respects `antigravity_enabled` from config.
     """
+    from agents_sync.tool_specs import (
+        build_antigravity_spec,
+        build_claude_spec,
+        build_codex_spec,
+        build_copilot_spec,
+        build_cursor_spec,
+        build_gemini_cli_spec,
+        build_opencode_spec,
+    )
+
     return {
-        "antigravity": _build_antigravity_spec(),
-        "claude": _build_claude_spec(),
-        "codex": _build_codex_spec(),
-        "copilot": _build_copilot_spec(),
-        "opencode": _build_opencode_spec(),
+        "antigravity": build_antigravity_spec(),
+        "claude": build_claude_spec(config),
+        "codex": build_codex_spec(config),
+        "copilot": build_copilot_spec(),
+        "cursor": build_cursor_spec(config),
+        "gemini_cli": build_gemini_cli_spec(),
+        "opencode": build_opencode_spec(config),
     }

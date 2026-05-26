@@ -1,18 +1,19 @@
 """Generic Markdown parse/render helpers for v0.5 `rules` artifacts."""
 from __future__ import annotations
 
-import io
 from pathlib import Path
 from typing import Any
 
-from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import (
-    FRONTMATTER_RE,
-    _make_yaml,
-    _normalize_markdown_text,
-    _strip_bom_prefix,
-    _yaml_load,
+from agents_sync.canonical import (
+    apply_per_tool_partition,
+    empty_canonical,
+    new_pair_id,
+)
+from agents_sync.yaml_frontmatter import (
     extract_pair_id_from_md,
+    frontmatter_for_render,
+    split_frontmatter,
+    yaml_dump,
 )
 
 
@@ -53,7 +54,7 @@ def parse_rules_md(
     `name` is accepted for synthetic tests and importer-style callers, but
     `artifact_path` wins whenever it is available.
     """
-    frontmatter_data, body = _split_frontmatter(text)
+    frontmatter_data, body = split_frontmatter(text, label="Rules")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("rules")
     canonical["body"] = body
 
@@ -76,21 +77,13 @@ def parse_rules_md(
     )
     canonical["private"] = _coerce_bool(frontmatter_data.get("private", private))
 
-    per_only = dict(canonical.get("per_agentic_tool_only") or {})
-    per_only[agentic_tool_name] = {
-        field_name: frontmatter_data[field_name]
-        for field_name in TOOL_ONLY_RULE_FIELDS
-        if field_name in frontmatter_data
-    }
-    canonical["per_agentic_tool_only"] = per_only
-
-    per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_extra[agentic_tool_name] = {
-        key: value
-        for key, value in frontmatter_data.items()
-        if key not in KNOWN_RULE_FIELDS
-    }
-    canonical["per_agentic_tool_extra"] = per_extra
+    apply_per_tool_partition(
+        canonical,
+        agentic_tool_name=agentic_tool_name,
+        frontmatter_data=frontmatter_data,
+        tool_only_fields=TOOL_ONLY_RULE_FIELDS,
+        known_fields=KNOWN_RULE_FIELDS,
+    )
 
     if "pair_id" in frontmatter_data:
         canonical["pair_id"] = str(frontmatter_data["pair_id"])
@@ -107,7 +100,7 @@ def render_rules_md(
     agentic_tool_name: str = "rules",
 ) -> str:
     """Render a canonical rule to Markdown with YAML frontmatter."""
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter.pop("provenance", None)
     frontmatter.pop("private", None)
 
@@ -131,48 +124,11 @@ def render_rules_md(
     return _render_markdown(frontmatter, canonical.get("body", ""))
 
 
-def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        return {}, _strip_bom_prefix(text.strip())
-
-    raw_frontmatter, body_raw = match.groups()
-    loaded = _yaml_load(raw_frontmatter)
-    if loaded is None:
-        frontmatter_data: dict[str, Any] = {}
-    elif not isinstance(loaded, dict):
-        raise ValueError("Rules frontmatter must be a YAML mapping")
-    else:
-        frontmatter_data = dict(loaded)
-    return frontmatter_data, _strip_bom_prefix(body_raw.strip())
-
-
-def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    yml = _make_yaml()
-    if prior_text is None:
-        return yml.load("{}\n")
-
-    prior_text = _normalize_markdown_text(prior_text)
-    prior_match = FRONTMATTER_RE.match(prior_text)
-    if prior_match is None:
-        return yml.load("{}\n")
-
-    loaded = _yaml_load(prior_match.group(1))
-    return loaded if isinstance(loaded, dict) else yml.load("{}\n")
-
-
 def _render_markdown(frontmatter: dict[str, Any], body: str) -> str:
-    rendered_frontmatter = _yaml_dump(frontmatter).rstrip("\n")
+    rendered_frontmatter = yaml_dump(frontmatter).rstrip("\n")
     if body:
         return f"---\n{rendered_frontmatter}\n---\n{body}\n"
     return f"---\n{rendered_frontmatter}\n---\n"
-
-
-def _yaml_dump(data: Any) -> str:
-    buffer = io.StringIO()
-    _make_yaml().dump(data, buffer)
-    return buffer.getvalue()
 
 
 def _set_or_pop(target: dict[str, Any], key: str, value: Any) -> None:

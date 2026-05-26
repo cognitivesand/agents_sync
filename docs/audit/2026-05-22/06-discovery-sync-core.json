@@ -1,0 +1,73 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/discovery/, src/agents_sync/{state,sync,sync_types,canonical,identity}.py",
+  "date": "2026-05-22",
+  "files_analyzed": 10,
+  "total_lines": 1529,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "Every CRITICAL/MAJOR finding from the prior audit is closed or substantively reduced; remaining items are WARNING/INFO with documented mitigations.",
+  "remediation_diff_summary": "Phase 1 closed the canonical-equality gap (canonicalize/canonical_equal/save_canonical normalises tools/disallowed_tools, name/description whitespace, body CRLF/LF) and added a real fsync-based atomic_write_text plus a quarantine path for load_state/load_canonical. Phase 2 introduced a FileLayout Protocol with probe_check_path/tolerates_missing_config_key. Phase 3 added per-pair generation as a monotonic tiebreaker for mtime_wins, replaced Syncer.sync_once's bare int with a SyncResult dataclass exposing changed/failed/blocked, and made AgenticToolState.path a Path. Phase 4 split discovery.py into walker + enumerator + adoption_planner + collision_blocker mixins.",
+  "detailed_analysis": "The slice is structurally sound. The discovery module — previously 507 lines as one God Module — is a five-file package (walker 103, enumerator 256, adoption_planner 128, collision_blocker 135, __init__ 12) with each file owning a single responsibility. The DiscoveryWalker is composed of three orthogonal mixins. sync.py shrank to 296 lines whose three top-level methods each delegate to ≤40-line helpers. canonical.py grew from 80 to 188 lines, every added byte load-bearing: canonicalize is the documented choke point, save_canonical runs it before serialising, canonical_equal is the public predicate. state.py shipped two durability fixes — atomic_write_text uses os.O_WRONLY|O_CREAT|O_TRUNC + os.fsync(fd) + os.replace + _fsync_directory; staging file name carries pid + uuid4 so two writers cannot collide. load_state and load_canonical no longer collapse five failure modes into 'return {}'; they explicitly differentiate Absent vs Wrong-schema-version vs Corrupt, routing Corrupt through _quarantine_corrupt with an ERROR log naming the quarantine path. CustomizationArtifactState carries a generation counter advanced atomically with last_modified by bump(). Remaining concerns are warnings. (1) FileLayout Protocol was introduced but its method set is limited to probe_check_path and tolerates_missing_config_key — isinstance(io.file_layout, SharedKeyedMapLayout) still appears in 15 sites across discovery (4), rendering (5), adoption (4), and sync (1). (2) The (path, slot) primitive is still threaded as two separate parameters. (3) Syncer._blocked_pair_ids is reset on every sync_once entry but lives as an instance attribute. (4) Round-trip asymmetry (parse(render(c)) == c) still enforceable only by external integration tests. (5) TOCTOU between sha256_file and stat() in _add_agentic_tool_artifact: failure is now observable via SyncResult.failed but the race exists.",
+  "findings": [
+    {
+      "id": "CQ-14",
+      "severity": "WARNING",
+      "category": "M4 / shotgun surgery (PARTIAL)",
+      "file": "src/agents_sync/agentic_tool_spec.py",
+      "line": 38,
+      "description": "FileLayout Protocol limited to probe_check_path/tolerates_missing_config_key. Fifteen isinstance(io.file_layout, SharedKeyedMapLayout) sites remain across discovery (4), rendering (5), adoption (4), and sync (1). A third FileLayout subclass would still force coordinated edits across four modules.",
+      "recommendation": "Extend the Protocol with polymorphic read_slot(path, slot)/write_slot(path, slot, text)/render_target(canonical, root, io) methods so callers can delete the isinstance dispatch.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "CQ-15",
+      "severity": "WARNING",
+      "category": "W8 / primitive obsession (PARTIAL)",
+      "file": "src/agents_sync/sync_types.py",
+      "line": 16,
+      "description": "(path: Path, slot: str | None) still threaded as two fields through AgenticToolInfo, PlannedTarget, RenderResult, AgenticToolState. The slot-is-str-when-keyed-map-else-None invariant is asserted at four sites by reading both fields. Path-vs-str inconsistency closed; conceptual ArtifactLocation value object not introduced.",
+      "recommendation": "Introduce ArtifactLocation = (path, slot) as a frozen dataclass with a slot_aware_collision_key() method; defer until FileLayout polymorphism (CQ-14) lands.",
+      "prior_audit_ref": "CQ-17"
+    },
+    {
+      "id": "CQ-16",
+      "severity": "WARNING",
+      "category": "W3 / hidden mutable instance state",
+      "file": "src/agents_sync/sync.py",
+      "line": 68,
+      "description": "Syncer._blocked_pair_ids is reset on every sync_once() entry but lives as an instance attribute. A second concurrent sync_once() call on the same Syncer would observe a partially-rebuilt set. Single-threaded contract is implicit.",
+      "recommendation": "Either thread blocked_pair_ids as a local variable through the call chain, or document the single-threaded contract on the Syncer class and add an assert-on-reentry guard.",
+      "prior_audit_ref": "CQ-16"
+    },
+    {
+      "id": "CQ-17",
+      "severity": "WARNING",
+      "category": "W8 / parse/render round-trip",
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "line": 34,
+      "description": "Adoption planning still derives the target purely from canonical['name'] via slugify; nothing checks parse(render(canonical_for_target_tool)) == canonical. The canonical_equal() helper exists but is not invoked at the adoption boundary.",
+      "recommendation": "On adoption, after rendering each target, parse the result and assert canonical_equal(canonical, parsed) — log ERROR and skip the target on mismatch.",
+      "prior_audit_ref": "CQ-11"
+    },
+    {
+      "id": "CQ-18",
+      "severity": "WARNING",
+      "category": "C3 / TOCTOU",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 203,
+      "description": "_add_agentic_tool_artifact still calls path.stat().st_mtime unguarded after sha256_file(path). If the file is removed between digest and stat, FileNotFoundError bubbles. The handler now records the pair_id in failed[] (CQ-09), so the failure is observable, but the race could be eliminated by digesting via an open fd and statting fstat(fd).",
+      "recommendation": "Open the file once, fstat() it and digest from the same fd; or wrap stat() in try/except OSError and treat the artifact as removed for this poll.",
+      "prior_audit_ref": "CQ-19"
+    },
+    {
+      "id": "CQ-19",
+      "severity": "INFO",
+      "category": "I3 / data clump (RESIDUAL)",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 43,
+      "description": "_discover_shared_keyed_map / _add_keyed_map_slot_artifact / _add_agentic_tool_artifact still carry the (pairs, blocked_pair_ids, state) trailing parameter trio.",
+      "recommendation": "Wrap the trio in a DiscoverySession dataclass passed once per discover() call.",
+      "prior_audit_ref": "CQ-09"
+    }
+  ]
+}

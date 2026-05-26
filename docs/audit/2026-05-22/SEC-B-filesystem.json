@@ -1,0 +1,72 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "security slice B — filesystem / path-traversal / archive integrity",
+  "date": "2026-05-22",
+  "files_analyzed": 14,
+  "total_lines": 2650,
+  "verdict": "AUDIT_FAIL",
+  "verdict_rationale": "One HIGH-severity path-traversal via slot_name interpolation in archive.archive_text writes outside the per-pair archive dir; defenses elsewhere (pair_id validation, slug sanitization, atomic_write_text uniqueness, sidecar locking) are otherwise solid.",
+  "detailed_analysis": "Zip-slip is structurally impossible in portable_archive.py: the only files extracted are JSON blobs read via zf.read(name) and json.loads, never extractall, never written to a path derived from name. Each archive entry's filename must match ^canonical/<uuid4>\\.json$ and the embedded pair_id must match the filename; arbitrary or absolute zip-entry names are quietly discarded by the name.startswith(CANONICAL_PREFIX) filter. validate_pair_id accepts only canonical UUIDv4 text, so a pair_id with .., /, or NUL bytes is rejected. canonical_path re-runs that validation on every read/write. Slug derivation (state.slugify) strips anything outside [a-z0-9_-], maps Windows reserved basenames, and falls back to 'converted' when empty. atomic_write_text is careful: temp file uses pid+uuid4 hex, write+fsync+os.replace+fsync(parent), wrapped in retry_fs. The cross-process lock_file correctly takes the lock on a sidecar <path>.lock so that an os.replace of the inode inside the critical section does not break the lock; the lock is fd-closed in a finally. apply_slot holds that lock for the entire read-modify-write window. The transactional import contract leaves canonical/ either fully written or completely untouched, and state.json is the last thing written. The defect: archive.archive_text (archive.py:67-90) interpolates slot_name directly into the target filename: target_dir / f'{slot_name}{extension}.{iso_timestamp()}'. Every call site passes str(result.slot) or str(source_info.slot) where the slot is the raw user-supplied key from the MCP servers map. For the keyed-map layout the slot key comes from rendering.py line 235 — canonical.get(layout.key_field, slug) — and layout.key_field is 'name', which parse_mcp_server_json sets to the raw user value without sanitization. A user (or a tampered portable archive, post-import) can register an MCP server slot named '../../../tmp/pwned' and on the next adoption or conflict-archive cycle archive_text will write outside the archive directory tree.",
+  "findings": [
+    {
+      "id": "SEC-B-01",
+      "severity": "HIGH",
+      "category": "Path traversal via unsanitized filename component",
+      "file": "src/agents_sync/archive.py",
+      "line": 88,
+      "description": "archive_text interpolates the raw slot_name into the target filename: `target_dir / f'{slot_name}{extension}.{iso_timestamp()}'`. Every call site (adoption/adopter.py:121-126 and :279-284, adoption/conflict_resolver.py:55, adoption/removal_propagator.py:131, sync.py:296) passes str(result.slot) or str(source_info.slot) where the slot is the raw user-supplied MCP server key from .claude.json[mcpServers], ~/.codex/config.toml[mcp_servers], or opencode.json[mcp]. mcp_server_io/parse.py:91-94 also sets canonical['name'] to the raw key without sanitization, and rendering.py:235 propagates that name back as slot_key. A slot named '../../../tmp/pwned' causes archive_text to write outside the per-pair archive root.",
+      "exploit_scenario": "Attacker ships a portable library snapshot zip whose canonical/<uuid>.json contains {'kind':'mcp_server','name':'../../../../tmp/pwned',...}. Import succeeds (slug sanitizer is not applied to mcp_server keys; canonical_path uses the pair_id, not the name). On the first poll after import the adopter runs _archive_prior_slot_results which calls archive_text with slot_name='../../../../tmp/pwned'. The resulting target resolves to /tmp/pwned.json.<iso-timestamp> outside <state_dir>/archive/<pair_id>/<side>/. The written content is the prior slot bytes, which under mcp_server_secret_policy=permissive may include Authorization headers or env literal credentials. The same vector is reachable without import by hand-editing .claude.json to register a server key with traversal sequences.",
+      "recommendation": "Sanitize slot_name in archive_text before constructing the target path: run it through a path-component slugger (reuse state.slugify or stricter — disallow /, \\, .., NUL, control chars; cap length). After joining, assert target.resolve().is_relative_to(target_dir.resolve()); raise if not. As a deeper fix, treat MCP server keys as untrusted and pass a slugged form (not the raw key) as the slot identifier wherever it crosses into a filesystem name."
+    },
+    {
+      "id": "SEC-B-02",
+      "severity": "MEDIUM",
+      "category": "Symlink-following in discovery walk",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 148,
+      "description": "Per-cell artifact enumeration uses root.rglob / root.glob which on Python 3.12 unconditionally follow symbolic links. A symlink inside ~/.claude/skills/ is silently followed; the walker reads every *.md or */SKILL.md under it, computes digests, and may adopt them into the canonical store. On the next reconciliation those adopted artifacts are projected back out into every other tool's root.",
+      "exploit_scenario": "A second tool installed by the same user places a symlink at ~/.claude/skills/shared -> ~/work/secret-skills. The daemon walks into that directory, ingests the skills, writes them into ~/.config/opencode/skills/, ~/.codex/skills/, and the Antigravity skills root. The user expected the configured root to be a hard containment boundary; it is not.",
+      "recommendation": "Replace Path.rglob/glob with an os.scandir-based walk that skips entries where entry.is_symlink() (or where entry.stat(follow_symlinks=False).st_dev differs from the root's device). Alternatively, pin to Python 3.13+ and pass follow_symlinks=False to glob/rglob."
+    },
+    {
+      "id": "SEC-B-03",
+      "severity": "MEDIUM",
+      "category": "Over-broad retry classifier",
+      "file": "src/agents_sync/filesystem_windows_retry.py",
+      "line": 17,
+      "description": "is_transient_fs_error treats every PermissionError as transient unconditionally on every platform. On POSIX, PermissionError almost always corresponds to a permanent EACCES — retrying it six times with exponential backoff masks the underlying error and delays the failure report by up to ~1.8 s per affected operation.",
+      "exploit_scenario": "An adversary flips a single file under ~/.claude/skills/ to mode 0000. Every adoption pass that touches it silently spends ~300 ms retrying before reporting failure. If the daemon's poll interval is 2 s, three or four such files saturate the loop.",
+      "recommendation": "On POSIX, treat PermissionError as transient only when errno is EACCES AND the operation is one Windows-style AV scanners can legitimately interfere with (rename, unlink, mkdir). Cleanest: drop the unconditional PermissionError branch on non-Windows."
+    },
+    {
+      "id": "SEC-B-04",
+      "severity": "LOW",
+      "category": "Temp-file open lacks O_NOFOLLOW / O_EXCL",
+      "file": "src/agents_sync/state.py",
+      "line": 237,
+      "description": "atomic_write_text opens its staging file with os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644) — no O_NOFOLLOW, no O_EXCL. The tmp name is .{name}.{pid}.{uuid4hex8}.tmp in the destination's parent. (a) If a same-user local attacker pre-creates a symlink at the tmp path, the write follows it. (b) The uuid hex is truncated to 8 characters (32 bits).",
+      "exploit_scenario": "A malicious script run under the same user predicts pid and brute-forces or watches <state_dir>/canonical/ for the 32-bit suffix; on a hit it places a symlink to ~/.bashrc. The next atomic_write_text writes canonical content to .bashrc.",
+      "recommendation": "Add os.O_NOFOLLOW and os.O_EXCL to the open flags; on EEXIST or ELOOP, regenerate the uuid suffix and retry. Use the full uuid.uuid4().hex instead of [:8]."
+    },
+    {
+      "id": "SEC-B-05",
+      "severity": "LOW",
+      "category": "Quarantine inherits source permissions",
+      "file": "src/agents_sync/state.py",
+      "line": 357,
+      "description": "_quarantine_corrupt moves the corrupt source file via source.replace(dest). The rename preserves the source's mode bits, owner, ACL, and extended attributes. The quarantine policy should be 0700/0600 regardless of the source's mode.",
+      "exploit_scenario": "Bounded today since state.json and canonical/ are 0644 by atomic_write_text's open mode. But the policy is wrong: a quarantine directory should be 0700 with files at 0600 because quarantined bytes are by definition broken and may carry partial-write contents.",
+      "recommendation": "After replace, os.chmod(dest, 0o600). At quarantine_dir creation, os.chmod(quarantine_dir, 0o700)."
+    },
+    {
+      "id": "SEC-B-06",
+      "severity": "LOW",
+      "category": "Slug-displacement unlink races concurrent reader",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 557,
+      "description": "During slug-displacement the import calls retry_fs(lambda: local_canonical.unlink(), ...). A daemon running concurrently can be inside load_canonical between its path.exists() check and path.read_text() call. The daemon's catch-all except (OSError, UnicodeDecodeError) triggers _quarantine_corrupt with reason 'unreadable bytes' on a path that no longer exists.",
+      "exploit_scenario": "User runs agents-sync import while the daemon is running. A slug displacement deletes the canonical mid-read. The daemon emits a misleading ERROR log claiming the canonical was corrupt and quarantined.",
+      "recommendation": "Either (a) hold the same cross-process lock used by apply_slot around the displacement unlink, or (b) distinguish FileNotFoundError from other OSError in load_canonical — a missing file mid-read is 'absent, retry next poll', not 'corrupt, quarantine'."
+    }
+  ]
+}
