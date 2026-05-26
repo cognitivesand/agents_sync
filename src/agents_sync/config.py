@@ -52,6 +52,7 @@ class AgentsSyncConfig(TypedDict, total=False):
     gemini_cli_commands_dir: str
     gemini_cli_skills_dir: str
     gemini_cli_rules_dir: str
+    gemini_cli_settings_file: str
     gemini_cli_enabled: bool
     # opencode
     opencode_agents_dir: str
@@ -166,6 +167,7 @@ def platform_defaults(
         "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
         "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
         "gemini_cli_rules_dir": str(home_dir / ".gemini"),
+        "gemini_cli_settings_file": str(home_dir / ".gemini" / "settings.json"),
         "gemini_cli_enabled": True,
         "opencode_agents_dir": str(opencode_root / "agents"),
         "opencode_commands_dir": str(opencode_root / "commands"),
@@ -234,6 +236,7 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
     ("gemini_cli_commands_dir", "gemini_cli_commands_dir"),
     ("gemini_cli_skills_dir", "gemini_cli_skills_dir"),
     ("gemini_cli_rules_dir", "gemini_cli_rules_dir"),
+    ("gemini_cli_settings_file", "gemini_cli_settings_file"),
     ("gemini_cli_enabled", "gemini_cli_enabled"),
     ("opencode_agents_dir", "opencode_agents_dir"),
     ("opencode_commands_dir", "opencode_commands_dir"),
@@ -309,6 +312,7 @@ OPTIONAL_PATH_KEYS: tuple[str, ...] = (
     "cursor_rules_dir",
     "cursor_commands_dir",
     "cursor_mcp_servers_file",
+    "gemini_cli_settings_file",
     "opencode_config_file",
 )
 

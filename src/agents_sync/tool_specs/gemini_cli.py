@@ -1,14 +1,19 @@
 """AgenticToolSpec factory for Gemini CLI."""
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
     RulesFileLayout,
 )
+from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 
 
-def build_gemini_cli_spec() -> AgenticToolSpec:
+def build_gemini_cli_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.gemini_cli_io import (
         extract_pair_id_from_gemini_agent_md,
         extract_pair_id_from_gemini_command_toml,
@@ -32,6 +37,7 @@ def build_gemini_cli_spec() -> AgenticToolSpec:
             "skill": "gemini_cli_skills_dir",
             "rules": "gemini_cli_rules_dir",
             "slash_command": "gemini_cli_commands_dir",
+            "mcp_server": "gemini_cli_settings_file",
         },
         io={
             "agent": CustomizationTypeIO(
@@ -65,6 +71,31 @@ def build_gemini_cli_spec() -> AgenticToolSpec:
                 file_suffix=".toml",
                 slugify_name=slash_command_slug,
                 recursive=True,
+            ),
+            "mcp_server": build_mcp_server_io(
+                "gemini_cli",
+                "gemini_cli_settings_file",
+                ("mcpServers",),
+                file_format="json",
+                config=config,
+                dialect=McpServerDialect(
+                    render_name_field=False,
+                    render_transport_field=False,
+                    url_fields=("httpUrl", "url", "serverUrl"),
+                    transport_from_fields=(
+                        ("httpUrl", "http"),
+                        ("url", "sse"),
+                        ("command", "stdio"),
+                    ),
+                    url_render_fields=(
+                        ("http", "httpUrl"),
+                        ("streamable-http", "httpUrl"),
+                        ("sse", "url"),
+                    ),
+                    auth_fields=("oauth", "auth"),
+                    auth_render_field="oauth",
+                    env_reference_style="gemini",
+                ),
             ),
         },
         disable_config_key="gemini_cli_enabled",

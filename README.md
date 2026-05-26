@@ -49,57 +49,31 @@ The daemon runs quietly in the background, protects your content with archives, 
 `agents_sync` synchronizes user-level agents, skills, slash commands, global rules, and MCP servers across the tools that expose each customization type.
 
 | What you edit | Claude Code | Codex | Cursor | Gemini CLI | Antigravity | OpenCode |
-|:---|:---|:---|:---|:---|:---|
+|:---|:---|:---|:---|:---|:---|:---|
 | Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.cursor/agents/*.md` | `~/.gemini/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.cursor/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
 | Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | `~/.cursor/commands/*.md` | `~/.gemini/commands/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
 | Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.cursor/rules/*.mdc` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
-| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.cursor/mcp.json[mcpServers]` | n/a | n/a | `~/.config/opencode/opencode.json[mcp]` |
+| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.cursor/mcp.json[mcpServers]` | `~/.gemini/settings.json[mcpServers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. Claude Code, Codex, Cursor, Antigravity, and OpenCode use `SKILL.md` folders, so skills sync five ways.
-- Agents are reusable AI personas. Claude Code, Codex, Cursor, and OpenCode have per-agent file formats, so agents sync four ways.
+- Skills are reusable instruction folders. Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and OpenCode use `SKILL.md` folders, so skills sync six ways.
+- Agents are reusable AI personas. Claude Code, Codex, Cursor, Gemini CLI, and OpenCode have per-agent file formats, so agents sync five ways.
 - Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, Cursor, and OpenCode sync them as Markdown files.
 - Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`; Cursor uses `.mdc` rule files.
-- MCP servers sync across Claude Code, Codex, Cursor, and OpenCode. Project-scoped MCP files remain out of scope.
+- MCP servers sync across Claude Code, Codex, Cursor, Gemini CLI, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
-flowchart LR
-    subgraph Tools["Supported tools"]
-        direction TB
-        Claude["Claude Code: agents, commands, skills, rules, MCP"]
-        Codex["Codex: agents, prompts, skills, rules, MCP"]
-        Cursor["Cursor: agents, commands, skills, rules, MCP"]
-        Antigravity["Antigravity: skills only"]
-        Opencode["OpenCode: agents, commands, skills, rules, MCP"]
-    end
-
-    Sync["agents_sync: watch + match + sync"]
-    State["State: pair_id + digests"]
-    Archive["Archive before overwrite or removal"]
-
-    Claude <-->|changes| Sync
-    Codex <-->|changes| Sync
-    Cursor <-->|changes| Sync
-    Antigravity <-->|changes| Sync
-    Opencode <-->|changes| Sync
+graph TD
+    Claude[Claude Code] <--> Sync[agents sync]
+    Codex[Codex] <--> Sync
+    Cursor[Cursor] <--> Sync
+    Gemini[Gemini CLI] <--> Sync
+    Antigravity[Antigravity] <--> Sync
+    OpenCode[OpenCode] <--> Sync
     Sync --> State
     Sync --> Archive
-
-    classDef side fill:#ddf4ff,stroke:#0969da,stroke-width:2px,color:#24292f
-    classDef sync fill:#fff8c5,stroke:#bf8700,stroke-width:2px,color:#24292f
-    classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
-    classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
-
-    class Claude,Codex,Cursor,Antigravity,Opencode side
-    class Sync sync
-    class State state
-    class Archive archive
-
-    linkStyle 0,1,2,3,4 stroke:#2da44e,stroke-width:2px
-    linkStyle 5 stroke:#8250df,stroke-width:2px
-    linkStyle 6 stroke:#2da44e,stroke-width:2px
 ```
 
 ---
@@ -400,6 +374,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 | Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` | `~/.claude.json[mcpServers]` |
 | Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` | `~/.codex/config.toml[mcp_servers]` |
 | Cursor | `~/.cursor/agents` | `~/.cursor/commands` | `~/.cursor/skills` | `~/.cursor/rules/*.mdc` | `~/.cursor/mcp.json[mcpServers]` |
+| Gemini CLI | `~/.gemini/agents` | `~/.gemini/commands` | `~/.gemini/skills` | `~/.gemini/GEMINI.md` | `~/.gemini/settings.json[mcpServers]` |
 | Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a | n/a |
 | OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json[mcp]` |
 
@@ -440,7 +415,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - Added Cursor support for agents, skills, rules, slash commands, and MCP servers under the user-level `~/.cursor/` file surfaces.
 - Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), Cursor (`~/.cursor/commands`), and OpenCode (`~/.config/opencode/commands`).
 - Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, `cursor_commands_dir`, and `opencode_commands_dir`.
-- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour.
+- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), Gemini CLI (`~/.gemini/settings.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour.
 - Added a generic `secret_policy` config key (`secrets_refused` / `secrets_accepted`, default `secrets_refused`) — type-agnostic (today only `mcp_server` artifacts can carry literal secret material; future customization_types fall under the same rules). The policy is enforced at every artifact-egress boundary: parse (`secrets_refused` rejects the artifact; `secrets_accepted` admits it with a warning), customization library export (`secrets_refused` skips secret-bearing canonicals per-artifact with a warning; `secrets_accepted` ships them verbatim, the manifest flags `contains_secret_literals=true`), and customization library import (receiver's policy always overrides the source-host policy).
 - Deprecated the older `mcp_server_secret_policy` config key and its `refuse` / `redact` / `permissive` values. Both keys and all value spellings still work for one release with a startup deprecation log; `redact` mode is removed and maps to `secrets_refused` (the safer default).
 

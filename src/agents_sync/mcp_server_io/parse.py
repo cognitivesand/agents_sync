@@ -129,6 +129,9 @@ def _transport_from_slot(
     for field in dialect.transport_fields:
         if field in obj:
             return dialect.canonical_transport(obj[field]), field
+    for field, transport in dialect.transport_from_fields:
+        if field in obj:
+            return dialect.canonical_transport(transport), None
     if "command" in obj:
         return "stdio", None
     if any(field in obj for field in dialect.url_fields):

@@ -31,13 +31,16 @@ ALLOWED_MCP_SECRET_POLICIES = ALLOWED_SECRET_POLICIES | frozenset(_OLD_POLICY_VA
 _ENV_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 ENV_NAME_RE = re.compile(rf"^{_ENV_NAME}$")
 _ENV_REFERENCE_TOKEN_RE = re.compile(
-    rf"\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}"
+    rf"\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
+    rf"\$({_ENV_NAME})|%({_ENV_NAME})%"
 )
 ENV_REFERENCE_RE = re.compile(
-    rf"^(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}})$"
+    rf"^(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
+    rf"\$({_ENV_NAME})|%({_ENV_NAME})%)$"
 )
 _BEARER_ENV_REFERENCE_RE = re.compile(
-    rf"^Bearer\s+(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}})$",
+    rf"^Bearer\s+(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
+    rf"\$({_ENV_NAME})|%({_ENV_NAME})%)$",
     re.IGNORECASE,
 )
 SECRET_FIELD_RE = re.compile(
@@ -193,6 +196,8 @@ def format_env_reference(name: str, *, style: str = "canonical") -> str:
     if style == "canonical":
         return f"${{env:{name}}}"
     if style == "claude":
+        return f"${{{name}}}"
+    if style == "gemini":
         return f"${{{name}}}"
     if style == "opencode":
         return f"{{env:{name}}}"

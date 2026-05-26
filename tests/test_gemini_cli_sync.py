@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -43,21 +44,25 @@ def _config(tmp_path: Path, *, antigravity_enabled: bool = False) -> dict[str, A
         "claude_commands_dir": str(tmp_path / "claude-commands"),
         "claude_skills_dir": str(tmp_path / "claude-skills"),
         "claude_rules_dir": str(tmp_path / "claude-root"),
+        "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_agents_dir": str(tmp_path / "codex-agents"),
         "codex_prompts_dir": str(tmp_path / "codex-prompts"),
         "codex_skills_dir": str(tmp_path / "codex-skills"),
         "codex_rules_dir": str(tmp_path / "codex-root"),
+        "codex_config_file": str(tmp_path / "codex-config.toml"),
         "antigravity_skills_dir": str(tmp_path / "antigravity-skills"),
         "antigravity_enabled": antigravity_enabled,
         "gemini_cli_agents_dir": str(tmp_path / "gemini-agents"),
         "gemini_cli_commands_dir": str(tmp_path / "gemini-commands"),
         "gemini_cli_skills_dir": str(tmp_path / "gemini-skills"),
         "gemini_cli_rules_dir": str(tmp_path / "gemini-root"),
+        "gemini_cli_settings_file": str(tmp_path / "gemini-settings.json"),
         "gemini_cli_enabled": True,
         "opencode_agents_dir": str(tmp_path / "opencode-agents"),
         "opencode_commands_dir": str(tmp_path / "opencode-commands"),
         "opencode_skills_dir": str(tmp_path / "opencode-skills"),
         "opencode_rules_dir": str(tmp_path / "opencode-root"),
+        "opencode_config_file": str(tmp_path / "opencode.json"),
         "opencode_enabled": False,
     }
 
@@ -207,3 +212,55 @@ def test_gemini_command_toml_syncs_to_markdown_slash_commands(tmp_path: Path):
     assert canonical["description"] == "Commit helper"
     assert canonical["argument_hint"] == "[message]"
     assert canonical["body"] == body
+
+
+def test_gemini_mcp_servers_sync_through_settings_json(tmp_path: Path):
+    syncer = _syncer(tmp_path)
+    source = syncer.tool_root("gemini_cli", "mcp_server")
+    source.write_text(
+        json.dumps({
+            "ui": {"theme": "GitHub"},
+            "mcp": {"allowed": ["docs"]},
+            "mcpServers": {
+                "docs": {
+                    "httpUrl": "https://example.test/mcp",
+                    "headers": {"Authorization": "Bearer $DOCS_TOKEN"},
+                    "trust": False,
+                    "includeTools": ["search"],
+                },
+                "events": {
+                    "url": "https://example.test/sse",
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    assert syncer.sync_once().changed == 2
+
+    gemini = json.loads(source.read_text(encoding="utf-8"))
+    claude = json.loads(
+        Path(syncer.config["claude_mcp_servers_file"]).read_text(encoding="utf-8")
+    )
+    codex = tomllib.loads(
+        Path(syncer.config["codex_config_file"]).read_text(encoding="utf-8")
+    )
+
+    assert gemini["ui"] == {"theme": "GitHub"}
+    assert gemini["mcp"] == {"allowed": ["docs"]}
+    assert gemini["mcpServers"]["docs"]["httpUrl"] == "https://example.test/mcp"
+    assert gemini["mcpServers"]["docs"]["headers"]["Authorization"] == (
+        "Bearer ${DOCS_TOKEN}"
+    )
+    assert gemini["mcpServers"]["docs"]["trust"] is False
+    assert gemini["mcpServers"]["docs"]["includeTools"] == ["search"]
+    assert "pair_id" in gemini["mcpServers"]["docs"]
+    assert gemini["mcpServers"]["events"]["url"] == "https://example.test/sse"
+    assert "httpUrl" not in gemini["mcpServers"]["events"]
+
+    assert claude["mcpServers"]["docs"]["type"] == "http"
+    assert claude["mcpServers"]["docs"]["url"] == "https://example.test/mcp"
+    assert claude["mcpServers"]["events"]["type"] == "sse"
+    assert claude["mcpServers"]["events"]["url"] == "https://example.test/sse"
+    assert codex["mcp_servers"]["docs"]["url"] == "https://example.test/mcp"
+    assert codex["mcp_servers"]["events"]["url"] == "https://example.test/sse"
