@@ -1,3 +1,16 @@
+"""Simulated platform-behaviour tests for ``path_collision_key``.
+
+This file used to be named ``test_macos_compat.py``, which overpromised:
+the case-sensitivity tests monkeypatch ``sys.platform`` to ``"darwin"`` /
+``"linux"`` rather than running on the host platform. They pin the
+*logic* of ``path_collision_key`` but they do **not** stand in for a
+real HFS+/APFS / NTFS integration test (audit slice 10 · CQ-01).
+
+The macOS-metadata tests (``.DS_Store`` / ``._asset.png`` ignored by
+archive + skill staging + ``sha256_tree``) DO exercise a real cross-
+platform invariant — they run on every host because the metadata
+filenames live in ``state._IGNORED_TREE_FILE_NAMES`` regardless of OS.
+"""
 from __future__ import annotations
 
 from pathlib import Path

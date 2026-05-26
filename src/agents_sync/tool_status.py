@@ -55,15 +55,22 @@ class ToolStatusTracker:
         for spec in self.agentic_tools.values():
             if not self._is_tool_enabled(spec):
                 continue
-            for config_key in spec.config_dir_keys.values():
-                root = expand_path(self.config[config_key])
+            for kind, config_key in spec.config_dir_keys.items():
+                if config_key not in self.config:
+                    continue
+                layout = spec.io[kind].file_layout
+                resolved = expand_path(self.config[config_key])
+                parent = (
+                    layout.probe_check_path(resolved)
+                    if layout is not None else resolved
+                )
                 try:
-                    root.mkdir(parents=True, exist_ok=True)
+                    parent.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
                     logging.warning(
                         "Could not pre-create %s root %s (%s: %s); "
                         "next poll will mark this tool unavailable.",
-                        spec.name, root, type(exc).__name__, exc,
+                        spec.name, parent, type(exc).__name__, exc,
                     )
 
     # ---------- per-poll refresh ----------
@@ -114,14 +121,26 @@ class ToolStatusTracker:
         self, spec: AgenticToolSpec
     ) -> tuple[str, tuple[str, str] | None]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
-        for _kind, config_key in spec.config_dir_keys.items():
-            root = expand_path(self.config[config_key])
-            if not root.exists():
-                return "unavailable", (str(root), "path does not exist")
+        for kind, config_key in spec.config_dir_keys.items():
+            layout = spec.io[kind].file_layout
+            if config_key not in self.config:
+                if layout is not None and layout.tolerates_missing_config_key():
+                    continue
+                return "unavailable", (config_key, "config key missing")
+            resolved = expand_path(self.config[config_key])
+            probe_path = (
+                layout.probe_check_path(resolved)
+                if layout is not None else resolved
+            )
+            if not probe_path.exists():
+                return "unavailable", (str(probe_path), "path does not exist")
             try:
-                next(root.iterdir(), None)
+                next(probe_path.iterdir(), None)
             except OSError as exc:
-                return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
+                return (
+                    "unavailable",
+                    (str(probe_path), f"{type(exc).__name__}: {exc}"),
+                )
         return "available", None
 
     def _log_status_transition(

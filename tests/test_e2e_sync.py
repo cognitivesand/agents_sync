@@ -8,6 +8,10 @@ handling, duplicate IDs, foreign-slug collisions, archive bounding).
 """
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 import json
 import os
 import uuid
@@ -37,8 +41,8 @@ def test_unchanged_inputs_produce_zero_changes(syncer: Syncer):
     _write_claude_skill(syncer)
     syncer.sync_once()
 
-    assert syncer.sync_once() == 0
-    assert syncer.sync_once() == 0
+    assert syncer.sync_once().changed == 0
+    assert syncer.sync_once().changed == 0
 
 
 # ---------------- archive bounding (NFR-07) ----------------
@@ -126,7 +130,7 @@ def test_invalid_pair_id_on_managed_file_does_not_propagate_deletion(syncer: Syn
     md = claude_dir / "SKILL.md"
     md.write_text(md.read_text().replace("pair_id:", "pair_id: ../escape #"))
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 0
     assert claude_dir.exists()
@@ -145,12 +149,16 @@ def test_duplicate_pair_id_on_same_side_is_left_untouched(syncer: Syncer):
     (first / "SKILL.md").write_text(first_text)
     (second / "SKILL.md").write_text(second_text)
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 0
     assert (first / "SKILL.md").read_text() == first_text
     assert (second / "SKILL.md").read_text() == second_text
     assert list(syncer.tool_root("codex", "skill").iterdir()) == []
+    # Audit slice 10 · CQ-16: state.json must not record either duplicate;
+    # the block decision is observable in state, not just in logs.
+    state_after = json.loads((syncer.state_dir / "state.json").read_text())
+    assert pair_id not in state_after.get("pair_ids", {})
 
 
 # ---------------- target-slug collisions ----------------
@@ -163,7 +171,7 @@ def test_two_foreign_artifacts_with_same_slug_are_not_adopted(syncer: Syncer):
     (first / "SKILL.md").write_text(_skill_md("same"))
     (second / "SKILL.md").write_text(_skill_md("same"))
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 0
     assert "pair_id:" not in (first / "SKILL.md").read_text()
@@ -173,31 +181,37 @@ def test_two_foreign_artifacts_with_same_slug_are_not_adopted(syncer: Syncer):
 
 # ---------------- prior-text read failures (CQ-04) ----------------
 
-def test_unreadable_prior_text_logs_warning_and_continues(
+def test_unreadable_prior_text_logs_warning_and_skips_target(
     syncer: Syncer, caplog, monkeypatch
 ):
-    """When the target's prior text can't be read during a sync from another
-    tool, the renderer must fall back to prior_text=None and the failure must
-    be visible in the logs — not silently swallowed."""
+    """When the target's prior text can't be read, the privacy gate fails
+    closed: a warning is logged and the target file is NOT overwritten.
+    Defending the privacy invariant matters more than propagating bytes
+    we cannot inspect (audit slice 08 · CQ-13)."""
     claude_dir = _write_claude_skill(syncer, body="v1")
     syncer.sync_once()
 
     codex_dir = syncer.tool_root("codex", "skill") / "foo"
     assert (codex_dir / "SKILL.md").exists()
+    pre_overwrite_bytes = (codex_dir / "SKILL.md").read_text()
+    assert "v1" in pre_overwrite_bytes
 
-    # Patch the read_artifact_text name as resolved inside agents_sync.adoption
-    # only. agents_sync.discovery imports the same function under its own
-    # name binding, so discovery's read of the codex artifact still succeeds;
-    # only the prior_text read inside _sync_from_agentic_tool fails.
-    import agents_sync.adoption as adoption_mod
-    original_read = adoption_mod.read_artifact_text
+    # Patch the read_artifact_text name as resolved inside the adopter
+    # and privacy_gate mixins only. agents_sync.discovery imports the same
+    # function under its own name binding, so discovery's read of the codex
+    # artifact still succeeds; only the prior_text and privacy reads inside
+    # _sync_from_agentic_tool fail.
+    import agents_sync.adoption.adopter as adopter_mod
+    import agents_sync.adoption.privacy_gate as privacy_gate_mod
+    original_read = adopter_mod.read_artifact_text
 
-    def patched_read(io, path: Path) -> str:
+    def patched_read(io, path: Path, slot: str | None = None) -> str:
         if Path(path) == codex_dir:
             raise OSError("simulated prior-text read failure")
-        return original_read(io, path)
+        return original_read(io, path, slot=slot)
 
-    monkeypatch.setattr(adoption_mod, "read_artifact_text", patched_read)
+    monkeypatch.setattr(adopter_mod, "read_artifact_text", patched_read)
+    monkeypatch.setattr(privacy_gate_mod, "read_artifact_text", patched_read)
 
     claude_md = claude_dir / "SKILL.md"
     claude_md.write_text(claude_md.read_text().replace("v1", "v2"))
@@ -206,25 +220,33 @@ def test_unreadable_prior_text_logs_warning_and_continues(
     with caplog.at_level("WARNING", logger="root"):
         syncer.sync_once()
 
+    # Audit slice 10 · CQ-07: assert on the structured ``event`` extra field
+    # rather than a substring of the human-readable log message — the
+    # contract is "the prior_text_unreadable event fired", not "the log
+    # string contained these specific words".
     assert any(
-        "Could not read prior text" in record.getMessage()
+        getattr(record, "event", None) == "prior_text_unreadable"
         for record in caplog.records
-    ), f"expected warning not logged; got: {[r.getMessage() for r in caplog.records]}"
-    assert "v2" in (codex_dir / "SKILL.md").read_text()
+    ), (
+        "expected prior_text_unreadable event not logged; got: "
+        f"{[(r.levelname, getattr(r, 'event', None), r.getMessage()) for r in caplog.records]}"
+    )
+    # Target was NOT overwritten — privacy gate failed closed.
+    assert (codex_dir / "SKILL.md").read_text() == pre_overwrite_bytes
 
 
 def test_foreign_artifact_slug_collision_with_managed_pair_is_not_adopted(syncer: Syncer):
     managed = syncer.tool_root("claude", "skill") / "managed"
     managed.mkdir()
     (managed / "SKILL.md").write_text(_skill_md("same"))
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
     state_before = json.loads((syncer.state_dir / "state.json").read_text())
 
     foreign = syncer.tool_root("claude", "skill") / "foreign"
     foreign.mkdir()
     (foreign / "SKILL.md").write_text(_skill_md("same", body="foreign"))
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 0
     assert "pair_id:" not in (foreign / "SKILL.md").read_text()

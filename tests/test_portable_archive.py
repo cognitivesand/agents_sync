@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 from agents_sync.portable_archive import (
     CANONICAL_PREFIX,
     MANIFEST_NAME,
@@ -147,6 +149,54 @@ def test_export_attaches_last_modified_from_state(syncer: Syncer, tmp_path: Path
     with zipfile.ZipFile(zip_path) as zf:
         doc = json.loads(zf.read(f"{CANONICAL_PREFIX}{pair_id}.json"))
     assert doc["last_modified"] == ps.last_modified
+    assert doc["generation"] == ps.generation
+
+
+def test_import_mtime_wins_prefers_higher_generation_over_newer_clock(
+    syncer: Syncer, tmp_path: Path
+):
+    """Generation is the primary discriminator; a newer local wall-clock with
+    a smaller generation must not beat an import with a higher generation."""
+    zip_path = _seed_and_export(syncer, tmp_path, "foo")
+    state = load_state(syncer.state_dir)
+    pair_id = next(iter(state.keys()))
+    # Local clock is far in the future but generation is at the export value (1).
+    state[pair_id].last_modified = 9_999_999_999.0
+    state[pair_id].generation = 1
+    from agents_sync.state import save_state
+
+    save_state(syncer.state_dir, state)
+
+    # Rewrite the exported zip's canonical to bump generation to 2 so the
+    # imported snapshot represents "two edits later, on the same host".
+    import tempfile
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        members = {n: zf.read(n) for n in names}
+    canonical_name = next(n for n in names if n.startswith(CANONICAL_PREFIX))
+    doc = json.loads(members[canonical_name])
+    doc["generation"] = 2
+    doc["last_modified"] = 0.5  # *older* wall-clock than local
+    members[canonical_name] = (
+        json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    bumped_zip = tmp_path / "bumped.zip"
+    with zipfile.ZipFile(bumped_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in members.items():
+            zf.writestr(name, payload)
+
+    report = import_from_zip(
+        syncer.state_dir,
+        bumped_zip,
+        strategy="mtime_wins",
+        config=syncer.config,
+        agentic_tools=syncer.agentic_tools,
+    )
+
+    assert report.accepted == [pair_id]
+    state_after = load_state(syncer.state_dir)
+    assert state_after[pair_id].generation == 2
 
 
 # ---------------- AC-4: export failure ----------------
@@ -218,12 +268,12 @@ def test_import_followed_by_sync_once_is_a_noop(syncer: Syncer, tmp_path: Path):
     archives_before = (
         list(archive_root.rglob("*")) if archive_root.exists() else []
     )
-    changed = target.sync_once()
+    result = target.sync_once()
     archives_after = (
         list(archive_root.rglob("*")) if archive_root.exists() else []
     )
 
-    assert changed == 0
+    assert result.changed == 0
     assert archives_before == archives_after
 
 
@@ -341,6 +391,61 @@ def test_import_pair_id_collision_overwrite_archives_local(
 
     assert len(report.accepted) == 1
     assert report.archived_local  # every local tool-side file got archived
+
+
+def test_import_overwrite_archives_shared_map_slot_not_whole_file(
+    syncer: Syncer, tmp_path: Path
+):
+    claude_file = syncer.tool_root("claude", "mcp_server")
+    claude_file.write_text(
+        json.dumps({
+            "mcpServers": {
+                "github": {
+                    "type": "stdio",
+                    "command": "gh-mcp",
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    syncer.sync_once()
+    pair_id = next(iter(load_state(syncer.state_dir)))
+
+    zip_path = tmp_path / "mcp.zip"
+    export_to_zip(syncer.state_dir, zip_path)
+
+    cursor_file = syncer.tool_root("cursor", "mcp_server")
+    cursor_config = json.loads(cursor_file.read_text(encoding="utf-8"))
+    cursor_config["mcpServers"]["github"]["command"] = "local-change"
+    cursor_config["mcpServers"]["local-only"] = {
+        "type": "stdio",
+        "command": "local-server",
+    }
+    cursor_file.write_text(
+        json.dumps(cursor_config, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    report = import_from_zip(
+        syncer.state_dir,
+        zip_path,
+        strategy="overwrite",
+        config=syncer.config,
+        agentic_tools=syncer.agentic_tools,
+    )
+
+    assert report.accepted == [pair_id]
+    cursor_after = json.loads(cursor_file.read_text(encoding="utf-8"))
+    assert cursor_after["mcpServers"]["github"]["command"] == "gh-mcp"
+    assert cursor_after["mcpServers"]["local-only"]["command"] == "local-server"
+
+    archive_dir = syncer.state_dir / "archive" / pair_id / "cursor"
+    archived = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in archive_dir.iterdir()
+    ]
+    assert any(obj.get("command") == "local-change" for obj in archived)
+    assert all("mcpServers" not in obj for obj in archived)
 
 
 # ---------------- AC-7: slug collision ----------------
@@ -498,22 +603,28 @@ def test_import_rejects_unknown_strategy(tmp_path: Path):
 def test_import_failure_midway_leaves_state_json_unchanged(
     syncer: Syncer, tmp_path: Path, monkeypatch
 ):
+    """A failure during canonical staging leaves the live tree untouched.
+
+    Audit AC-10 contract: no partial canonicals on disk, no state.json
+    written, no pending-directory leftovers — the staging is wholly
+    rolled back.
+    """
     zip_path = _seed_and_export(syncer, tmp_path, "foo", "bar")
     target = _fresh_syncer(tmp_path, "target")
 
-    # Inject a failure on the second save_canonical call.
+    # Inject a failure on the second canonical-staging call.
     from agents_sync import portable_archive as pa
 
-    real_save = pa.save_canonical
+    real_save_to = pa.save_canonical_to
     calls = {"n": 0}
 
-    def flaky(state_dir, pair_id, canonical):
+    def flaky(path, canonical):
         calls["n"] += 1
         if calls["n"] >= 2:
             raise OSError("simulated mid-import disk error")
-        return real_save(state_dir, pair_id, canonical)
+        return real_save_to(path, canonical)
 
-    monkeypatch.setattr(pa, "save_canonical", flaky)
+    monkeypatch.setattr(pa, "save_canonical_to", flaky)
 
     with pytest.raises(OSError, match="simulated"):
         import_from_zip(
@@ -524,7 +635,22 @@ def test_import_failure_midway_leaves_state_json_unchanged(
             agentic_tools=target.agentic_tools,
         )
 
+    # state.json never written.
     assert not (target.state_dir / "state.json").exists()
+    # No canonical files in the live tree — the first save (which succeeded
+    # before the second raised) lived only inside the staging directory and
+    # was discarded when staging aborted.
+    canonical_dir = target.state_dir / "canonical"
+    canonicals = (
+        list(canonical_dir.iterdir()) if canonical_dir.exists() else []
+    )
+    assert canonicals == []
+    # No leftover staging directory either.
+    leftover_pending = [
+        p for p in target.state_dir.iterdir()
+        if p.name.startswith(".import_pending_")
+    ]
+    assert leftover_pending == []
 
 
 # ---------------- AC-11: round-trip ----------------

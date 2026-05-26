@@ -15,9 +15,9 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Gemini CLI**, **Google Antigravity**, and **OpenCode**.
+`agents_sync` keeps your user-level custom agents, skills, commands, rules, and MCP servers in sync across **Claude Code**, **Codex**, **Cursor**, **Gemini CLI**, **Google Antigravity**, and **OpenCode**.
 
-> Build your AI workflow once and use it from every tool you've installed. Skills, agents, rules, and slash commands are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. Antigravity stays skills-only and separate from Gemini CLI.
+> Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
 
 The daemon runs quietly in the background, protects your content with archives, and keeps user-level files connected even when they are renamed. If one of the tools isn't installed, that tool is silently skipped — the others continue to sync.
 
@@ -46,40 +46,42 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents, skills, slash commands, and global rules across the tools that expose each customization type.
+`agents_sync` synchronizes user-level agents, skills, slash commands, global rules, and MCP servers across the tools that expose each customization type.
 
-| What you edit | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode |
+| What you edit | Claude Code | Codex | Cursor | Gemini CLI | Antigravity | OpenCode |
 |:---|:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.gemini/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
-| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | `~/.gemini/commands/**/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
-| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.cursor/agents/*.md` | `~/.gemini/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.cursor/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | `~/.cursor/commands/*.md` | `~/.gemini/commands/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
+| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.cursor/rules/*.mdc` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.cursor/mcp.json[mcpServers]` | n/a | n/a | `~/.config/opencode/opencode.json[mcp]` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. Gemini CLI and Antigravity use distinct roots under `~/.gemini`, so their skill files never share the same managed directory.
-- Agents are reusable AI personas. Claude Code, Codex, Gemini CLI, and OpenCode have per-agent file formats.
-- Slash commands are reusable prompt files invoked from chat. Gemini CLI stores them as TOML with a `prompt` field; the other supported tools use Markdown.
-- Rules are global instruction files. Gemini CLI uses `GEMINI.md`; Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`.
+- Skills are reusable instruction folders. Claude Code, Codex, Cursor, Antigravity, and OpenCode use `SKILL.md` folders, so skills sync five ways.
+- Agents are reusable AI personas. Claude Code, Codex, Cursor, and OpenCode have per-agent file formats, so agents sync four ways.
+- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, Cursor, and OpenCode sync them as Markdown files.
+- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`; Cursor uses `.mdc` rule files.
+- MCP servers sync across Claude Code, Codex, Cursor, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
 flowchart LR
-    subgraph Tools["Tools"]
+    subgraph Tools["Supported tools"]
         direction TB
-        Claude["Claude Code<br/>agents + commands + skills + rules"]
-        Codex["Codex<br/>agents + prompts + skills + rules"]
-        Gemini["Gemini CLI<br/>agents + commands + skills + rules"]
-        Antigravity["Antigravity<br/>skills only"]
-        Opencode["OpenCode<br/>agents + commands + skills + rules"]
+        Claude["Claude Code: agents, commands, skills, rules, MCP"]
+        Codex["Codex: agents, prompts, skills, rules, MCP"]
+        Cursor["Cursor: agents, commands, skills, rules, MCP"]
+        Antigravity["Antigravity: skills only"]
+        Opencode["OpenCode: agents, commands, skills, rules, MCP"]
     end
 
-    Sync["agents_sync<br/>watch + match + sync"]
-    State["State<br/>pair_id + digests"]
-    Archive["Archive<br/>before overwrite or removal"]
+    Sync["agents_sync: watch + match + sync"]
+    State["State: pair_id + digests"]
+    Archive["Archive before overwrite or removal"]
 
     Claude <-->|changes| Sync
     Codex <-->|changes| Sync
-    Gemini <-->|changes| Sync
+    Cursor <-->|changes| Sync
     Antigravity <-->|changes| Sync
     Opencode <-->|changes| Sync
     Sync --> State
@@ -90,7 +92,7 @@ flowchart LR
     classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
     classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
 
-    class Claude,Codex,Gemini,Antigravity,Opencode side
+    class Claude,Codex,Cursor,Antigravity,Opencode side
     class Sync sync
     class State state
     class Archive archive
@@ -110,9 +112,9 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit an agent in Claude Code, Codex, Gemini CLI, or OpenCode | The other agent-capable tools receive matching agent files |
+| Create or edit an agent in Claude Code, Codex, Cursor, or OpenCode | The other agent-capable tools receive matching agent files |
 | Create or edit a skill on any tool | The other skill-capable tools receive the matching `SKILL.md` folder |
-| Create or edit a slash command in Claude Code, Codex, Gemini CLI, or OpenCode | The other slash-command tools receive matching command files |
+| Create or edit a slash command in Claude Code, Codex, Cursor, or OpenCode | The other slash-command tools receive matching command files |
 | Two or more tools edit the same customization simultaneously | The most recently modified copy wins; the losers are archived |
 | Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
@@ -175,17 +177,15 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from the other skill-capable tools into it. Antigravity itself picks up the directory on its next read.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, Cursor, and OpenCode into it. Antigravity itself picks up the directory on its next read.
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
-### Enabling Gemini CLI
+### Enabling Cursor
 
-Gemini CLI is enabled by default and uses user-level files under `~/.gemini/`: agents in `agents/`, skills in `skills/`, global rules in `GEMINI.md`, and commands in `commands/**/*.toml`.
+Cursor is enabled by default. The daemon uses `~/.cursor/agents/`, `~/.cursor/skills/`, `~/.cursor/rules/`, `~/.cursor/commands/`, and `~/.cursor/mcp.json` for user-level syncable files.
 
-Gemini CLI and Antigravity are intentionally separate adapters. Gemini CLI skills are managed under `~/.gemini/skills/`; Antigravity skills stay under `~/.gemini/antigravity/skills/`.
-
-To disable Gemini CLI entirely, set `gemini_cli_enabled = false` in your `config.toml`, or pass `--no-gemini-cli-enabled` on the command line. You can relocate its roots with `gemini_cli_agents_dir`, `gemini_cli_skills_dir`, `gemini_cli_rules_dir`, and `gemini_cli_commands_dir`.
+To disable Cursor entirely, set `cursor_enabled = false` in your `config.toml`, or pass `--no-cursor-enabled` on the command line. Cursor slash-command identity is stored as a first-line HTML comment because Cursor commands are plain Markdown files.
 
 ### Enabling OpenCode
 
@@ -205,7 +205,7 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code, Codex, Gemini CLI, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, Cursor, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
 ---
 
@@ -395,13 +395,13 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 
 **Synced roots:**
 
-| Tool | Agents | Slash commands | Skills | Rules |
-|:---|:---|:---|:---|:---|
-| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` |
-| Gemini CLI | `~/.gemini/agents` | `~/.gemini/commands` | `~/.gemini/skills` | `~/.gemini/GEMINI.md` |
-| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a |
-| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` |
+| Tool | Agents | Slash commands | Skills | Rules | MCP servers |
+|:---|:---|:---|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/CLAUDE.md` | `~/.claude.json[mcpServers]` |
+| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` | `~/.codex/config.toml[mcp_servers]` |
+| Cursor | `~/.cursor/agents` | `~/.cursor/commands` | `~/.cursor/skills` | `~/.cursor/rules/*.mdc` | `~/.cursor/mcp.json[mcpServers]` |
+| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a | n/a |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json[mcp]` |
 
 **State layout:**
 
@@ -423,10 +423,11 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - Removing a synced customization on any one tool archives every surviving tool's copy before removing it.
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
+- **Cursor limitations:** only user-level file surfaces under `~/.cursor/` are synced. Cursor's SQLite/cloud-backed state, including in-app User Rules, Custom Modes, Notepads, memories, account settings, Background Agents, hooks, project `.cursor/` files, and ignore files, is intentionally out of scope. Put syncable global rules in `~/.cursor/rules/*.mdc`.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
-- **Gemini CLI limitations:** this adapter syncs user-level agents, skills, global `GEMINI.md` rules, and TOML slash commands. Project-scoped `.gemini/` files, extension packages, hooks, themes, Policy Engine files, and MCP servers in `~/.gemini/settings.json[mcpServers]` are not synced in this branch.
-- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, and `opencode_skills_dir`.
-- This tool was developed with the support of Claude Code, Codex, Gemini CLI, Google Antigravity, and OpenCode.
+- **MCP scope:** MCP server sync is user-level only. Claude Code project `.mcp.json`, Codex project `.codex/config.toml`, Cursor project `.cursor/mcp.json`, and project `opencode.json` are intentionally outside the default daemon scope.
+- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, `opencode_skills_dir`, `opencode_rules_dir`, and `opencode_config_file`.
+- This tool was developed with the support of Claude Code, Codex, Cursor, Google Antigravity, and OpenCode.
 
 ---
 
@@ -436,9 +437,12 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ### Unreleased
 
-- Added Gemini CLI sync for user-level agents (`~/.gemini/agents`), Agent Skills (`~/.gemini/skills`), global rules (`~/.gemini/GEMINI.md`), and TOML slash commands (`~/.gemini/commands`), without sharing paths with Antigravity.
-- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), and OpenCode (`~/.config/opencode/commands`).
-- Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, and `opencode_commands_dir`.
+- Added Cursor support for agents, skills, rules, slash commands, and MCP servers under the user-level `~/.cursor/` file surfaces.
+- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), Cursor (`~/.cursor/commands`), and OpenCode (`~/.config/opencode/commands`).
+- Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, `cursor_commands_dir`, and `opencode_commands_dir`.
+- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour.
+- Added a generic `secret_policy` config key (`secrets_refused` / `secrets_accepted`, default `secrets_refused`) — type-agnostic (today only `mcp_server` artifacts can carry literal secret material; future customization_types fall under the same rules). The policy is enforced at every artifact-egress boundary: parse (`secrets_refused` rejects the artifact; `secrets_accepted` admits it with a warning), customization library export (`secrets_refused` skips secret-bearing canonicals per-artifact with a warning; `secrets_accepted` ships them verbatim, the manifest flags `contains_secret_literals=true`), and customization library import (receiver's policy always overrides the source-host policy).
+- Deprecated the older `mcp_server_secret_policy` config key and its `refuse` / `redact` / `permissive` values. Both keys and all value spellings still work for one release with a startup deprecation log; `redact` mode is removed and maps to `secrets_refused` (the safer default).
 
 ### 0.4.3
 
@@ -499,7 +503,6 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - `docs/v0.3_implementation_plan.md` - Windows support plan.
 - `docs/v0.4_implementation_plan.md` - Antigravity / N-tool sync plan.
 - `docs/v0.4.1_implementation_plan.md` - OpenCode integration follow-up plan.
-- `docs/v0.5_gemini_cli_implementation_plan.md` - Gemini CLI adapter plan.
 - `docs/agentic_tool_integration_protocol.md` - how to add another agentic tool.
 
 ---

@@ -17,19 +17,23 @@ def test_linux_defaults_use_home_conventions():
     assert defaults["claude_agents_dir"] == str(home / ".claude" / "agents")
     assert defaults["claude_commands_dir"] == str(home / ".claude" / "commands")
     assert defaults["claude_rules_dir"] == str(home / ".claude")
+    assert defaults["claude_mcp_servers_file"] == str(home / ".claude.json")
     assert defaults["codex_agents_dir"] == str(home / ".codex" / "agents")
     assert defaults["codex_prompts_dir"] == str(home / ".codex" / "prompts")
     assert defaults["codex_skills_dir"] == str(home / ".codex" / "skills")
     assert defaults["codex_rules_dir"] == str(home / ".codex")
-    assert defaults["gemini_cli_agents_dir"] == str(home / ".gemini" / "agents")
-    assert defaults["gemini_cli_commands_dir"] == str(home / ".gemini" / "commands")
-    assert defaults["gemini_cli_skills_dir"] == str(home / ".gemini" / "skills")
-    assert defaults["gemini_cli_rules_dir"] == str(home / ".gemini")
-    assert defaults["gemini_cli_enabled"] is True
+    assert defaults["codex_config_file"] == str(home / ".codex" / "config.toml")
+    assert defaults["cursor_agents_dir"] == str(home / ".cursor" / "agents")
+    assert defaults["cursor_commands_dir"] == str(home / ".cursor" / "commands")
+    assert defaults["cursor_skills_dir"] == str(home / ".cursor" / "skills")
+    assert defaults["cursor_rules_dir"] == str(home / ".cursor" / "rules")
+    assert defaults["cursor_mcp_servers_file"] == str(home / ".cursor" / "mcp.json")
+    assert defaults["cursor_enabled"] is True
     assert defaults["opencode_agents_dir"] == str(home / ".config" / "opencode" / "agents")
     assert defaults["opencode_commands_dir"] == str(home / ".config" / "opencode" / "commands")
     assert defaults["opencode_skills_dir"] == str(home / ".config" / "opencode" / "skills")
     assert defaults["opencode_rules_dir"] == str(home / ".config" / "opencode")
+    assert defaults["opencode_config_file"] == str(home / ".config" / "opencode" / "opencode.json")
 
 
 def test_windows_defaults_prefer_appdata_and_localappdata():
@@ -55,19 +59,24 @@ def test_windows_defaults_prefer_appdata_and_localappdata():
     assert _portable_path(defaults["opencode_rules_dir"]) == (
         "C:/Users/tester/AppData/Roaming/opencode"
     )
-    assert _portable_path(defaults["gemini_cli_agents_dir"]) == (
-        "C:/Users/tester/.gemini/agents"
+    assert _portable_path(defaults["opencode_config_file"]) == (
+        "C:/Users/tester/AppData/Roaming/opencode/opencode.json"
     )
-    assert _portable_path(defaults["gemini_cli_commands_dir"]) == (
-        "C:/Users/tester/.gemini/commands"
+    assert _portable_path(defaults["cursor_agents_dir"]) == (
+        "C:/Users/tester/.cursor/agents"
     )
-    assert _portable_path(defaults["gemini_cli_skills_dir"]) == (
-        "C:/Users/tester/.gemini/skills"
+    assert _portable_path(defaults["cursor_commands_dir"]) == (
+        "C:/Users/tester/.cursor/commands"
     )
-    assert _portable_path(defaults["gemini_cli_rules_dir"]) == (
-        "C:/Users/tester/.gemini"
+    assert _portable_path(defaults["cursor_skills_dir"]) == (
+        "C:/Users/tester/.cursor/skills"
     )
-    assert defaults["gemini_cli_enabled"] is True
+    assert _portable_path(defaults["cursor_rules_dir"]) == (
+        "C:/Users/tester/.cursor/rules"
+    )
+    assert _portable_path(defaults["cursor_mcp_servers_file"]) == (
+        "C:/Users/tester/.cursor/mcp.json"
+    )
 
 
 def test_windows_defaults_fallback_to_profile_when_env_missing():

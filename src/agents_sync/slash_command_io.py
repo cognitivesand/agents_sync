@@ -6,23 +6,24 @@ is the command body.
 """
 from __future__ import annotations
 
-import io
 import json
 import re
 import tomllib
 from pathlib import Path
 from typing import Any
 
-from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import (
-    FRONTMATTER_RE,
-    _make_yaml,
-    _normalize_markdown_text,
-    _strip_bom_prefix,
-    _yaml_load,
+from agents_sync.canonical import (
+    apply_per_tool_partition,
+    empty_canonical,
+    new_pair_id,
 )
 from agents_sync.codex_io import _normalize_toml_text
 from agents_sync.state import target_slug
+from agents_sync.yaml_frontmatter import (
+    extract_pair_id_from_md,
+    split_frontmatter,
+    yaml_dump,
+)
 
 
 PAIR_ID_TOML_RE = re.compile(r'^pair_id\s*=\s*"([^"]+)"', re.MULTILINE)
@@ -51,12 +52,6 @@ KNOWN_TOML_FIELDS = frozenset({
     "mode",
     "prompt",
 })
-
-
-def _yaml_dump(data: Any) -> str:
-    buf = io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
 
 
 def _toml_key(key: str) -> str:
@@ -137,14 +132,7 @@ def _apply_path_identity(
 
 
 def extract_pair_id_from_slash_command_markdown(text: str) -> str | None:
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        return None
-    loaded = _yaml_load(match.group(1))
-    if isinstance(loaded, dict) and isinstance(loaded.get("pair_id"), str):
-        return loaded["pair_id"]
-    return None
+    return extract_pair_id_from_md(text)
 
 
 def parse_slash_command_markdown(
@@ -156,27 +144,16 @@ def parse_slash_command_markdown(
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
     """Parse a Markdown slash command into the canonical form."""
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        frontmatter_data: dict[str, Any] = {}
-        body = _strip_bom_prefix(text)
-    else:
-        raw_frontmatter, body = match.groups()
-        loaded = _yaml_load(raw_frontmatter)
-        if loaded is None:
-            frontmatter_data = {}
-        elif not isinstance(loaded, dict):
-            raise ValueError("slash_command frontmatter must be a YAML mapping")
-        else:
-            frontmatter_data = dict(loaded)
+    frontmatter_data, body = split_frontmatter(
+        text, label="slash_command", strip_body=False,
+    )
 
     canonical = (
         dict(prior_canonical)
         if prior_canonical
         else empty_canonical("slash_command")
     )
-    canonical["body"] = _strip_bom_prefix(body)
+    canonical["body"] = body
     _apply_path_identity(canonical, artifact_path, artifact_root)
 
     if not canonical.get("name") and "name" in frontmatter_data:
@@ -190,22 +167,13 @@ def parse_slash_command_markdown(
     if "model" in frontmatter_data:
         canonical["model"] = frontmatter_data["model"]
 
-    tool_only = {
-        key: frontmatter_data[key]
-        for key in ("agent", "mode")
-        if key in frontmatter_data
-    }
-    per_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
-    per_tool_only[agentic_tool_name] = tool_only
-    canonical["per_agentic_tool_only"] = per_tool_only
-
-    per_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_tool_extra[agentic_tool_name] = {
-        key: value
-        for key, value in frontmatter_data.items()
-        if key not in KNOWN_MARKDOWN_FIELDS
-    }
-    canonical["per_agentic_tool_extra"] = per_tool_extra
+    apply_per_tool_partition(
+        canonical,
+        agentic_tool_name=agentic_tool_name,
+        frontmatter_data=frontmatter_data,
+        tool_only_fields=("agent", "mode"),
+        known_fields=KNOWN_MARKDOWN_FIELDS,
+    )
 
     if "pair_id" in frontmatter_data:
         canonical["pair_id"] = str(frontmatter_data["pair_id"])
@@ -244,7 +212,7 @@ def render_slash_command_markdown(
     ).items():
         frontmatter[key] = value
 
-    rendered_fm = _yaml_dump(frontmatter).rstrip("\n")
+    rendered_fm = yaml_dump(frontmatter).rstrip("\n")
     return f"---\n{rendered_fm}\n---\n{canonical.get('body', '')}"
 
 
@@ -296,22 +264,13 @@ def parse_slash_command_toml(
     if "model" in data:
         canonical["model"] = data["model"]
 
-    tool_only = {
-        key: data[key]
-        for key in ("agent", "mode")
-        if key in data
-    }
-    per_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
-    per_tool_only[agentic_tool_name] = tool_only
-    canonical["per_agentic_tool_only"] = per_tool_only
-
-    per_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_tool_extra[agentic_tool_name] = {
-        key: value
-        for key, value in data.items()
-        if key not in KNOWN_TOML_FIELDS
-    }
-    canonical["per_agentic_tool_extra"] = per_tool_extra
+    apply_per_tool_partition(
+        canonical,
+        agentic_tool_name=agentic_tool_name,
+        frontmatter_data=data,
+        tool_only_fields=("agent", "mode"),
+        known_fields=KNOWN_TOML_FIELDS,
+    )
 
     if "pair_id" in data:
         canonical["pair_id"] = str(data["pair_id"])

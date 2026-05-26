@@ -1,0 +1,73 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/cli.py, src/agents_sync/config.py, src/agents_sync/rendering.py, src/agents_sync/adoption/ (engine.py, adopter.py, conflict_resolver.py, removal_propagator.py, extender.py, privacy_gate.py, __init__.py); tests: test_cli_export_import.py, test_config_platform_defaults.py, test_antigravity_config.py, test_first_boot_reconciliation.py",
+  "date": "2026-05-22",
+  "files_analyzed": 14,
+  "total_lines": 2440,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "Every CRITICAL/MAJOR finding from the prior audit is closed or reduced below threshold; the four persisting items are INFO/WARNING-tier hygiene issues.",
+  "remediation_diff_summary": "Phase 4a split adoption.py (648 LOC) into a 7-file adoption/ package using mixin composition over AdoptionEngine; no file exceeds 300 lines. Phase 4b extracted _project_to_other_tools, _propagate_removal, and render_to_agentic_tool into smaller helpers; broad except blocks were narrowed via the _REMOVAL_FAILURES tuple and the privacy gate now fails CLOSED. Phase 3 replaced the 20-line maybe_set chain with the _ARG_TO_CONFIG_KEY table (also driving the test fixture) and introduced the AgentsSyncConfig TypedDict. Phase 1 added preview_import with --force gating, distinct exit codes 1/2, and module-level expand_path/SharedKeyedMapLayout imports.",
+  "detailed_analysis": "AdoptionEngine is a thin orchestrator (97 lines) that inherits five responsibility-scoped mixins — AdopterMixin (274), ConflictResolverMixin (72), ExtenderMixin (56), PrivacyGateMixin (77), RemovalPropagatorMixin (140). The four in-function SharedKeyedMapLayout imports are gone (top-level imports). render_to_agentic_tool is 42 lines (one over guideline) that delegates to three sibling helpers; the three branches are now visibly parallel. _run_import calls portable_archive.preview_import before committing; if any local pairs would be overwritten under the chosen strategy it aborts with exit code 2 unless --force is passed. PortableArchiveError vs OSError paths return 2 and 1 respectively. config.merged_config collapsed from 20 maybe_set calls to a 3-line for-loop driven by _ARG_TO_CONFIG_KEY; test fixture _minimal_args consumes the same table. AgentsSyncConfig TypedDict is declared but not yet wired into function signatures (CQ-17 partially closed only). removal_propagator.py declares _REMOVAL_FAILURES tuple = (OSError, ValueError, SharedKeyedMapRaceError, SharedKeyedMapSlotCollisionError); programmer errors escape. PrivacyGateMixin._target_is_private narrowed and reversed direction: parse/read failures return True (fail CLOSED) with structured 'privacy_gate_failed_closed_on_parse' event. Four persisting items: CQ-02 (_project_to_other_tools 62 lines, still over 40-line line), CQ-08 (logging.exception leaking absolute paths in CLI tracebacks), CQ-10 (Path.home() at cli.py module load), CQ-11 (path_collision_key's mixed sys.platform/os.name conditional), CQ-14 (tests asserting on log substrings).",
+  "findings": [
+    {
+      "id": "CQ-02",
+      "severity": "INFO",
+      "category": "M2",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 172,
+      "description": "_project_to_other_tools reduced from 76 to 62 lines; complexity dropped from ~13 to ~8. Still exceeds the 40-line guideline but no longer mixes responsibilities.",
+      "recommendation": "Optional: split the per-tool body of the for-loop into _project_one_tool(tool_name, ...). Not blocking.",
+      "prior_audit_ref": "CQ-02"
+    },
+    {
+      "id": "CQ-08",
+      "severity": "INFO",
+      "category": "W5",
+      "file": "src/agents_sync/cli.py",
+      "line": 200,
+      "description": "Persisting. logging.exception in _run_export/_run_import emits full tracebacks containing absolute filesystem paths.",
+      "recommendation": "If you ever begin shipping CLI logs to telemetry, switch to logging.error with a redacted message and keep logging.exception only under --verbose.",
+      "prior_audit_ref": "CQ-08"
+    },
+    {
+      "id": "CQ-10",
+      "severity": "INFO",
+      "category": "W5",
+      "file": "src/agents_sync/cli.py",
+      "line": 22,
+      "description": "Persisting. _LEGACY_PATHS computed at module import time using Path.home() and os.environ. Import remains non-idempotent across processes with different HOME/APPDATA values.",
+      "recommendation": "Lazy-compute _LEGACY_PATHS inside _check_legacy_install() — the function is called exactly once per invocation.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "CQ-11",
+      "severity": "INFO",
+      "category": "W1",
+      "file": "src/agents_sync/rendering.py",
+      "line": 49,
+      "description": "Persisting. path_collision_key still mixes sys.platform and os.name checks in adjacent branches. Correct on every supported platform; the smell is purely readability.",
+      "recommendation": "Extract a top-of-module is_case_insensitive_fs() -> bool helper that owns the platform branching once.",
+      "prior_audit_ref": "CQ-11"
+    },
+    {
+      "id": "CQ-14",
+      "severity": "WARNING",
+      "category": "W3",
+      "file": "tests/test_antigravity_config.py",
+      "line": 210,
+      "description": "Persisting. Tests still assert on log-message substrings ('agentic_tool antigravity -> available', 'startup -> unavailable'). These are internal log format strings, not user-visible contracts.",
+      "recommendation": "Move the status-transition contract to a structured event field (logger.info('...', extra={'event': 'tool_status_transition', 'tool': name, 'to': status})) and have the tests assert on the structured fields.",
+      "prior_audit_ref": "CQ-14"
+    },
+    {
+      "id": "CQ-17",
+      "severity": "INFO",
+      "category": "I1",
+      "file": "src/agents_sync/config.py",
+      "line": 10,
+      "description": "Partially closed. AgentsSyncConfig TypedDict is declared and documents the merged-config shape, but function signatures across cli.py / config.py / sync.py still type the config as 'dict' or 'dict[str, Any]'. mypy is not yet checking key names at the call sites.",
+      "recommendation": "Replace 'dict' / 'dict[str, Any]' with AgentsSyncConfig in the read-side signatures. Leave the write-side (merged_config, platform_defaults) as dict[str, Any].",
+      "prior_audit_ref": "CQ-17"
+    }
+  ]
+}

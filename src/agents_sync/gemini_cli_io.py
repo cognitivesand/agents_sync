@@ -18,13 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import (
+from agents_sync.claude_io import extract_pair_id_from_md
+from agents_sync.yaml_frontmatter import (
     FRONTMATTER_RE,
-    _make_yaml,
-    _normalize_markdown_text,
-    _strip_bom_prefix,
-    _yaml_load,
-    extract_pair_id_from_md,
+    make_yaml,
+    normalize_markdown_text as _normalize_markdown_text,
+    strip_bom_prefix as _strip_bom_prefix,
+    yaml_load,
 )
 from agents_sync.rules_io import (
     GLOBAL_RULE_NAME,
@@ -112,7 +112,7 @@ FOREIGN_SKILL_FIELDS = frozenset({
 
 def _yaml_dump(data: Any) -> str:
     buffer = _io.StringIO()
-    _make_yaml().dump(data, buffer)
+    make_yaml().dump(data, buffer)
     return buffer.getvalue()
 
 
@@ -123,7 +123,7 @@ def _split_frontmatter(text: str, label: str) -> tuple[dict[str, Any], str]:
         return {}, _strip_bom_prefix(text.strip())
 
     raw_frontmatter, body_raw = match.groups()
-    loaded = _yaml_load(raw_frontmatter)
+    loaded = yaml_load(raw_frontmatter)
     if loaded is None:
         frontmatter_data: dict[str, Any] = {}
     elif not isinstance(loaded, dict):
@@ -134,7 +134,7 @@ def _split_frontmatter(text: str, label: str) -> tuple[dict[str, Any], str]:
 
 
 def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    yml = _make_yaml()
+    yml = make_yaml()
     if prior_text is None:
         return yml.load("{}\n")
 

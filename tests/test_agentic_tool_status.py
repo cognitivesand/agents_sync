@@ -150,17 +150,22 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     shutil.rmtree(syncer.tool_root("claude", "skill"))
     shutil.rmtree(syncer.tool_root("codex", "agent"))
     shutil.rmtree(syncer.tool_root("codex", "skill"))
+    shutil.rmtree(syncer.tool_root("cursor", "agent"))
+    shutil.rmtree(syncer.tool_root("cursor", "skill"))
+    shutil.rmtree(syncer.tool_root("gemini_cli", "agent"))
+    shutil.rmtree(syncer.tool_root("gemini_cli", "skill"))
     shutil.rmtree(syncer.tool_root("opencode", "agent"))
     shutil.rmtree(syncer.tool_root("opencode", "skill"))
     shutil.rmtree(tmp_path / "as")
 
     # No raise, zero changes.
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
     assert changed == 0
     assert syncer.tool_status.snapshot() == {
         "antigravity": "unavailable",
         "claude": "unavailable",
         "codex": "unavailable",
+        "cursor": "unavailable",
         "gemini_cli": "disabled",
         "opencode": "unavailable",
     }

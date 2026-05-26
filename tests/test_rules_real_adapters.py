@@ -1,5 +1,9 @@
-"""Rules integration tests for Claude Code, Codex, and opencode adapters."""
+"""Rules integration tests for Claude Code, Codex, Cursor, and opencode."""
 from __future__ import annotations
+
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
 import json
 import os
@@ -23,19 +27,22 @@ def test_claude_global_rules_sync_to_codex_and_opencode(syncer: Syncer):
     claude_rules = syncer.tool_root("claude", "rules") / "CLAUDE.md"
     claude_rules.write_text("Prefer small, direct changes.\n")
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once(); changed = result.changed
 
     assert changed == 1
     pair_id, entry = _only_entry(syncer)
     assert entry["customization_type"] == "rules"
-    assert set(entry["agentic_tools"]) == {"claude", "codex", "opencode"}
+    assert set(entry["agentic_tools"]) == {"claude", "codex", "cursor", "opencode"}
     assert f"pair_id: {pair_id}" in claude_rules.read_text()
 
     codex_rules = syncer.tool_root("codex", "rules") / "AGENTS.md"
     opencode_rules = syncer.tool_root("opencode", "rules") / "AGENTS.md"
+    cursor_rules = syncer.tool_root("cursor", "rules") / "global.mdc"
     assert codex_rules.is_file()
+    assert cursor_rules.is_file()
     assert opencode_rules.is_file()
     assert "Prefer small, direct changes." in codex_rules.read_text()
+    assert "Prefer small, direct changes." in cursor_rules.read_text()
     assert "Prefer small, direct changes." in opencode_rules.read_text()
 
     canonical_path = syncer.state_dir / "canonical" / f"{pair_id}.json"
@@ -73,7 +80,7 @@ def test_first_boot_reconciles_global_rules_across_real_adapters(syncer: Syncer)
     syncer.sync_once()
 
     _pair_id, entry = _only_entry(syncer)
-    assert set(entry["agentic_tools"]) == {"claude", "codex", "opencode"}
+    assert set(entry["agentic_tools"]) == {"claude", "codex", "cursor", "opencode"}
     assert "opencode version wins." in claude_rules.read_text()
     assert "opencode version wins." in codex_rules.read_text()
     assert "opencode version wins." in opencode_rules.read_text()

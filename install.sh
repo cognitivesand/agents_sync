@@ -83,17 +83,18 @@ codex_prompts_dir = "~/.codex/prompts"
 codex_skills_dir = "~/.codex/skills"
 codex_rules_dir = "~/.codex"
 
+# Cursor. Enabled by default for user-level file surfaces.
+# cursor_agents_dir = "~/.cursor/agents"
+# cursor_commands_dir = "~/.cursor/commands"
+# cursor_skills_dir = "~/.cursor/skills"
+# cursor_rules_dir = "~/.cursor/rules"
+# cursor_mcp_servers_file = "~/.cursor/mcp.json"
+# cursor_enabled = false
+
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
-
-# Gemini CLI (agents + commands + skills + rules). Separate from Antigravity.
-# gemini_cli_agents_dir = "~/.gemini/agents"
-# gemini_cli_commands_dir = "~/.gemini/commands"
-# gemini_cli_skills_dir = "~/.gemini/skills"
-# gemini_cli_rules_dir = "~/.gemini"
-# gemini_cli_enabled = false
 
 # opencode (agents + commands + skills). Enabled by default once the roots exist or can
 # be created. To disable, uncomment opencode_enabled.
@@ -115,7 +116,7 @@ uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
 
 cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
-Description=Bidirectional sync of Claude Code, Codex, Gemini CLI, Antigravity, and opencode customizations
+Description=Bidirectional sync of Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and opencode customizations
 
 [Service]
 Type=simple

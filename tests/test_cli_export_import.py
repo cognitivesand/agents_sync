@@ -69,6 +69,7 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
     for sub in (
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
+        "cura", "curc", "curs", "curr",
         "as",
         "ga", "gc", "gs", "gr",
         "oa", "oc", "os", "or",
@@ -81,10 +82,18 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "claude_commands_dir": str(root / "cc"),
         "claude_skills_dir": str(root / "cs"),
         "claude_rules_dir": str(root / "cr"),
+        "claude_mcp_servers_file": str(root / "claude-mcp.json"),
         "codex_agents_dir": str(root / "xa"),
         "codex_prompts_dir": str(root / "xp"),
         "codex_skills_dir": str(root / "xs"),
         "codex_rules_dir": str(root / "xr"),
+        "codex_config_file": str(root / "codex-config.toml"),
+        "cursor_agents_dir": str(root / "cura"),
+        "cursor_commands_dir": str(root / "curc"),
+        "cursor_skills_dir": str(root / "curs"),
+        "cursor_rules_dir": str(root / "curr"),
+        "cursor_mcp_servers_file": str(root / "cursor-mcp.json"),
+        "cursor_enabled": True,
         "antigravity_skills_dir": str(root / "as"),
         "antigravity_enabled": True,
         "gemini_cli_agents_dir": str(root / "ga"),
@@ -96,6 +105,7 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "opencode_commands_dir": str(root / "oc"),
         "opencode_skills_dir": str(root / "os"),
         "opencode_rules_dir": str(root / "or"),
+        "opencode_config_file": str(root / "opencode.json"),
         "opencode_enabled": True,
         "import_collision_strategy": "mtime_wins",
     }
@@ -119,7 +129,7 @@ def test_cli_export_then_import_roundtrip(syncer: Syncer, tmp_path: Path):
     exit_code = main(["--config", str(target_cfg), "import", str(out_zip)])
 
     assert exit_code == 0
-    for sub in ("cs", "xs", "as", "os"):
+    for sub in ("cs", "xs", "curs", "as", "os"):
         assert (target_root / sub / "foo" / "SKILL.md").exists()
 
 
@@ -162,6 +172,54 @@ def test_cli_import_collision_strategy_flag_overrides_config(
     assert canonical_after == canonical_before  # skip → local untouched
 
 
+def test_cli_import_requires_force_when_mtime_wins_would_overwrite(
+    syncer: Syncer, tmp_path: Path
+):
+    """Audit slice 08 · CQ-07: silent-overwrite gate.
+
+    When mtime_wins would displace a local pair, the import refuses to
+    proceed without --force and lists the affected pair_ids.
+    """
+    skill_dir = syncer.tool_root("claude", "skill") / "foo"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(_skill_md("foo"))
+    syncer.sync_once()
+
+    cfg_path = _write_config(syncer, tmp_path)
+    out_zip = tmp_path / "snapshot.zip"
+    assert main(["--config", str(cfg_path), "export", str(out_zip)]) == 0
+
+    # Force the local last_modified backward so mtime_wins would accept.
+    from agents_sync.state import load_state, save_state
+
+    state = load_state(syncer.state_dir)
+    pair_id = next(iter(state.keys()))
+    state[pair_id].last_modified = 1.0
+    state[pair_id].generation = 0
+    save_state(syncer.state_dir, state)
+
+    # No --force → refuse with exit 2.
+    exit_code = main(
+        [
+            "--config", str(cfg_path),
+            "import", str(out_zip),
+            "--collision-strategy", "mtime_wins",
+        ]
+    )
+    assert exit_code == 2
+
+    # With --force → proceeds and overwrites.
+    exit_code = main(
+        [
+            "--config", str(cfg_path),
+            "import", str(out_zip),
+            "--collision-strategy", "mtime_wins",
+            "--force",
+        ]
+    )
+    assert exit_code == 0
+
+
 def test_cli_import_returns_nonzero_on_malformed_archive(
     syncer: Syncer, tmp_path: Path
 ):
@@ -182,8 +240,9 @@ def test_cli_no_subcommand_still_invokes_daemon(monkeypatch):
 
     invoked = {"watch": False}
 
-    def fake_watch(syncer, interval):
+    def fake_watch(syncer, interval, **kwargs):
         invoked["watch"] = True
+        return 0
 
     # Make watch return immediately so the test doesn't loop forever.
     monkeypatch.setattr(cli_module, "watch", fake_watch)

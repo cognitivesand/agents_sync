@@ -79,6 +79,7 @@ for install in "$SRC_ROOT" "$TARGET_ROOT"; do
   mkdir -p "$install/state"
   mkdir -p "$install/claude/agents" "$install/claude/commands" "$install/claude/skills"
   mkdir -p "$install/codex/agents" "$install/codex/prompts" "$install/codex/skills"
+  mkdir -p "$install/cursor/agents" "$install/cursor/commands" "$install/cursor/skills" "$install/cursor/rules"
   mkdir -p "$install/antigravity/skills"
   mkdir -p "$install/opencode/agents" "$install/opencode/commands" "$install/opencode/skills"
 done
@@ -104,16 +105,25 @@ claude_agents_dir = '$install_root/claude/agents'
 claude_commands_dir = '$install_root/claude/commands'
 claude_skills_dir = '$install_root/claude/skills'
 claude_rules_dir = '$install_root/claude'
+claude_mcp_servers_file = '$install_root/claude-mcp.json'
 codex_agents_dir = '$install_root/codex/agents'
 codex_prompts_dir = '$install_root/codex/prompts'
 codex_skills_dir = '$install_root/codex/skills'
 codex_rules_dir = '$install_root/codex'
+codex_config_file = '$install_root/codex/config.toml'
+cursor_agents_dir = '$install_root/cursor/agents'
+cursor_commands_dir = '$install_root/cursor/commands'
+cursor_skills_dir = '$install_root/cursor/skills'
+cursor_rules_dir = '$install_root/cursor/rules'
+cursor_mcp_servers_file = '$install_root/cursor/mcp.json'
+cursor_enabled = true
 antigravity_skills_dir = '$install_root/antigravity/skills'
 antigravity_enabled = true
 opencode_agents_dir = '$install_root/opencode/agents'
 opencode_commands_dir = '$install_root/opencode/commands'
 opencode_skills_dir = '$install_root/opencode/skills'
 opencode_rules_dir = '$install_root/opencode'
+opencode_config_file = '$install_root/opencode/opencode.json'
 opencode_enabled = true
 import_collision_strategy = "mtime_wins"
 EOF
@@ -175,9 +185,9 @@ ok "adoption created 2 canonicals"
 src_projections=$(find "$SRC_ROOT" \
   \( -name "SKILL.md" -o -name "reviewer.md" -o -name "reviewer.toml" \) \
   | grep -v state | wc -l)
-[[ "$src_projections" -eq 7 ]] \
-  || fail "expected 7 projected files on source, got $src_projections"
-ok "daemon projected 7 files (agents on 3 tools + skills on 4 tools)"
+[[ "$src_projections" -eq 9 ]] \
+  || fail "expected 9 projected files on source, got $src_projections"
+ok "daemon projected 9 files (agents on 4 tools + skills on 5 tools)"
 
 # ---------------- step 5: export ----------------
 
@@ -210,9 +220,9 @@ uv run agents-sync --config "$TARGET_TOML" import "$ZIP_PATH" \
 target_projections=$(find "$TARGET_ROOT" \
   \( -name "SKILL.md" -o -name "reviewer.md" -o -name "reviewer.toml" \) \
   | grep -v state | wc -l)
-[[ "$target_projections" -eq 7 ]] \
-  || fail "expected 7 projected files on target, got $target_projections"
-ok "import projected all 7 files onto the target install"
+[[ "$target_projections" -eq 9 ]] \
+  || fail "expected 9 projected files on target, got $target_projections"
+ok "import projected all 9 files onto the target install"
 
 target_archive_dir="$TARGET_ROOT/state/archive"
 if [[ -d "$target_archive_dir" ]] \
