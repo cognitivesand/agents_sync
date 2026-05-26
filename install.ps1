@@ -194,7 +194,7 @@ function Register-AgentsSyncTask([string]$Name, [string]$HiddenLauncherFile) {
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description "Bidirectional sync of Claude Code, Codex, Cursor, Antigravity, and opencode customizations" `
+    -Description "Bidirectional sync of Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and opencode customizations" `
     -Force | Out-Null
 
   Start-ScheduledTask -TaskName $Name

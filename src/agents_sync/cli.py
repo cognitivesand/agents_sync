@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Continuous sync of Claude Code, Codex, Cursor, "
+            "Continuous sync of Claude Code, Codex, Cursor, Gemini CLI, "
             "Antigravity, and opencode customizations."
         ),
     )
@@ -124,6 +124,32 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Toggle Antigravity participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--gemini-cli-agents-dir",
+        type=str,
+        help="Gemini CLI agents root. Defaults to ~/.gemini/agents.",
+    )
+    parser.add_argument(
+        "--gemini-cli-commands-dir",
+        type=str,
+        help="Gemini CLI slash-command root. Defaults to ~/.gemini/commands.",
+    )
+    parser.add_argument(
+        "--gemini-cli-skills-dir",
+        type=str,
+        help="Gemini CLI skills root. Defaults to ~/.gemini/skills.",
+    )
+    parser.add_argument(
+        "--gemini-cli-rules-dir",
+        type=str,
+        help="Gemini CLI rules root. Defaults to ~/.gemini, containing GEMINI.md.",
+    )
+    parser.add_argument(
+        "--gemini-cli-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle Gemini CLI participation in the sync (default: enabled).",
     )
     parser.add_argument(
         "--opencode-agents-dir",

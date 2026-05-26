@@ -57,6 +57,7 @@ def _fresh_syncer(tmp_path: Path, label: str) -> Syncer:
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
         "as",
+        "ga", "gc", "gs", "gr",
         "oa", "oc", "os", "or",
     ):
         (base / sub).mkdir(parents=True)
@@ -74,6 +75,11 @@ def _fresh_syncer(tmp_path: Path, label: str) -> Syncer:
             "codex_rules_dir": str(base / "xr"),
             "antigravity_skills_dir": str(base / "as"),
             "antigravity_enabled": True,
+            "gemini_cli_agents_dir": str(base / "ga"),
+            "gemini_cli_commands_dir": str(base / "gc"),
+            "gemini_cli_skills_dir": str(base / "gs"),
+            "gemini_cli_rules_dir": str(base / "gr"),
+            "gemini_cli_enabled": False,
             "opencode_agents_dir": str(base / "oa"),
             "opencode_commands_dir": str(base / "oc"),
             "opencode_skills_dir": str(base / "os"),

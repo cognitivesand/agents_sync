@@ -11,6 +11,7 @@ from agents_sync.tool_specs.antigravity import build_antigravity_spec
 from agents_sync.tool_specs.claude import build_claude_spec
 from agents_sync.tool_specs.codex import build_codex_spec
 from agents_sync.tool_specs.cursor import build_cursor_spec
+from agents_sync.tool_specs.gemini_cli import build_gemini_cli_spec
 from agents_sync.tool_specs.opencode import build_opencode_spec
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "build_claude_spec",
     "build_codex_spec",
     "build_cursor_spec",
+    "build_gemini_cli_spec",
     "build_opencode_spec",
 ]

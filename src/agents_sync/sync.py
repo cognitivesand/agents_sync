@@ -52,6 +52,12 @@ class SyncResult:
         """Legacy callers comparing the return as an int still work."""
         return self.changed
 
+    def __eq__(self, other: object) -> bool:
+        """Back-compat for older tests/callers that compared sync_once() to int."""
+        if isinstance(other, int):
+            return self.changed == other
+        return super().__eq__(other)
+
 
 class Syncer:
     def __init__(

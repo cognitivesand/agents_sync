@@ -37,12 +37,13 @@ def test_agentic_tool_spec_rejects_drift_between_config_keys_and_io():
         )
 
 
-def test_default_registry_has_claude_codex_cursor_antigravity_and_opencode():
+def test_default_registry_has_claude_codex_cursor_gemini_antigravity_and_opencode():
     registry = default_agentic_tools()
     assert set(registry.keys()) == {
         "claude",
         "codex",
         "cursor",
+        "gemini_cli",
         "antigravity",
         "opencode",
     }
@@ -148,6 +149,30 @@ def test_cursor_spec_supports_all_file_backed_cursor_types():
     assert spec.io["rules"].file_suffix == ".mdc"
     assert spec.io["rules"].recursive is True
     assert spec.io["mcp_server"].storage == "shared_keyed_map"
+
+
+def test_gemini_cli_spec_supports_file_backed_user_surfaces():
+    spec = default_agentic_tools()["gemini_cli"]
+    assert spec.supported_customization_types == frozenset({
+        "agent",
+        "skill",
+        "slash_command",
+        "rules",
+    })
+    assert spec.config_dir_keys == {
+        "agent": "gemini_cli_agents_dir",
+        "slash_command": "gemini_cli_commands_dir",
+        "skill": "gemini_cli_skills_dir",
+        "rules": "gemini_cli_rules_dir",
+    }
+    assert spec.disable_config_key == "gemini_cli_enabled"
+    assert spec.io["agent"].storage == "single_file"
+    assert spec.io["agent"].file_suffix == ".md"
+    assert spec.io["skill"].storage == "directory_skill"
+    assert spec.io["slash_command"].storage == "single_file"
+    assert spec.io["slash_command"].file_suffix == ".toml"
+    assert spec.io["slash_command"].recursive is True
+    assert spec.io["rules"].fixed_file_name == "GEMINI.md"
 
 
 def test_opencode_spec_supports_agents_and_skills_with_disable_key():

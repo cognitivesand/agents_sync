@@ -166,6 +166,7 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "ca", "cc", "cs", "cr",
         "xa", "xp", "xs", "xr",
         "cura", "curc", "curs", "curr",
+        "ga", "gc", "gs", "gr",
         "oa", "oc", "os", "or",
     ):
         (tmp_path / sub).mkdir()
@@ -192,6 +193,11 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "cursor_enabled": True,
         "antigravity_skills_dir": str(ag_root),
         "antigravity_enabled": antigravity_enabled,
+        "gemini_cli_agents_dir": str(tmp_path / "ga"),
+        "gemini_cli_commands_dir": str(tmp_path / "gc"),
+        "gemini_cli_skills_dir": str(tmp_path / "gs"),
+        "gemini_cli_rules_dir": str(tmp_path / "gr"),
+        "gemini_cli_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
         "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),
@@ -205,6 +211,11 @@ def test_merged_config_falls_back_to_default_antigravity_dir():
     config = merged_config(_minimal_args())
     assert "antigravity_skills_dir" in config
     assert config["antigravity_enabled"] is True
+    assert "gemini_cli_agents_dir" in config
+    assert "gemini_cli_commands_dir" in config
+    assert "gemini_cli_skills_dir" in config
+    assert "gemini_cli_rules_dir" in config
+    assert config["gemini_cli_enabled"] is True
     assert "opencode_agents_dir" in config
     assert "opencode_commands_dir" in config
     assert "opencode_skills_dir" in config

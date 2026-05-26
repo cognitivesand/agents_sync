@@ -37,9 +37,22 @@ class AgentsSyncConfig(TypedDict, total=False):
     codex_skills_dir: str
     codex_rules_dir: str
     codex_config_file: str
+    # Cursor
+    cursor_agents_dir: str
+    cursor_commands_dir: str
+    cursor_skills_dir: str
+    cursor_rules_dir: str
+    cursor_mcp_servers_file: str
+    cursor_enabled: bool
     # Antigravity
     antigravity_skills_dir: str
     antigravity_enabled: bool
+    # Gemini CLI
+    gemini_cli_agents_dir: str
+    gemini_cli_commands_dir: str
+    gemini_cli_skills_dir: str
+    gemini_cli_rules_dir: str
+    gemini_cli_enabled: bool
     # opencode
     opencode_agents_dir: str
     opencode_commands_dir: str
@@ -149,6 +162,11 @@ def platform_defaults(
         # registration entirely.
         "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
         "antigravity_enabled": True,
+        "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
+        "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
+        "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
+        "gemini_cli_rules_dir": str(home_dir / ".gemini"),
+        "gemini_cli_enabled": True,
         "opencode_agents_dir": str(opencode_root / "agents"),
         "opencode_commands_dir": str(opencode_root / "commands"),
         "opencode_skills_dir": str(opencode_root / "skills"),
@@ -212,6 +230,11 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
     ("cursor_enabled", "cursor_enabled"),
     ("antigravity_skills_dir", "antigravity_skills_dir"),
     ("antigravity_enabled", "antigravity_enabled"),
+    ("gemini_cli_agents_dir", "gemini_cli_agents_dir"),
+    ("gemini_cli_commands_dir", "gemini_cli_commands_dir"),
+    ("gemini_cli_skills_dir", "gemini_cli_skills_dir"),
+    ("gemini_cli_rules_dir", "gemini_cli_rules_dir"),
+    ("gemini_cli_enabled", "gemini_cli_enabled"),
     ("opencode_agents_dir", "opencode_agents_dir"),
     ("opencode_commands_dir", "opencode_commands_dir"),
     ("opencode_skills_dir", "opencode_skills_dir"),

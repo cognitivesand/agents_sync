@@ -116,7 +116,7 @@ uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
 
 cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
-Description=Bidirectional sync of Claude Code, Codex, Cursor, Antigravity, and opencode customizations
+Description=Bidirectional sync of Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and opencode customizations
 
 [Service]
 Type=simple
