@@ -21,6 +21,8 @@
 
 The daemon runs quietly in the background, protects your content with archives, and keeps user-level files connected even when they are renamed. If one of the tools isn't installed, that tool is silently skipped — the others continue to sync.
 
+Built by [CognitiveSand](https://cognitivesand.ai/en/).
+
 ---
 
 ## 🗂️ Table Of Contents
@@ -54,7 +56,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 | Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.copilot/skills/*/SKILL.md` | `~/.cursor/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
 | Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | VS Code user profile `*.prompt.md` | `~/.cursor/commands/*.md` | `~/.gemini/commands/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
 | Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | VS Code user profile `*.instructions.md` | `~/.cursor/rules/*.mdc` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
-| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.copilot/mcp-config.json[servers]` | `~/.cursor/mcp.json[mcpServers]` | n/a | n/a | `~/.config/opencode/opencode.json[mcp]` |
+| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.copilot/mcp-config.json[servers]` | `~/.cursor/mcp.json[mcpServers]` | `~/.gemini/settings.json[mcpServers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
 
 **In plain terms:**
 
@@ -62,72 +64,19 @@ The daemon runs quietly in the background, protects your content with archives, 
 - Agents are reusable AI personas. Claude Code, Codex, Copilot, Cursor, Gemini CLI, and OpenCode have per-agent file formats.
 - Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, Copilot, Cursor, Gemini CLI, and OpenCode sync them as files.
 - Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`; Copilot uses VS Code `*.instructions.md`; Cursor uses `.mdc`; Gemini CLI uses `GEMINI.md`.
-- MCP servers sync across Claude Code, Codex, Copilot CLI, Cursor, and OpenCode. Project-scoped MCP files remain out of scope.
+- MCP servers sync across Claude Code, Codex, Copilot CLI, Cursor, Gemini CLI, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
 flowchart LR
-    subgraph Tools["Supported tools"]
-        direction TB
-        Claude["Claude Code: agents, commands, skills, rules, MCP"]
-        Codex["Codex: agents, prompts, skills, rules, MCP"]
-        Copilot["GitHub Copilot: agents, prompts, skills, instructions, MCP"]
-        Cursor["Cursor: agents, commands, skills, rules, MCP"]
-        Antigravity["Antigravity: skills only"]
-        Opencode["OpenCode: agents, commands, skills, rules, MCP"]
-    end
-
-    Sync["agents_sync: watch + match + sync"]
-    State["State: pair_id + digests"]
-    Archive["Archive before overwrite or removal"]
-
-    Claude <-->|changes| Sync
-    Codex <-->|changes| Sync
-    Copilot <-->|changes| Sync
-    Cursor <-->|changes| Sync
-    Antigravity <-->|changes| Sync
-    Opencode <-->|changes| Sync
-    Sync --> State
-    Sync --> Archive
-
-    classDef side fill:#ddf4ff,stroke:#0969da,stroke-width:2px,color:#24292f
-    classDef sync fill:#fff8c5,stroke:#bf8700,color:#24292f
-    classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
-    classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
-
-    class Claude,Codex,Copilot,Cursor,Antigravity,Opencode side
-    class Sync sync
-    class State state
-    class Archive archive
-
-    linkStyle 0,1,2,3,4,5 stroke:#2da44e,stroke-width:2px
-    linkStyle 6 stroke:#8250df,stroke-width:2px
-    linkStyle 7 stroke:#2da44e,stroke-width:2px
-| What you edit | Claude Code | Codex | Cursor | Gemini CLI | Antigravity | OpenCode |
-|:---|:---|:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.cursor/agents/*.md` | `~/.gemini/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.cursor/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
-| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | `~/.cursor/commands/*.md` | `~/.gemini/commands/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
-| Rules | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.cursor/rules/*.mdc` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
-| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.cursor/mcp.json[mcpServers]` | `~/.gemini/settings.json[mcpServers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
-
-**In plain terms:**
-
-- Skills are reusable instruction folders. Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and OpenCode use `SKILL.md` folders, so skills sync six ways.
-- Agents are reusable AI personas. Claude Code, Codex, Cursor, Gemini CLI, and OpenCode have per-agent file formats, so agents sync five ways.
-- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, Cursor, and OpenCode sync them as Markdown files.
-- Rules are global instruction files. Claude Code uses `CLAUDE.md`; Codex and OpenCode use `AGENTS.md`; Cursor uses `.mdc` rule files.
-- MCP servers sync across Claude Code, Codex, Cursor, Gemini CLI, and OpenCode. Project-scoped MCP files remain out of scope.
-
-```mermaid
-graph TD
-    Claude[Claude Code] <--> Sync[agents sync]
-    Codex[Codex] <--> Sync
-    Cursor[Cursor] <--> Sync
-    Gemini[Gemini CLI] <--> Sync
-    Antigravity[Antigravity] <--> Sync
-    OpenCode[OpenCode] <--> Sync
-    Sync --> State
-    Sync --> Archive
+    Claude[Claude Code] <-->|changes| Sync[agents_sync]
+    Codex[Codex] <-->|changes| Sync
+    Copilot[GitHub Copilot] <-->|changes| Sync
+    Cursor[Cursor] <-->|changes| Sync
+    Gemini[Gemini CLI] <-->|changes| Sync
+    Antigravity[Antigravity skills only] <-->|changes| Sync
+    OpenCode[OpenCode] <-->|changes| Sync
+    Sync --> State[pair_id and digests]
+    Sync --> Archive[archive before overwrite or removal]
 ```
 
 ---
@@ -205,7 +154,7 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, Cursor, and OpenCode into it. Antigravity itself picks up the directory on its next read.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, and OpenCode into it. Antigravity itself picks up the directory on its next read.
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
@@ -459,6 +408,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, `opencode_skills_dir`, `opencode_rules_dir`, and `opencode_config_file`.
 - **GitHub Copilot limitations:** this adapter manages user-level Copilot CLI agents, skills, and MCP servers plus explicitly configured VS Code user-profile instructions and prompts. It does not sync repository `.github/` files, workspace `.vscode/mcp.json`, VS Code user MCP files, GitHub.com organization customizations, Copilot cloud agent settings, hooks, plugin packages, or extension-contributed customizations.
 - This tool was developed with the support of Claude Code, Codex, GitHub Copilot, Cursor, Google Antigravity, and OpenCode.
+- Learn more about CognitiveSand, the team behind this project, at [cognitivesand.ai](https://cognitivesand.ai/en/).
 
 ---
 
@@ -466,18 +416,33 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
-### Unreleased
+### 0.5.0
 
-- Added Cursor support for agents, skills, rules, slash commands, and MCP servers under the user-level `~/.cursor/` file surfaces.
-- Added GitHub Copilot support for CLI agents, Agent Skills, CLI MCP servers, VS Code user-profile instructions, and VS Code user-profile prompt files.
-- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), Copilot (VS Code profile `*.prompt.md`), Cursor (`~/.cursor/commands`), Gemini CLI (`~/.gemini/commands`), and OpenCode (`~/.config/opencode/commands`).
-- Added command-root config keys and CLI overrides including `claude_commands_dir`, `codex_prompts_dir`, Copilot VS Code prompt/instruction roots, `cursor_commands_dir`, `gemini_cli_commands_dir`, and `opencode_commands_dir`.
-- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), Copilot CLI (`~/.copilot/mcp-config.json[servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour.
-- Added slash-command sync for Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), Cursor (`~/.cursor/commands`), and OpenCode (`~/.config/opencode/commands`).
-- Added command-root config keys and CLI overrides: `claude_commands_dir`, `codex_prompts_dir`, `cursor_commands_dir`, and `opencode_commands_dir`.
-- Added `mcp_server` sync for Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), Gemini CLI (`~/.gemini/settings.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`), including per-slot archive/removal behaviour.
-- Added a generic `secret_policy` config key (`secrets_refused` / `secrets_accepted`, default `secrets_refused`) — type-agnostic (today only `mcp_server` artifacts can carry literal secret material; future customization_types fall under the same rules). The policy is enforced at every artifact-egress boundary: parse (`secrets_refused` rejects the artifact; `secrets_accepted` admits it with a warning), customization library export (`secrets_refused` skips secret-bearing canonicals per-artifact with a warning; `secrets_accepted` ships them verbatim, the manifest flags `contains_secret_literals=true`), and customization library import (receiver's policy always overrides the source-host policy).
-- Deprecated the older `mcp_server_secret_policy` config key and its `refuse` / `redact` / `permissive` values. Both keys and all value spellings still work for one release with a startup deprecation log; `redact` mode is removed and maps to `secrets_refused` (the safer default).
+**New agentic tools**
+
+- Added Cursor support for user-level agents, skills, rules, slash commands, and MCP servers under `~/.cursor/`.
+- Added Gemini CLI support for agents, skills, rules, slash commands, and MCP servers under `~/.gemini/`.
+- Added GitHub Copilot support for CLI agents, Agent Skills, CLI MCP servers, and explicitly configured VS Code user-profile instructions and prompt files.
+
+**New customization types**
+
+- Added `rules` sync across Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, and OpenCode.
+- Added `slash_command` sync across Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), GitHub Copilot (`*.prompt.md`), Cursor (`~/.cursor/commands`), Gemini CLI (`~/.gemini/commands`), and OpenCode (`~/.config/opencode/commands`).
+- Added `mcp_server` sync across Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), GitHub Copilot CLI (`~/.copilot/mcp-config.json[servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), Gemini CLI (`~/.gemini/settings.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`).
+
+**Safety and portability**
+
+- Added per-slot archive/removal behaviour for shared MCP config files, preserving sibling server entries.
+- Added cross-process locking and safer shared keyed-map writes for JSON, JSONC, and TOML MCP files.
+- Added `secret_policy` with `secrets_refused` / `secrets_accepted` and applied it at parse, render, export, and import boundaries.
+- Deprecated `mcp_server_secret_policy` and legacy `refuse` / `redact` / `permissive` values; compatibility aliases remain for one release.
+- Hardened archive paths, parser bounds, and MCP secret detection.
+
+**Configuration**
+
+- Added config keys and CLI overrides for Cursor, Gemini CLI, GitHub Copilot, command roots, rules roots, and MCP shared files.
+- Added partial availability gates for Copilot CLI versus VS Code user-profile surfaces.
+- Updated platform defaults for Linux, macOS, and Windows paths.
 
 ### 0.4.3
 
