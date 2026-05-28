@@ -86,7 +86,7 @@ def test_cursor_rule_adopts_to_global_rules_tools(syncer: Syncer):
         assert "Prefer strict types." in target.read_text(encoding="utf-8")
 
 
-def test_cursor_command_adopts_without_yaml_frontmatter_on_cursor(syncer: Syncer):
+def test_cursor_command_adopts_without_markdown_yaml_metadata_block_on_cursor(syncer: Syncer):
     source = syncer.tool_root("cursor", "slash_command") / "git" / "commit.md"
     source.parent.mkdir(parents=True)
     source.write_text(

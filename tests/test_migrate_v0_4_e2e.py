@@ -159,3 +159,41 @@ def test_run_migration_against_real_v0_3_layout(migrate_mod, tmp_path: Path):
     # 6. The original state.json + sources are in the backup, so a manual
     # revert is possible per the script's docstring contract.
     assert (backup_dir / "skill-suffix-duplicates").exists()
+
+
+def test_run_migration_rolls_back_when_state_wipe_fails(
+    migrate_mod,
+    tmp_path: Path,
+):
+    home = tmp_path / "home"
+    _retarget_module(migrate_mod, home)
+    _materialize_v0_3_layout(home)
+
+    backup_dir = home / ".local/state/agents-sync/backups/v0.4-migration-test"
+    migrate_mod.stop_daemon = lambda: None
+
+    def fail_wipe(_backup_dir: Path) -> None:
+        raise OSError("simulated state wipe failure")
+
+    migrate_mod.wipe_state = fail_wipe
+
+    with pytest.raises(migrate_mod.MigrationError) as exc_info:
+        migrate_mod.run_migration(backup_dir)
+
+    assert exc_info.value.phase == "wipe state and canonical"
+
+    # The strip phase ran before the wipe failed, but rollback restores the
+    # original user-authored file so live bytes never remain half-migrated.
+    user_skill = (home / ".claude/skills/foo/SKILL.md").read_text(encoding="utf-8")
+    assert "pair_id:" in user_skill
+    assert "User content for foo." in user_skill
+
+    # Earlier live mutations are rolled back too: duplicates return, config is
+    # back on its pre-fix path, and state.json was not wiped.
+    assert (home / ".claude/skills/foo-skill/SKILL.md").exists()
+    assert (home / ".agents/skills/foo-skill/SKILL.md").exists()
+    config_text = (home / ".config/agents-sync/config.toml").read_text(
+        encoding="utf-8",
+    )
+    assert 'codex_skills_dir = "~/.agents/skills"' in config_text
+    assert (home / ".local/state/agents-sync/state.json").exists()

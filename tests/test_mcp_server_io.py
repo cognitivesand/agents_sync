@@ -10,6 +10,8 @@ import pytest
 from agents_sync.config import ConfigError, platform_defaults, validate_config
 from agents_sync.mcp_secret_policy import (
     McpSecretLeakError,
+    bearer_env_reference_name,
+    env_reference_name,
     find_mcp_secret_literals,
     format_env_reference,
 )
@@ -388,6 +390,47 @@ def test_secrets_refused_blocks_secret_extra_before_persisting():
     assert [f.field_path for f in exc_info.value.findings] == ["env.GITHUB_TOKEN"]
 
 
+def test_nested_env_block_is_treated_as_secret_path():
+    findings = find_mcp_secret_literals({
+        "mcpServers": {
+            "github": {
+                "env": {
+                    "GITHUB_TOKEN": "literal-token",
+                },
+            },
+        },
+    })
+
+    assert [f.field_path for f in findings] == [
+        "mcpServers.github.env.GITHUB_TOKEN",
+    ]
+
+
+def test_public_mcp_server_io_defaults_use_canonical_secret_policy(
+    caplog: pytest.LogCaptureFixture,
+):
+    text = json.dumps({
+        "name": "github",
+        "command": "gh",
+        "env": {"GITHUB_TOKEN": "${env:GITHUB_TOKEN}"},
+    })
+
+    with caplog.at_level("WARNING"):
+        canonical = parse_mcp_server_json(
+            text,
+            None,
+            agentic_tool_name="alpha",
+        )
+        render_mcp_server_json(
+            canonical,
+            text,
+            agentic_tool_name="alpha",
+        )
+
+    assert canonical["env"]["GITHUB_TOKEN"] == "${env:GITHUB_TOKEN}"
+    assert not any("DEPRECATED secret_policy" in r.message for r in caplog.records)
+
+
 def test_secrets_accepted_logs_warning_with_new_message(
     caplog: pytest.LogCaptureFixture,
 ):
@@ -422,6 +465,23 @@ def test_env_reference_is_not_treated_as_literal_secret():
 
     assert canonical["env"]["GITHUB_TOKEN"] == "${env:GITHUB_TOKEN}"
     assert "secret_redactions" not in canonical
+
+
+def test_uppercase_env_prefix_is_not_a_supported_secret_reference():
+    slot = {
+        "name": "github",
+        "transport": "http",
+        "url": "https://example.test/mcp",
+        "headers": {"Authorization": "Bearer ${ENV:GITHUB_TOKEN}"},
+        "env": {"GITHUB_TOKEN": "${ENV:GITHUB_TOKEN}"},
+    }
+
+    assert env_reference_name("${ENV:GITHUB_TOKEN}") is None
+    assert bearer_env_reference_name("Bearer ${ENV:GITHUB_TOKEN}") is None
+    assert [f.field_path for f in find_mcp_secret_literals(slot)] == [
+        "headers.Authorization",
+        "env.GITHUB_TOKEN",
+    ]
 
 
 def test_mixed_case_and_composite_env_references_are_preserved():

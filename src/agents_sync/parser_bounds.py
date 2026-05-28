@@ -35,7 +35,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents_sync.yaml_frontmatter import AdapterParseError
+from agents_sync.markdown_yaml_metadata_block import AdapterParseError
 
 
 MAX_PARSE_BYTES: int = 16 * 1024 * 1024
@@ -51,7 +51,7 @@ that happens to round-trip through UTF-8 will be rejected before
 MAX_FRONTMATTER_BYTES: int = 256 * 1024
 """Markdown frontmatter ceiling in bytes (256 KB).
 
-Bounds the linear scan of :data:`yaml_frontmatter.FRONTMATTER_RE`
+Bounds the linear scan of :data:`markdown_yaml_metadata_block.FRONTMATTER_RE`
 against the leading slice of the document. A frontmatter block above
 this size is malformed by every adapter's contract.
 """

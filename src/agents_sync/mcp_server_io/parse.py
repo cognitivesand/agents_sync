@@ -41,7 +41,7 @@ def parse_mcp_server_json(
     artifact_root: Path | None = None,
     dialect: McpServerDialect = DEFAULT_MCP_SERVER_DIALECT,
     slot_format: str = "json",
-    secret_policy: str = "refuse",
+    secret_policy: str = "secrets_refused",
 ) -> dict[str, Any]:
     """Parse one JSON slot into the canonical ``mcp_server`` shape."""
     del artifact_root

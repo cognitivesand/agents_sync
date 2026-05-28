@@ -19,7 +19,7 @@ from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.claude_io import extract_pair_id_from_md
-from agents_sync.yaml_frontmatter import (
+from agents_sync.markdown_yaml_metadata_block import (
     FRONTMATTER_RE,
     make_yaml as _make_yaml,
     normalize_markdown_text as _normalize_markdown_text,
@@ -412,7 +412,7 @@ def parse_cursor_mcp_server_json(
     *,
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
-    secret_policy: str = "refuse",
+    secret_policy: str = "secrets_refused",
 ) -> dict[str, Any]:
     return parse_mcp_server_json(
         _slot_text_with_cursor_transport_default(slot_text),
@@ -429,7 +429,7 @@ def render_cursor_mcp_server_json(
     canonical: dict[str, Any],
     prior_text: str | None = None,
     *,
-    secret_policy: str = "refuse",
+    secret_policy: str = "secrets_refused",
 ) -> str:
     return render_mcp_server_json(
         canonical,

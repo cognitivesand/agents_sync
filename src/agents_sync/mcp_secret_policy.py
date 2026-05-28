@@ -41,7 +41,6 @@ ENV_REFERENCE_RE = re.compile(
 _BEARER_ENV_REFERENCE_RE = re.compile(
     rf"^Bearer\s+(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
     rf"\$({_ENV_NAME})|%({_ENV_NAME})%)$",
-    re.IGNORECASE,
 )
 SECRET_FIELD_RE = re.compile(
     r"(api[_-]?key|authentication[_-]?blob|auth[_-]?blob|"
@@ -325,7 +324,7 @@ def _is_secret_literal(
         return not _is_safe_env_var_name_value(value)
     if is_safe_secret_reference(value):
         return False
-    if normalized_path and normalized_path[0] == "env":
+    if _is_env_secret_path(normalized_path):
         return True
     if _is_secret_header_path(normalized_path):
         return True
@@ -365,6 +364,11 @@ def _is_safe_env_var_name_value(value: str) -> bool:
     if HIGH_CONFIDENCE_SECRET_VALUE_RE.search(value):
         return False
     return not value.startswith(("ghp_", "github_pat_"))
+
+
+def _is_env_secret_path(normalized_path: tuple[str | int, ...]) -> bool:
+    """Whether the path lands under an ``env`` block at any nesting depth."""
+    return any(part == "env" for part in normalized_path[:-1])
 
 
 def _is_secret_header_path(normalized_path: tuple[str | int, ...]) -> bool:
