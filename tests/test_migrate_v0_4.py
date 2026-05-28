@@ -82,6 +82,46 @@ def test_detection_aborts_on_transient_state_read_error(
         migrate_mod.detect_pre_v04_fix_state()
 
 
+def test_detection_aborts_on_malformed_state_json(
+    migrate_mod,
+    monkeypatch,
+    tmp_path,
+):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(migrate_mod, "STATE_FILE", state_file)
+    monkeypatch.setattr(migrate_mod, "CONFIG_FILE", tmp_path / "config.toml")
+
+    with pytest.raises(migrate_mod.MigrationDetectionError):
+        migrate_mod.detect_pre_v04_fix_state()
+
+
+def test_main_exits_without_migration_when_detection_is_inconclusive(
+    migrate_mod,
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_file = state_dir / "state.json"
+    state_file.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(migrate_mod, "STATE_DIR", state_dir)
+    monkeypatch.setattr(migrate_mod, "STATE_FILE", state_file)
+    monkeypatch.setattr(migrate_mod, "CONFIG_FILE", tmp_path / "config.toml")
+    monkeypatch.setattr(sys, "argv", ["migrate_v0.4.py", "--yes"])
+
+    def fail_if_called(_backup_dir):
+        raise AssertionError("migration must not run after inconclusive detection")
+
+    monkeypatch.setattr(migrate_mod, "run_migration", fail_if_called)
+
+    assert migrate_mod.main() == 2
+
+    captured = capsys.readouterr()
+    assert "Migration detection failed without changing files" in captured.err
+
+
 def test_main_exits_without_detection_when_migration_lock_is_held(
     migrate_mod,
     monkeypatch,

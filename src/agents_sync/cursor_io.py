@@ -11,20 +11,24 @@ protocol:
 """
 from __future__ import annotations
 
-import io
 import json
 import re
 from pathlib import Path
 from typing import Any
 
+from agents_sync.artifact_names import resolve_artifact_name
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import extract_pair_id_from_md
 from agents_sync.markdown_yaml_metadata_block import (
-    FRONTMATTER_RE,
-    make_yaml as _make_yaml,
+    as_string_list,
+    extract_pair_id_from_md,
+    frontmatter_for_render,
+    metadata_subset,
     normalize_markdown_text as _normalize_markdown_text,
+    render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
+    split_frontmatter,
     strip_bom_prefix as _strip_bom_prefix,
-    yaml_load as _yaml_load,
+    unknown_metadata_fields,
 )
 from agents_sync.mcp_server_io import (
     McpServerDialect,
@@ -77,76 +81,6 @@ CURSOR_MCP_DIALECT = McpServerDialect(
 )
 
 
-def _yaml_dump(data: Any) -> str:
-    buf = io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
-
-
-def _split_frontmatter(text: str, label: str) -> tuple[dict[str, Any], str]:
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        return {}, _strip_bom_prefix(text.strip())
-
-    raw_frontmatter, body_raw = match.groups()
-    loaded = _yaml_load(raw_frontmatter)
-    if loaded is None:
-        frontmatter: dict[str, Any] = {}
-    elif not isinstance(loaded, dict):
-        raise ValueError(f"{label} frontmatter must be a YAML mapping")
-    else:
-        frontmatter = dict(loaded)
-    return frontmatter, _strip_bom_prefix(body_raw.strip())
-
-
-def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    yml = _make_yaml()
-    if prior_text is None:
-        return yml.load("{}\n")
-
-    prior_text = _normalize_markdown_text(prior_text)
-    match = FRONTMATTER_RE.match(prior_text)
-    if match is None:
-        return yml.load("{}\n")
-
-    loaded = _yaml_load(match.group(1))
-    return loaded if isinstance(loaded, dict) else yml.load("{}\n")
-
-
-def _render_markdown(frontmatter: dict[str, Any], body: str) -> str:
-    rendered_frontmatter = _yaml_dump(frontmatter).rstrip("\n")
-    if body:
-        return f"---\n{rendered_frontmatter}\n---\n{body}\n"
-    return f"---\n{rendered_frontmatter}\n---\n"
-
-
-def _set_or_pop(target: dict[str, Any], key: str, value: Any) -> None:
-    if value is None or value == "":
-        target.pop(key, None)
-        return
-    target[key] = value
-
-
-def _as_string_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return [str(value)]
-
-
-def _frontmatter_subset(
-    frontmatter: dict[str, Any],
-    field_names: tuple[str, ...],
-) -> dict[str, Any]:
-    return {
-        field_name: frontmatter[field_name]
-        for field_name in field_names
-        if field_name in frontmatter
-    }
-
-
 # ---------- agents ----------
 
 def extract_pair_id_from_cursor_agent_md(text: str) -> str | None:
@@ -161,32 +95,35 @@ def parse_cursor_agent_md(
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
     del artifact_root
-    frontmatter, body = _split_frontmatter(text, "Cursor agent")
+    frontmatter, body = split_frontmatter(text, label="Cursor agent")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
     canonical["body"] = body
 
-    if artifact_path is not None:
-        canonical["name"] = artifact_path.stem
-    elif "name" in frontmatter:
-        canonical["name"] = str(frontmatter["name"])
+    name = resolve_artifact_name(
+        frontmatter_name=frontmatter.get("name"),
+        path_name=artifact_path.stem if artifact_path is not None else None,
+        prior_name=canonical.get("name"),
+        precedence=("frontmatter", "path", "prior"),
+    )
+    if name is not None:
+        canonical["name"] = name
 
     if "description" in frontmatter:
         canonical["description"] = str(frontmatter["description"])
     if "model" in frontmatter:
         canonical["model"] = frontmatter["model"]
     if "tools" in frontmatter:
-        canonical["tools"] = _as_string_list(frontmatter["tools"])
+        canonical["tools"] = as_string_list(frontmatter["tools"])
 
     per_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
     per_tool_only["cursor"] = {}
     canonical["per_agentic_tool_only"] = per_tool_only
 
     per_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_tool_extra["cursor"] = {
-        key: value
-        for key, value in frontmatter.items()
-        if key not in CURSOR_AGENT_FIELDS
-    }
+    per_tool_extra["cursor"] = unknown_metadata_fields(
+        frontmatter,
+        CURSOR_AGENT_FIELDS,
+    )
     canonical["per_agentic_tool_extra"] = per_tool_extra
 
     if "pair_id" in frontmatter:
@@ -201,16 +138,14 @@ def render_cursor_agent_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
-    _set_or_pop(frontmatter, "model", canonical.get("model"))
-    tools = canonical.get("tools")
-    if tools:
-        frontmatter["tools"] = tools
-    else:
-        frontmatter.pop("tools", None)
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    set_or_remove_empty_metadata_field(frontmatter, "model", canonical.get("model"))
+    set_or_remove_empty_metadata_field(frontmatter, "tools", canonical.get("tools"))
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get(
         "cursor", {}
@@ -218,7 +153,7 @@ def render_cursor_agent_md(
         if key not in CURSOR_AGENT_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 # ---------- skills ----------
@@ -235,7 +170,7 @@ def parse_cursor_skill_md(
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
     del artifact_root
-    frontmatter, body = _split_frontmatter(text, "Cursor SKILL.md")
+    frontmatter, body = split_frontmatter(text, label="Cursor SKILL.md")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
 
@@ -247,18 +182,17 @@ def parse_cursor_skill_md(
         canonical["description"] = str(frontmatter["description"])
 
     per_tool_only = dict(canonical.get("per_agentic_tool_only") or {})
-    per_tool_only["cursor"] = _frontmatter_subset(
+    per_tool_only["cursor"] = metadata_subset(
         frontmatter,
         CURSOR_SKILL_ONLY_FIELDS,
     )
     canonical["per_agentic_tool_only"] = per_tool_only
 
     per_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_tool_extra["cursor"] = {
-        key: value
-        for key, value in frontmatter.items()
-        if key not in CURSOR_SKILL_FIELDS
-    }
+    per_tool_extra["cursor"] = unknown_metadata_fields(
+        frontmatter,
+        CURSOR_SKILL_FIELDS,
+    )
     canonical["per_agentic_tool_extra"] = per_tool_extra
 
     if "pair_id" in frontmatter:
@@ -273,14 +207,18 @@ def render_cursor_skill_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
 
     cursor_only = canonical.get("per_agentic_tool_only", {}).get("cursor", {})
     for field_name in CURSOR_SKILL_ONLY_FIELDS:
-        _set_or_pop(frontmatter, field_name, cursor_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, cursor_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get(
         "cursor", {}
@@ -288,7 +226,7 @@ def render_cursor_skill_md(
         if key not in CURSOR_SKILL_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 # ---------- rules ----------

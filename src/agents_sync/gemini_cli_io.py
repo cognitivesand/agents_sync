@@ -13,18 +13,20 @@ writes that path.
 """
 from __future__ import annotations
 
-import io as _io
 from pathlib import Path
 from typing import Any
 
+from agents_sync.artifact_names import resolve_artifact_name
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import extract_pair_id_from_md
 from agents_sync.markdown_yaml_metadata_block import (
-    FRONTMATTER_RE,
-    make_yaml,
-    normalize_markdown_text as _normalize_markdown_text,
-    strip_bom_prefix as _strip_bom_prefix,
-    yaml_load,
+    as_string_list,
+    extract_pair_id_from_md,
+    frontmatter_for_render,
+    metadata_subset,
+    render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
+    split_frontmatter,
+    unknown_metadata_fields,
 )
 from agents_sync.rules_io import (
     GLOBAL_RULE_NAME,
@@ -110,89 +112,6 @@ FOREIGN_SKILL_FIELDS = frozenset({
 })
 
 
-def _yaml_dump(data: Any) -> str:
-    buffer = _io.StringIO()
-    make_yaml().dump(data, buffer)
-    return buffer.getvalue()
-
-
-def _split_frontmatter(text: str, label: str) -> tuple[dict[str, Any], str]:
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        return {}, _strip_bom_prefix(text.strip())
-
-    raw_frontmatter, body_raw = match.groups()
-    loaded = yaml_load(raw_frontmatter)
-    if loaded is None:
-        frontmatter_data: dict[str, Any] = {}
-    elif not isinstance(loaded, dict):
-        raise ValueError(f"{label} frontmatter must be a YAML mapping")
-    else:
-        frontmatter_data = dict(loaded)
-    return frontmatter_data, _strip_bom_prefix(body_raw.strip())
-
-
-def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    yml = make_yaml()
-    if prior_text is None:
-        return yml.load("{}\n")
-
-    prior_text = _normalize_markdown_text(prior_text)
-    prior_match = FRONTMATTER_RE.match(prior_text)
-    if prior_match is None:
-        return yml.load("{}\n")
-
-    loaded = yaml_load(prior_match.group(1))
-    return loaded if isinstance(loaded, dict) else yml.load("{}\n")
-
-
-def _render_markdown(frontmatter: dict[str, Any], body: str) -> str:
-    rendered_frontmatter = _yaml_dump(frontmatter).rstrip("\n")
-    if body:
-        return f"---\n{rendered_frontmatter}\n---\n{body}\n"
-    return f"---\n{rendered_frontmatter}\n---\n"
-
-
-def _as_string_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return [str(value)]
-
-
-def _frontmatter_subset(
-    frontmatter: dict[str, Any],
-    field_names: tuple[str, ...],
-) -> dict[str, Any]:
-    return {
-        field_name: frontmatter[field_name]
-        for field_name in field_names
-        if field_name in frontmatter
-    }
-
-
-def _unknown_frontmatter_fields(
-    frontmatter: dict[str, Any],
-    *,
-    known_fields: frozenset[str],
-    foreign_fields: frozenset[str],
-) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in frontmatter.items()
-        if key not in known_fields and key not in foreign_fields
-    }
-
-
-def _set_or_pop(target: dict[str, Any], key: str, value: Any) -> None:
-    if value is None or value == "" or value == []:
-        target.pop(key, None)
-        return
-    target[key] = value
-
-
 def extract_pair_id_from_gemini_agent_md(text: str) -> str | None:
     return extract_pair_id_from_md(text)
 
@@ -207,14 +126,20 @@ def parse_gemini_agent_md(
     """Parse a Gemini CLI subagent Markdown file."""
     del artifact_root
 
-    frontmatter_data, body = _split_frontmatter(text, "Gemini CLI agent")
+    frontmatter_data, body = split_frontmatter(
+        text, label="Gemini CLI agent",
+    )
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
     canonical["body"] = body
 
-    if "name" in frontmatter_data:
-        canonical["name"] = str(frontmatter_data["name"])
-    elif artifact_path is not None:
-        canonical["name"] = artifact_path.stem
+    name = resolve_artifact_name(
+        frontmatter_name=frontmatter_data.get("name"),
+        path_name=artifact_path.stem if artifact_path is not None else None,
+        prior_name=canonical.get("name"),
+        precedence=("frontmatter", "path", "prior"),
+    )
+    if name is not None:
+        canonical["name"] = name
 
     if "description" in frontmatter_data:
         canonical["description"] = str(frontmatter_data["description"])
@@ -222,20 +147,20 @@ def parse_gemini_agent_md(
         canonical["model"] = frontmatter_data["model"]
 
     per_only = dict(canonical.get("per_agentic_tool_only") or {})
-    gemini_only = _frontmatter_subset(
+    gemini_only = metadata_subset(
         frontmatter_data,
         OPTIONAL_GEMINI_AGENT_FIELDS,
     )
     if "tools" in gemini_only:
-        gemini_only["tools"] = _as_string_list(gemini_only["tools"])
+        gemini_only["tools"] = as_string_list(gemini_only["tools"])
     per_only["gemini_cli"] = gemini_only
     canonical["per_agentic_tool_only"] = per_only
 
     per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_extra["gemini_cli"] = _unknown_frontmatter_fields(
+    per_extra["gemini_cli"] = unknown_metadata_fields(
         frontmatter_data,
-        known_fields=KNOWN_GEMINI_AGENT_FIELDS,
-        foreign_fields=FOREIGN_AGENT_FIELDS,
+        KNOWN_GEMINI_AGENT_FIELDS,
+        FOREIGN_AGENT_FIELDS,
     )
     canonical["per_agentic_tool_extra"] = per_extra
 
@@ -252,20 +177,26 @@ def render_gemini_agent_md(
     prior_text: str | None = None,
 ) -> str:
     """Render a canonical agent as a Gemini CLI subagent file."""
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     for key in FOREIGN_AGENT_FIELDS:
         frontmatter.pop(key, None)
 
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
-    _set_or_pop(frontmatter, "model", canonical.get("model"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    set_or_remove_empty_metadata_field(frontmatter, "model", canonical.get("model"))
 
     gemini_only = canonical.get("per_agentic_tool_only", {}).get("gemini_cli", {})
-    _set_or_pop(frontmatter, "kind", gemini_only.get("kind") or "local")
-    _set_or_pop(frontmatter, "tools", gemini_only.get("tools"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "kind", gemini_only.get("kind") or "local",
+    )
+    set_or_remove_empty_metadata_field(frontmatter, "tools", gemini_only.get("tools"))
     for field_name in ("temperature", "max_turns", "mcpServers"):
-        _set_or_pop(frontmatter, field_name, gemini_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, gemini_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get(
         "gemini_cli", {}
@@ -273,7 +204,7 @@ def render_gemini_agent_md(
         if key not in FOREIGN_AGENT_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 def extract_pair_id_from_gemini_skill_md(text: str) -> str | None:
@@ -290,7 +221,9 @@ def parse_gemini_skill_md(
     """Parse a Gemini CLI Agent Skill ``SKILL.md`` file."""
     del artifact_path, artifact_root
 
-    frontmatter_data, body = _split_frontmatter(text, "Gemini CLI SKILL.md")
+    frontmatter_data, body = split_frontmatter(
+        text, label="Gemini CLI SKILL.md",
+    )
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
 
@@ -300,17 +233,17 @@ def parse_gemini_skill_md(
         canonical["description"] = str(frontmatter_data["description"])
 
     per_only = dict(canonical.get("per_agentic_tool_only") or {})
-    per_only["gemini_cli"] = _frontmatter_subset(
+    per_only["gemini_cli"] = metadata_subset(
         frontmatter_data,
         OPTIONAL_GEMINI_SKILL_FIELDS,
     )
     canonical["per_agentic_tool_only"] = per_only
 
     per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_extra["gemini_cli"] = _unknown_frontmatter_fields(
+    per_extra["gemini_cli"] = unknown_metadata_fields(
         frontmatter_data,
-        known_fields=KNOWN_GEMINI_SKILL_FIELDS,
-        foreign_fields=FOREIGN_SKILL_FIELDS,
+        KNOWN_GEMINI_SKILL_FIELDS,
+        FOREIGN_SKILL_FIELDS,
     )
     canonical["per_agentic_tool_extra"] = per_extra
 
@@ -327,17 +260,21 @@ def render_gemini_skill_md(
     prior_text: str | None = None,
 ) -> str:
     """Render a canonical skill as a Gemini CLI ``SKILL.md`` file."""
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     for key in FOREIGN_SKILL_FIELDS:
         frontmatter.pop(key, None)
 
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
 
     gemini_only = canonical.get("per_agentic_tool_only", {}).get("gemini_cli", {})
     for field_name in OPTIONAL_GEMINI_SKILL_FIELDS:
-        _set_or_pop(frontmatter, field_name, gemini_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, gemini_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get(
         "gemini_cli", {}
@@ -345,7 +282,7 @@ def render_gemini_skill_md(
         if key not in FOREIGN_SKILL_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 def extract_pair_id_from_gemini_rules_md(text: str) -> str | None:

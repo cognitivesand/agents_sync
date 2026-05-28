@@ -406,6 +406,29 @@ def test_nested_env_block_is_treated_as_secret_path():
     ]
 
 
+def test_parse_refuses_nested_env_secret_at_any_depth():
+    with pytest.raises(McpSecretLeakError) as exc_info:
+        parse_mcp_server_json(
+            json.dumps({
+                "name": "github",
+                "command": "gh",
+                "metadata": {
+                    "mcpServers": {
+                        "github": {
+                            "env": {"GITHUB_TOKEN": "literal-token"},
+                        },
+                    },
+                },
+            }),
+            None,
+            agentic_tool_name="alpha",
+        )
+
+    assert [f.field_path for f in exc_info.value.findings] == [
+        "metadata.mcpServers.github.env.GITHUB_TOKEN",
+    ]
+
+
 def test_public_mcp_server_io_defaults_use_canonical_secret_policy(
     caplog: pytest.LogCaptureFixture,
 ):
@@ -467,7 +490,7 @@ def test_env_reference_is_not_treated_as_literal_secret():
     assert "secret_redactions" not in canonical
 
 
-def test_uppercase_env_prefix_is_not_a_supported_secret_reference():
+def test_uppercase_env_prefix_is_supported_secret_reference():
     slot = {
         "name": "github",
         "transport": "http",
@@ -476,12 +499,9 @@ def test_uppercase_env_prefix_is_not_a_supported_secret_reference():
         "env": {"GITHUB_TOKEN": "${ENV:GITHUB_TOKEN}"},
     }
 
-    assert env_reference_name("${ENV:GITHUB_TOKEN}") is None
-    assert bearer_env_reference_name("Bearer ${ENV:GITHUB_TOKEN}") is None
-    assert [f.field_path for f in find_mcp_secret_literals(slot)] == [
-        "headers.Authorization",
-        "env.GITHUB_TOKEN",
-    ]
+    assert env_reference_name("${ENV:GITHUB_TOKEN}") == "GITHUB_TOKEN"
+    assert bearer_env_reference_name("Bearer ${ENV:GITHUB_TOKEN}") == "GITHUB_TOKEN"
+    assert find_mcp_secret_literals(slot) == []
 
 
 def test_mixed_case_and_composite_env_references_are_preserved():

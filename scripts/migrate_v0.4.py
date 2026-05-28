@@ -104,12 +104,10 @@ def detect_pre_v04_fix_state() -> bool:
             f"({type(exc).__name__}: {exc})"
         ) from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        print(
-            f"warning: state.json is malformed "
-            f"({type(exc).__name__}: {exc}); will migrate to be safe",
-            file=sys.stderr,
-        )
-        return True
+        raise MigrationDetectionError(
+            f"could not decode {STATE_FILE} during migration detection "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
     artifacts = data.get("customization_artifacts")
     if not isinstance(artifacts, dict):
         return False

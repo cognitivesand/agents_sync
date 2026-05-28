@@ -1,12 +1,13 @@
 """Markdown YAML metadata-block primitives shared by Markdown-based adapters.
 
-Historically each adapter (claude_io, antigravity_io, opencode_io, codex_io)
+Historically each adapter (claude_io, antigravity_io, opencode_io, codex_io,
+cursor_io, copilot_io, gemini_cli_io, rules_io, and slash_command_io)
 hand-rolled the same 14-line parse-prelude (BOM strip + frontmatter regex
 match + YAML load + isinstance-dict guard) with subtly different error
 messages, and three of them imported the underscore-prefixed helpers from
 ``claude_io`` despite the helpers not being Claude-specific. This module
 collects the helpers for the YAML metadata block at the top of Markdown
-files under one public surface, so a fifth adapter is a one-line consumer
+files under one public surface, so a new adapter is a one-line consumer
 and a change to BOM handling or YAML loader options is a one-place change.
 
 Public API:
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import io
 import re
+from collections.abc import Iterable
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -87,6 +89,20 @@ def yaml_dump(data: Any) -> str:
     buf = io.StringIO()
     make_yaml().dump(data, buf)
     return buf.getvalue()
+
+
+def render_markdown_with_metadata_block(
+    metadata: dict[str, Any],
+    body: str,
+    *,
+    final_newline: bool = True,
+) -> str:
+    """Render ``metadata`` as a leading YAML block followed by Markdown body."""
+    rendered_metadata = yaml_dump(metadata).rstrip("\n")
+    suffix = "\n" if final_newline and body else ""
+    if body:
+        return f"---\n{rendered_metadata}\n---\n{body}{suffix}"
+    return f"---\n{rendered_metadata}\n---\n"
 
 
 def strip_bom_prefix(text: str) -> str:
@@ -162,6 +178,52 @@ def split_frontmatter(
     return dict(loaded), body
 
 
+def set_or_remove_empty_metadata_field(
+    metadata: dict[str, Any],
+    key: str,
+    value: Any,
+) -> None:
+    """Set ``key`` to ``value`` or remove it when the value means "absent"."""
+    if value is None or value == "" or value == []:
+        metadata.pop(key, None)
+        return
+    metadata[key] = value
+
+
+def as_string_list(value: Any) -> list[str]:
+    """Coerce a metadata scalar/list value to a list of strings."""
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [str(value)]
+
+
+def metadata_subset(
+    metadata: dict[str, Any],
+    field_names: Iterable[str],
+) -> dict[str, Any]:
+    """Return the fields from ``metadata`` that are named in ``field_names``."""
+    return {
+        field_name: metadata[field_name]
+        for field_name in field_names
+        if field_name in metadata
+    }
+
+
+def unknown_metadata_fields(
+    metadata: dict[str, Any],
+    known_fields: frozenset[str],
+    foreign_fields: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Return fields not owned by this adapter or known to another adapter."""
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key not in known_fields and key not in foreign_fields
+    }
+
+
 def frontmatter_for_render(prior_text: str | None) -> Any:
     """Return a ruamel-mutable mapping seeded from ``prior_text``.
 
@@ -204,12 +266,17 @@ def extract_pair_id_from_md(text: str) -> str | None:
 __all__ = [
     "AdapterParseError",
     "FRONTMATTER_RE",
+    "as_string_list",
     "extract_pair_id_from_md",
     "frontmatter_for_render",
     "make_yaml",
+    "metadata_subset",
     "normalize_markdown_text",
+    "render_markdown_with_metadata_block",
+    "set_or_remove_empty_metadata_field",
     "split_frontmatter",
     "strip_bom_prefix",
+    "unknown_metadata_fields",
     "yaml_dump",
     "yaml_load",
 ]

@@ -104,6 +104,15 @@ def test_gemini_agent_uses_filename_when_name_is_missing(tmp_path: Path):
     assert canonical["body"] == "body"
 
 
+def test_gemini_agent_frontmatter_name_wins_over_path(tmp_path: Path):
+    canonical = parse_gemini_agent_md(
+        f"---\npair_id: {PAIR_ID}\nname: reviewer\n---\nbody\n",
+        artifact_path=tmp_path / "renamed.md",
+    )
+
+    assert canonical["name"] == "reviewer"
+
+
 def test_render_gemini_agent_does_not_leak_antigravity_or_claude_fields():
     canonical = empty_canonical("agent")
     canonical["pair_id"] = PAIR_ID
@@ -135,6 +144,21 @@ def test_render_gemini_agent_does_not_leak_antigravity_or_claude_fields():
     assert "allowed-tools:" not in rendered
     assert "permissionMode:" not in rendered
     assert "hooks:" not in rendered
+
+
+def test_gemini_agent_render_drops_empty_tools_list():
+    canonical = empty_canonical("agent")
+    canonical["pair_id"] = PAIR_ID
+    canonical["name"] = "reviewer"
+    canonical["body"] = "Review with care."
+    canonical["per_agentic_tool_only"]["gemini_cli"] = {
+        "kind": "local",
+        "tools": [],
+    }
+
+    rendered = render_gemini_agent_md(canonical)
+
+    assert "tools:" not in rendered
 
 
 def test_gemini_skill_round_trips_open_skill_fields_and_extras():

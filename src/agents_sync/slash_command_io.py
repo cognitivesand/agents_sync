@@ -20,9 +20,10 @@ from agents_sync.canonical import (
 from agents_sync.codex_io import _normalize_toml_text
 from agents_sync.state import target_slug
 from agents_sync.markdown_yaml_metadata_block import (
+    as_string_list,
     extract_pair_id_from_md,
+    render_markdown_with_metadata_block,
     split_frontmatter,
-    yaml_dump,
 )
 
 
@@ -76,14 +77,6 @@ def _toml_scalar(value: Any) -> str:
 
 def _toml_dump_top_level(data: dict[str, Any]) -> str:
     return "".join(f"{_toml_key(key)} = {_toml_scalar(value)}\n" for key, value in data.items())
-
-
-def _as_string_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return [str(value)]
 
 
 def slash_command_slug(name: str) -> str:
@@ -163,7 +156,7 @@ def parse_slash_command_markdown(
     if "argument-hint" in frontmatter_data:
         canonical["argument_hint"] = str(frontmatter_data["argument-hint"])
     if "allowed-tools" in frontmatter_data:
-        canonical["allowed_tools"] = _as_string_list(frontmatter_data["allowed-tools"])
+        canonical["allowed_tools"] = as_string_list(frontmatter_data["allowed-tools"])
     if "model" in frontmatter_data:
         canonical["model"] = frontmatter_data["model"]
 
@@ -212,8 +205,11 @@ def render_slash_command_markdown(
     ).items():
         frontmatter[key] = value
 
-    rendered_fm = yaml_dump(frontmatter).rstrip("\n")
-    return f"---\n{rendered_fm}\n---\n{canonical.get('body', '')}"
+    return render_markdown_with_metadata_block(
+        frontmatter,
+        canonical.get("body", ""),
+        final_newline=False,
+    )
 
 
 def extract_pair_id_from_slash_command_toml(text: str) -> str | None:
@@ -260,7 +256,7 @@ def parse_slash_command_toml(
         canonical["argument_hint"] = str(argument_hint)
     allowed_tools = _first_present(data, "allowed_tools", "allowed-tools")
     if allowed_tools is not None:
-        canonical["allowed_tools"] = _as_string_list(allowed_tools)
+        canonical["allowed_tools"] = as_string_list(allowed_tools)
     if "model" in data:
         canonical["model"] = data["model"]
 

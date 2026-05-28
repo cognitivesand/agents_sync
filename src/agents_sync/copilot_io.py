@@ -10,15 +10,17 @@ import re
 from pathlib import Path
 from typing import Any
 
+from agents_sync.artifact_names import resolve_artifact_name
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.markdown_yaml_metadata_block import (
-    FRONTMATTER_RE,
+    as_string_list,
     extract_pair_id_from_md,
     frontmatter_for_render,
-    normalize_markdown_text,
-    strip_bom_prefix,
-    yaml_dump,
-    yaml_load,
+    metadata_subset,
+    render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
+    split_frontmatter,
+    unknown_metadata_fields,
 )
 from agents_sync.state import target_slug
 
@@ -101,84 +103,6 @@ INSTRUCTION_CANONICAL_FIELDS: tuple[str, ...] = (
 )
 
 PROMPT_TOOL_ONLY_FIELDS: tuple[str, ...] = ("agent",)
-
-
-def _yaml_dump(data: Any) -> str:
-    return yaml_dump(data)
-
-
-def _split_frontmatter(
-    text: str,
-    label: str,
-    *,
-    strip_body: bool = True,
-) -> tuple[dict[str, Any], str]:
-    text = normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        body = strip_bom_prefix(text)
-        return {}, body.strip() if strip_body else body
-
-    raw_frontmatter, body_raw = match.groups()
-    loaded = yaml_load(raw_frontmatter)
-    if loaded is None:
-        frontmatter_data: dict[str, Any] = {}
-    elif not isinstance(loaded, dict):
-        raise ValueError(f"Copilot {label} frontmatter must be a YAML mapping")
-    else:
-        frontmatter_data = dict(loaded)
-
-    body = strip_bom_prefix(body_raw)
-    return frontmatter_data, body.strip() if strip_body else body
-
-
-def _frontmatter_for_render(prior_text: str | None) -> dict[str, Any]:
-    return frontmatter_for_render(prior_text)
-
-
-def _render_markdown(frontmatter: dict[str, Any], body: str, *, final_newline: bool = True) -> str:
-    rendered_frontmatter = _yaml_dump(frontmatter).rstrip("\n")
-    suffix = "\n" if final_newline and body else ""
-    if body:
-        return f"---\n{rendered_frontmatter}\n---\n{body}{suffix}"
-    return f"---\n{rendered_frontmatter}\n---\n"
-
-
-def _set_or_pop(target: dict[str, Any], key: str, value: Any) -> None:
-    if value is None or value == "" or value == []:
-        target.pop(key, None)
-        return
-    target[key] = value
-
-
-def _as_string_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return [str(value)]
-
-
-def _frontmatter_subset(
-    frontmatter: dict[str, Any],
-    field_names: tuple[str, ...],
-) -> dict[str, Any]:
-    return {
-        field_name: frontmatter[field_name]
-        for field_name in field_names
-        if field_name in frontmatter
-    }
-
-
-def _unknown_fields(
-    frontmatter: dict[str, Any],
-    known_fields: frozenset[str],
-) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in frontmatter.items()
-        if key not in known_fields
-    }
 
 
 def _strip_suffix(name: str, *suffixes: str) -> str:
@@ -283,27 +207,31 @@ def parse_copilot_agent_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    frontmatter, body = _split_frontmatter(text, "agent")
+    frontmatter, body = split_frontmatter(text, label="Copilot agent")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
     canonical["body"] = body
 
     path_name = _agent_name_from_path(artifact_path)
-    if "name" in frontmatter:
-        canonical["name"] = str(frontmatter["name"])
-    elif path_name:
-        canonical["name"] = path_name
+    name = resolve_artifact_name(
+        frontmatter_name=frontmatter.get("name"),
+        path_name=path_name,
+        prior_name=canonical.get("name"),
+        precedence=("frontmatter", "path", "prior"),
+    )
+    if name is not None:
+        canonical["name"] = name
 
     if "description" in frontmatter:
         canonical["description"] = str(frontmatter["description"])
     if "model" in frontmatter:
         canonical["model"] = frontmatter["model"]
     if "tools" in frontmatter:
-        canonical["tools"] = _as_string_list(frontmatter["tools"])
+        canonical["tools"] = as_string_list(frontmatter["tools"])
 
     _set_per_tool_data(
         canonical,
-        only=_frontmatter_subset(frontmatter, AGENT_TOOL_ONLY_FIELDS),
-        extra=_unknown_fields(frontmatter, KNOWN_AGENT_FIELDS),
+        only=metadata_subset(frontmatter, AGENT_TOOL_ONLY_FIELDS),
+        extra=unknown_metadata_fields(frontmatter, KNOWN_AGENT_FIELDS),
     )
     _set_pair_id(canonical, frontmatter, prior_canonical)
     return canonical
@@ -313,22 +241,26 @@ def render_copilot_agent_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
-    _set_or_pop(frontmatter, "model", canonical.get("model"))
-    _set_or_pop(frontmatter, "tools", canonical.get("tools"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    set_or_remove_empty_metadata_field(frontmatter, "model", canonical.get("model"))
+    set_or_remove_empty_metadata_field(frontmatter, "tools", canonical.get("tools"))
 
     tool_only = canonical.get("per_agentic_tool_only", {}).get("copilot", {})
     for field_name in AGENT_TOOL_ONLY_FIELDS:
-        _set_or_pop(frontmatter, field_name, tool_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, tool_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get("copilot", {}).items():
         if key not in KNOWN_AGENT_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 # ---------- skills ----------
@@ -345,7 +277,7 @@ def parse_copilot_skill_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    frontmatter, body = _split_frontmatter(text, "skill")
+    frontmatter, body = split_frontmatter(text, label="Copilot skill")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
 
@@ -358,8 +290,8 @@ def parse_copilot_skill_md(
 
     _set_per_tool_data(
         canonical,
-        only=_frontmatter_subset(frontmatter, SKILL_TOOL_ONLY_FIELDS),
-        extra=_unknown_fields(frontmatter, KNOWN_SKILL_FIELDS),
+        only=metadata_subset(frontmatter, SKILL_TOOL_ONLY_FIELDS),
+        extra=unknown_metadata_fields(frontmatter, KNOWN_SKILL_FIELDS),
     )
     _set_pair_id(canonical, frontmatter, prior_canonical)
     return canonical
@@ -369,20 +301,24 @@ def render_copilot_skill_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = copilot_skill_slug(canonical["name"])
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
 
     tool_only = canonical.get("per_agentic_tool_only", {}).get("copilot", {})
     for field_name in SKILL_TOOL_ONLY_FIELDS:
-        _set_or_pop(frontmatter, field_name, tool_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, tool_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get("copilot", {}).items():
         if key not in KNOWN_SKILL_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 # ---------- VS Code user-profile instructions / rules ----------
@@ -399,7 +335,9 @@ def parse_copilot_instruction_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    frontmatter, body = _split_frontmatter(text, "instruction", strip_body=False)
+    frontmatter, body = split_frontmatter(
+        text, label="Copilot instruction", strip_body=False,
+    )
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("rules")
     canonical["body"] = body
 
@@ -421,7 +359,7 @@ def parse_copilot_instruction_md(
     _set_per_tool_data(
         canonical,
         only={},
-        extra=_unknown_fields(frontmatter, KNOWN_INSTRUCTION_FIELDS),
+        extra=unknown_metadata_fields(frontmatter, KNOWN_INSTRUCTION_FIELDS),
     )
     _set_pair_id(canonical, frontmatter, prior_canonical)
     return canonical
@@ -431,18 +369,22 @@ def render_copilot_instruction_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
     for field_name in INSTRUCTION_CANONICAL_FIELDS:
-        _set_or_pop(frontmatter, field_name, canonical.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, canonical.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get("copilot", {}).items():
         if key not in KNOWN_INSTRUCTION_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 # ---------- VS Code user-profile prompts / slash commands ----------
@@ -459,7 +401,9 @@ def parse_copilot_prompt_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    frontmatter, body = _split_frontmatter(text, "prompt", strip_body=False)
+    frontmatter, body = split_frontmatter(
+        text, label="Copilot prompt", strip_body=False,
+    )
     canonical = (
         dict(prior_canonical)
         if prior_canonical
@@ -479,12 +423,12 @@ def parse_copilot_prompt_md(
     if "model" in frontmatter:
         canonical["model"] = frontmatter["model"]
     if "tools" in frontmatter:
-        canonical["allowed_tools"] = _as_string_list(frontmatter["tools"])
+        canonical["allowed_tools"] = as_string_list(frontmatter["tools"])
 
     _set_per_tool_data(
         canonical,
-        only=_frontmatter_subset(frontmatter, PROMPT_TOOL_ONLY_FIELDS),
-        extra=_unknown_fields(frontmatter, KNOWN_PROMPT_FIELDS),
+        only=metadata_subset(frontmatter, PROMPT_TOOL_ONLY_FIELDS),
+        extra=unknown_metadata_fields(frontmatter, KNOWN_PROMPT_FIELDS),
     )
     _set_pair_id(canonical, frontmatter, prior_canonical)
     return canonical
@@ -494,13 +438,17 @@ def render_copilot_prompt_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    frontmatter = _frontmatter_for_render(prior_text)
+    frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
-    _set_or_pop(frontmatter, "argument-hint", canonical.get("argument_hint"))
-    _set_or_pop(frontmatter, "model", canonical.get("model"))
-    _set_or_pop(
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    set_or_remove_empty_metadata_field(
+        frontmatter, "argument-hint", canonical.get("argument_hint"),
+    )
+    set_or_remove_empty_metadata_field(frontmatter, "model", canonical.get("model"))
+    set_or_remove_empty_metadata_field(
         frontmatter,
         "tools",
         canonical.get("allowed_tools") or canonical.get("tools"),
@@ -508,13 +456,15 @@ def render_copilot_prompt_md(
 
     tool_only = canonical.get("per_agentic_tool_only", {}).get("copilot", {})
     for field_name in PROMPT_TOOL_ONLY_FIELDS:
-        _set_or_pop(frontmatter, field_name, tool_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, tool_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get("copilot", {}).items():
         if key not in KNOWN_PROMPT_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(
+    return render_markdown_with_metadata_block(
         frontmatter,
         canonical.get("body", ""),
         final_newline=False,
