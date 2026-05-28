@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`agents_sync` keeps user-authored agents and skills in sync across multiple agentic_tools (for example Claude Code, Codex, Cursor, Google Antigravity, and opencode) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
+`agents_sync` keeps user-authored agents, skills, rules, slash commands, and MCP servers in sync across multiple agentic_tools (for example Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, Google Antigravity, and opencode) in both directions. Edit a customization in any configured agentic_tool, and within seconds the change propagates to every other agentic_tool that supports the same `customization_type`.
 
 ## Problem statement
 
@@ -21,9 +21,9 @@ Release history:
 - v0.1 (`claude-codex-sync`): one-way translation, Claude → Codex; Claude-only metadata dropped into a JSON-in-body blob for manual review.
 - v0.2: bidirectional, lossless sync between two agentic_tools (Claude Code, Codex) via a per-customization_artifact canonical JSON intermediate.
 - v0.3: first-class Windows operations.
-- v0.4: generalisation to **N agentic_tools** via the agentic-tool-integration protocol (`docs/agentic_tool_integration_protocol.md`). Each additional agentic_tool is a small, isolated module under `src/agents_sync/agentic_tools/` plus a config entry; no sync-algorithm changes are required.
+- v0.4: generalisation to **N agentic_tools** via the agentic-tool-integration protocol (`docs/agentic_tool_integration_protocol.md`). Each additional agentic_tool is a small, isolated spec factory plus config entries; no sync-algorithm changes are required.
 - v0.4.1: opencode added for agents and skills; Codex custom agents restored under `~/.codex/agents/*.toml`.
-- v0.5: three new agentic_tools (Cursor, Gemini CLI, GitHub Copilot) and three new customization_types (`rules`, `slash_command`, `mcp_server`). Antigravity remains the canonical owner of `~/.gemini/antigravity/skills/`; Gemini CLI does not declare `skill` in its `supported_customization_types`. A new top-level config key `mcp_server_secret_policy` (`refuse` / `redact` / `permissive`, default `refuse`) governs how literal secrets in MCP-server `env`, `headers`, and `auth.*` fields are handled.
+- v0.5: three new agentic_tools (Cursor, Gemini CLI, GitHub Copilot) and three new customization_types (`rules`, `slash_command`, `mcp_server`). Antigravity remains the canonical owner of `~/.gemini/antigravity/skills/`; Gemini CLI also exposes `~/.gemini/skills/` as a normal `skill` root. A new top-level config key `secret_policy` (`secrets_refused` / `secrets_accepted`, default `secrets_refused`) governs how literal secrets in MCP-server `env`, `headers`, and `auth.*` fields are handled. The deprecated `mcp_server_secret_policy` key and its legacy values are accepted for one release as compatibility aliases.
 
 ## Scope
 
@@ -67,7 +67,7 @@ Out of scope (initially):
 2. Renaming, editing, or reorganising a customization on any one agentic_tool does not break the customization_artifact's sync across the other agentic_tools.
 3. No user-authored content is ever destroyed; every overwrite or removal first archives the prior bytes under a deterministic, recoverable layout.
 4. The tool runs unattended as a background user service/task and recovers from transient errors without operator intervention.
-5. Adding support for a new agentic_tool is a small, isolated change: one new module under `src/agents_sync/agentic_tools/<tool_name>.py` plus a `[agentic_tools.<tool_name>]` config block — no edits to the sync engine.
+5. Adding support for a new agentic_tool is a small, isolated change: one new spec factory under `src/agents_sync/tool_specs/<tool_name>.py` plus matching config defaults and CLI/config keys - no edits to the sync engine.
 
 ## Non-goals
 

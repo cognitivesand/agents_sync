@@ -1,8 +1,8 @@
 # Agentic-Tool Integration Protocol
 
-This document specifies the contract that every agentic_tool module must satisfy. It is the implementation counterpart to US-10 "Extensible agentic_tool registry" and US-11 "Graceful agentic_tool absence."
+This document specifies the contract that every `AgenticToolSpec` factory must satisfy. It is the implementation counterpart to US-10 "Extensible agentic_tool registry" and US-11 "Graceful agentic_tool absence."
 
-An agentic_tool module integrates `agents_sync` with **one** agentic_tool. Adding a new agentic_tool means adding one new agentic_tool module that conforms to this protocol, plus a corresponding `[agentic_tools.<name>]` block in the user's config file. No changes to the sync algorithm are required.
+An agentic_tool spec factory integrates `agents_sync` with **one** agentic_tool. Adding a new agentic_tool means adding one new factory that conforms to this protocol, plus corresponding config keys/defaults. No changes to the sync algorithm are required.
 
 ## Terminology
 
@@ -12,69 +12,70 @@ User stories and the README use everyday prose; this protocol uses precise techn
 |---|---|---|
 | my customizations (as a domain) | `user_customization` | Umbrella term for the whole domain of user-authored customizations across every `customization_type`. Conceptual, not an identifier of any single thing. |
 | a customization / my agent / my skill | `customization_artifact` | A specific managed instance: identified by `customization_artifact_id`, present on N agentic_tools. The technical unit of synchronisation. |
-| (no specific prose form; agent / skill / etc.) | `customization_type` | The category of a customization_artifact. Values today: `agent`, `skill`. Each customization_type has an associated `file_layout` describing how it is stored on disk (single file or folder). Open for future values. |
+| (no specific prose form; agent / skill / etc.) | `customization_type` | The category of a customization_artifact. Values today: `agent`, `skill`, `rules`, `slash_command`, and `mcp_server`. Each customization_type has an associated `file_layout` describing how it is stored on disk. |
 | (set of customization_types a tool supports) | `supported_customization_types` | The subset of registered customization_types that an agentic_tool's IO module can read and write. |
 | my agentic_tools | `agentic_tool` | Both the external application that consumes customization_artifacts and `agents_sync`'s in-codebase integration with that application (1:1; no separate "side" or "peer" abstraction). |
 | (legacy) | `kind`, `pair`, `side` | **Deprecated**. `kind` and `pair` were the pre-v0.4 internal names for `customization_type` and `customization_artifact` respectively. `side` was the pre-v0.4 alias for `agentic_tool`. Do not introduce in new code; may appear only in legacy migration code paths. |
 
-An agentic_tool module is therefore the code that reads and writes `customization_artifact` instances on disk for one specific agentic_tool, for each `customization_type` that tool supports.
+An agentic_tool spec factory is therefore the code that binds storage locations and parse/render functions for one specific agentic_tool, for each `customization_type` that tool supports.
 
 Implementation note: the current on-disk and in-code identity field is still named `pair_id` for state-schema compatibility. This document uses the broader term `customization_artifact_id` where it describes the domain model.
 
 ## Module layout
 
-One Python module per agentic_tool, named after the agentic_tool:
+Built-in agentic_tools are constructed by one Python factory module per tool, named after the agentic_tool:
 
 ```
-src/agents_sync/agentic_tools/<agentic_tool_name>.py
+src/agents_sync/tool_specs/<agentic_tool_name>.py
 ```
 
 Examples:
 
 ```
-src/agents_sync/agentic_tools/claude.py
-src/agents_sync/agentic_tools/codex.py
-src/agents_sync/agentic_tools/cursor.py
-src/agents_sync/agentic_tools/antigravity.py
-src/agents_sync/agentic_tools/opencode.py
+src/agents_sync/tool_specs/claude.py
+src/agents_sync/tool_specs/codex.py
+src/agents_sync/tool_specs/copilot.py
+src/agents_sync/tool_specs/cursor.py
+src/agents_sync/tool_specs/gemini_cli.py
+src/agents_sync/tool_specs/antigravity.py
+src/agents_sync/tool_specs/opencode.py
 ```
 
 `<agentic_tool_name>` is the agentic_tool's unique identifier. It is lowercase ASCII, matches `^[a-z][a-z0-9_]{1,30}$`, and is the same string used throughout:
 
-- in the config file: `[agentic_tools.<agentic_tool_name>]`;
+- in config keys and logs;
 - in archive paths: `archive/<customization_artifact_id>/<agentic_tool_name>/`;
 - in state entries: `state.customization_artifacts[<customization_artifact_id>].agentic_tools[<agentic_tool_name>]`;
 - in canonical per-agentic_tool bags: `per_agentic_tool_only[<agentic_tool_name>]`, `per_agentic_tool_extra[<agentic_tool_name>]`.
 
-## What every module must declare
+## What every factory must declare
 
-Each agentic_tool module exports exactly one top-level constant named `AGENTIC_TOOL`, of type `AgenticToolSpec`:
+Each agentic_tool factory returns one `AgenticToolSpec`:
 
 ```python
-# src/agents_sync/agentic_tools/<agentic_tool_name>.py
+# src/agents_sync/tool_specs/<agentic_tool_name>.py
 from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
 
-AGENTIC_TOOL: AgenticToolSpec = AgenticToolSpec(
-    name="<agentic_tool_name>",
-    supported_customization_types=frozenset({...}),   # subset of {"agent", "skill", ...}
-    io_per_customization_type={
-        "agent": CustomizationTypeIO(...),            # present iff "agent" in supported_customization_types
-        "skill": CustomizationTypeIO(...),            # present iff "skill" in supported_customization_types
-    },
-    config_roots={
-        "agent": "<config_key_for_agent_root>",
-        "skill": "<config_key_for_skill_root>",
-    },
-    file_layout={
-        "agent": AgentFileLayout(extension=".<ext>"),
-        "skill": SkillFileLayout(skill_md_name="SKILL.md"),
-    },
-)
+def build_<agentic_tool_name>_spec(config=None) -> AgenticToolSpec:
+    return AgenticToolSpec(
+        name="<agentic_tool_name>",
+        config_dir_keys={
+            "agent": "<config_key_for_agent_root>",
+            "skill": "<config_key_for_skill_root>",
+        },
+        io={
+            "agent": CustomizationTypeIO(...),
+            "skill": CustomizationTypeIO(...),
+        },
+        disable_config_key="<tool_enabled_key>",
+    )
 ```
 
-The daemon's agentic_tool registry imports `AGENTIC_TOOL` from every module under `src/agents_sync/agentic_tools/` at startup. A module that omits `AGENTIC_TOOL`, or whose `AGENTIC_TOOL` is not an `AgenticToolSpec`, causes a fail-closed configuration error per US-10 AC-8.
+`AgenticToolSpec.config_dir_keys` and `AgenticToolSpec.io` must declare the same customization_type keys. The spec exposes `supported_customization_types` as `frozenset(spec.io.keys())`.
 
-## The three questions every module answers
+The default registry is assembled by `agents_sync.agentic_tool_spec.default_agentic_tools()`. A factory that returns an invalid `AgenticToolSpec` causes a fail-closed configuration error per US-10 AC-8.
+
+## The three questions every factory answers
 
 ### 1. What is synced
 
@@ -157,35 +158,32 @@ Function contracts:
 
 ## Registration
 
-Agentic_tools are discovered by the daemon at startup via:
+Built-in agentic_tools are registered by `agents_sync.agentic_tool_spec.default_agentic_tools()`, which imports the factory functions from `agents_sync.tool_specs` and returns a deterministic `dict[str, AgenticToolSpec]`.
 
 ```python
-# src/agents_sync/agentic_tool_registry.py (sketch)
-import pkgutil
-from agents_sync import agentic_tools as agentic_tools_pkg
-
-REGISTRY: dict[str, AgenticToolSpec] = {}
-for module_info in pkgutil.iter_modules(agentic_tools_pkg.__path__):
-    module = importlib.import_module(f"agents_sync.agentic_tools.{module_info.name}")
-    spec = getattr(module, "AGENTIC_TOOL", None)
-    if not isinstance(spec, AgenticToolSpec):
-        raise ConfigError(f"agentic_tools/{module_info.name}.py does not export an AGENTIC_TOOL: AgenticToolSpec")
-    if spec.name in REGISTRY:
-        raise ConfigError(f"duplicate agentic_tool name: {spec.name}")
-    REGISTRY[spec.name] = spec
+def default_agentic_tools(config=None) -> dict[str, AgenticToolSpec]:
+    return {
+        "antigravity": build_antigravity_spec(),
+        "claude": build_claude_spec(config),
+        "codex": build_codex_spec(config),
+        "copilot": build_copilot_spec(config),
+        "cursor": build_cursor_spec(config),
+        "gemini_cli": build_gemini_cli_spec(config),
+        "opencode": build_opencode_spec(config),
+    }
 ```
 
-Registration is purely structural. A registered agentic_tool that is not also enabled in config (see `enabled = false`) is excluded from runtime per US-10 AC-7. A registered, enabled agentic_tool whose configured root is missing is `unavailable` per US-11.
+Registration is purely structural. A registered agentic_tool whose disable key is explicitly false is excluded from runtime per US-10 AC-7. A registered, enabled agentic_tool whose configured root is missing is `unavailable` per US-11. Tools with `partial_availability=True` may also gate individual customization_types with `kind_disable_config_keys`.
 
 ## Adding a new agentic_tool: end-to-end checklist
 
-1. Create `src/agents_sync/agentic_tools/<tool_name>.py`.
-2. Implement the three `CustomizationTypeIO` callables (`extract_customization_artifact_id`, `parse`, `render`) for each `customization_type` the tool supports — wired into a `CustomizationTypeIO` instance in the spec.
-3. Export a top-level `AGENTIC_TOOL = AgenticToolSpec(...)`.
-4. Add a `[agentic_tools.<tool_name>]` block to the sample config in the installer.
-5. Add the agentic_tool's default root paths to the per-OS defaults in `config.py`.
-6. Write unit tests in `tests/agentic_tools/test_<tool_name>.py` covering parse/render round-trip, unknown-field passthrough, BOM and CRLF tolerance, malformed-artifact-metadata handling.
-7. Add the new agentic_tool to the integration test matrix for US-01, US-03, US-06, US-11.
+1. Create `src/agents_sync/tool_specs/<tool_name>.py`.
+2. Implement or reuse the three `CustomizationTypeIO` callables (`extract_pair_id`, `parse`, `render`) for each `customization_type` the tool supports.
+3. Return an `AgenticToolSpec(...)` from `build_<tool_name>_spec(config=None)`.
+4. Add the factory to `src/agents_sync/tool_specs/__init__.py` and `default_agentic_tools()`.
+5. Add the agentic_tool's default root paths, enabled keys, and config-file mappings to `config.py` and `cli.py`.
+6. Write unit tests covering parse/render round-trip, unknown-field passthrough, BOM and CRLF tolerance, malformed-artifact-metadata handling, and config validation.
+7. Add the new agentic_tool to the integration test matrix for US-01, US-03, US-06, US-11, and any customization_types it supports.
 8. Document the agentic_tool in README's "What It Syncs" table and add an entry to the Default Paths table.
 
 No changes to `sync.py`, `state.py`, `canonical.py`, `archive.py`, or any other module are required. If any change to those modules is needed to make the new agentic_tool work, the design has failed US-10 AC-2 — fix the protocol instead of working around it.
@@ -193,39 +191,33 @@ No changes to `sync.py`, `state.py`, `canonical.py`, `archive.py`, or any other 
 ## Example: minimal agentic_tool supporting only the `skill` customization_type
 
 ```python
-# src/agents_sync/agentic_tools/example.py
-from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO, SkillFileLayout
-from agents_sync.io_helpers.skill_md import (
-    extract_customization_artifact_id_from_skill_md,
-    parse_open_spec_skill_md,
-    render_open_spec_skill_md,
+# src/agents_sync/tool_specs/example.py
+from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
+from agents_sync.example_io import (
+    extract_pair_id_from_example_skill_md,
+    parse_example_skill_md,
+    render_example_skill_md,
 )
 
-KNOWN_FIELDS = frozenset({
-    "customization_artifact_id", "name", "description",
-    "license", "compatibility", "metadata", "allowed-tools",
-})
 
-AGENTIC_TOOL = AgenticToolSpec(
-    name="example",
-    supported_customization_types=frozenset({"skill"}),
-    io_per_customization_type={
-        "skill": CustomizationTypeIO(
-            extract_customization_artifact_id=extract_customization_artifact_id_from_skill_md,
-            parse=lambda text, prior: parse_open_spec_skill_md(
-                text, prior, agentic_tool_name="example", known_fields=KNOWN_FIELDS,
+def build_example_spec(config=None) -> AgenticToolSpec:
+    return AgenticToolSpec(
+        name="example",
+        config_dir_keys={"skill": "example_skills_dir"},
+        io={
+            "skill": CustomizationTypeIO(
+                extract_pair_id=extract_pair_id_from_example_skill_md,
+                parse=parse_example_skill_md,
+                render=render_example_skill_md,
+                storage="directory_skill",
+                file_suffix="",
             ),
-            render=lambda canonical, prior_text: render_open_spec_skill_md(
-                canonical, prior_text, agentic_tool_name="example", known_fields=KNOWN_FIELDS,
-            ),
-        ),
-    },
-    config_roots={"skill": "skills_dir"},
-    file_layout={"skill": SkillFileLayout(skill_md_name="SKILL.md")},
-)
+        },
+        disable_config_key="example_enabled",
+    )
 ```
 
-The shared `io_helpers.skill_md` module hosts the open-spec `SKILL.md` parse/render that every agentic_tool speaking the open Agent Skills Specification can share; per-agentic_tool specialisation is confined to `known_fields` and the agentic_tool name. This is the recommended pattern for any agentic_tool whose on-disk format follows the open spec.
+Shared parser/renderer helpers remain encouraged where formats overlap; per-agentic_tool specialisation should stay confined to the factory and its small IO module.
 
 ## v0.5 customization_types
 
@@ -294,11 +286,10 @@ An `mcp_server` artifact is one MCP-server definition. Unlike `agent`/`skill`/`r
     - `auth` (object, optional) — used by tools that carry OAuth client credentials inline.
   - `disabled` (bool, optional) — most tools support this; passthrough where they do not.
   - `always_allow` (list[string], optional) — Cline/Roo/Kilo style. Stored canonically as `always_allow`; per-tool spellings (`alwaysAllow`, `allowedTools`) in `per_agentic_tool_only`.
-  - `secret_redactions` (list[object], optional) — populated only under `mcp_server_secret_policy = "redact"`; each entry records `{ field_path, original_env_var | null }` so the user can re-resolve manually.
-- **Secret-redaction policy (`mcp_server_secret_policy`)**: a top-level config key in the user's `agents_sync` config, accepted values `"refuse"` (default), `"redact"`, `"permissive"`. Evaluated by the sync core (not per adapter) at parse time and again at render time. The detection heuristic flags string values in `env`, `headers["Authorization"]`, `headers["X-API-Key"]`, `auth.client_secret`, and any field name matching `(?i)(api[_-]?key|token|secret|password)` whose value is not already a supported environment reference (`${env:VAR}` canonically, `${VAR}` for Claude Code, `{env:VAR}` for OpenCode, including `Bearer <env-ref>` authorization headers). Codex's `*_env_var` fields name environment variables and are not treated as secret literals.
-  - `"refuse"`: parse fails with a structured error per US-03 AC-10. The artifact is NOT adopted; the prior on-disk file is left untouched. Per-tool tests verify the error shape.
-  - `"redact"`: literals are replaced with `${env:AGENTS_SYNC_REDACTED_<n>}`; original variable hints (if recoverable, e.g. a sibling `env_key = "FOO"` in Codex) are stored in `canonical.secret_redactions`; otherwise `original_env_var: null`. Renders emit the placeholder; the user is expected to set the env var on each target host.
-  - `"permissive"`: literals propagate unchanged. The sync engine emits one structured warning per artifact per poll naming the field path. Loop suppression is unaffected (warning is informational).
+  - `secret_redactions` (list[object], optional) — retained only for backwards compatibility with snapshots produced while the deprecated redaction mode existed.
+- **Secret policy (`secret_policy`)**: a top-level config key in the user's `agents_sync` config, accepted values `"secrets_refused"` (default) and `"secrets_accepted"`. The deprecated `mcp_server_secret_policy` key and the legacy values `"refuse"`, `"redact"`, and `"permissive"` are accepted for one release as compatibility aliases; `"redact"` maps to `"secrets_refused"` and `"permissive"` maps to `"secrets_accepted"`. The policy is evaluated by the sync core (not per adapter) at parse time, render time, customization-library export, and customization-library import. The detection heuristic flags string values in `env`, `headers["Authorization"]`, `headers["X-API-Key"]`, `auth.client_secret`, and any field name matching secret-like names whose value is not already a supported environment reference (`${env:VAR}` canonically, `${VAR}` for Claude Code, `{env:VAR}` for OpenCode, including authorization headers that wrap an env reference). Codex's `*_env_var` fields name environment variables and are not treated as secret literals unless their values themselves look like secret material.
+  - `"secrets_refused"`: parse/render/export/import refuses secret-bearing artifacts with a structured error or warning per US-03 AC-10. The artifact is NOT adopted or exported, and the prior on-disk file is left untouched.
+  - `"secrets_accepted"`: literals propagate unchanged. The sync engine emits structured warnings naming the field paths. Loop suppression is unaffected.
 - **SharedKeyedMapLayout semantics** (read / write / archive):
   - **Read**: discovery enumerates `shared_path` once per poll. The parser is invoked once per slot (one `parse(slot_text, prior_canonical)` per server). On a malformed slot, the artifact is skipped with a structured warning; sibling slots are still processed.
   - **Write**: rendering produces a slot value. The sync core reads the current `shared_path`, replaces (or inserts) the slot under `map_key_path`, and atomically writes the merged file. Sibling slots are preserved byte-for-byte. The file's keys outside `map_key_path` are preserved byte-for-byte.

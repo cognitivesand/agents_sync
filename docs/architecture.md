@@ -1,12 +1,12 @@
 # agents_sync — Architecture
 
 This document describes the architecture of `agents_sync` as it stands at
-v0.4.1, organised around the layers of *Clean Architecture* (Martin, 2017).
+v0.5, organised around the layers of *Clean Architecture* (Martin, 2017).
 It is intended to be useful as both a reader's map of the code and a
 governance artefact: any future change should leave this document either
 true or amended.
 
-- **Status**: current as of v0.4.1.
+- **Status**: current as of v0.5.
 - **Sources of truth**: the code under `src/agents_sync/`,
   `docs/project_description.md`, `docs/project_requirements.md`, and the
   user stories under `docs/stories/`.
@@ -44,10 +44,10 @@ true, not aspirationally true.
 | Editing a customization on **any** participating agentic_tool propagates to **every other** within ≤ 2 polling intervals | description goal 1, NFR-02 | A poll-driven use case (`sync_once`) that is a pure function of on-disk state + persisted state. |
 | No user-authored content is ever destroyed | description goal 3, NFR-01 | Every destructive operation goes through an **archive-before-write** gateway (`archive.py`). No alternative write path exists. |
 | The daemon recovers from transient errors unattended | description goal 4, NFR-04, NFR-10 | Use-case code is idempotent and re-entrant; failures inside `process_pair` are caught and logged but do not crash the loop. |
-| Adding a new agentic_tool is **one new module + one config block** | description goal 5, NFR-11, US-10 AC-2 | A frozen-dataclass port (`AgenticToolSpec` / `CustomizationTypeIO`) at the boundary of the use cases; adapters live one layer outside. The sync engine never references a concrete tool name. |
+| Adding a new agentic_tool is **one new spec factory + config keys** | description goal 5, NFR-11, US-10 AC-2 | A frozen-dataclass port (`AgenticToolSpec` / `CustomizationTypeIO`) at the boundary of the use cases; adapters live one layer outside. The sync engine never references a concrete tool name. |
 
 Uncle Bob's "stable abstractions" rule applies directly: the names
-`claude`, `codex`, `antigravity`, and `opencode` appear in
+`claude`, `codex`, `copilot`, `cursor`, `gemini_cli`, `antigravity`, and `opencode` appear in
 adapter modules and in user-provided config keys — **and nowhere else**.
 The use cases see only `agentic_tools.values()`.
 
@@ -139,10 +139,13 @@ Two kinds of adapters live here.
 implementing the `CustomizationTypeIO` triple `(parse, render,
 extract_pair_id)` plus storage shape:
 
-- `claude_io.py` — `~/.claude/agents/*.md` and `~/.claude/skills/<name>/SKILL.md`.
-- `codex_io.py` — `~/.codex/agents/*.toml` and `~/.codex/skills/<name>/SKILL.md`.
-- `antigravity_io.py` — `~/.gemini/antigravity/skills/<name>/SKILL.md`.
-- `opencode_io.py` — `~/.config/opencode/agents/*.md` and `~/.config/opencode/skills/<name>/SKILL.md`.
+- `claude_io.py` - Claude Code agents, commands, skills, rules, and MCP servers.
+- `codex_io.py` - Codex agents and skills; shared helpers cover Codex rules, commands, and MCP rendering.
+- `copilot_io.py` - GitHub Copilot CLI agents/skills plus configured VS Code user-profile instructions and prompts.
+- `cursor_io.py` - Cursor agents, skills, rules, commands, and MCP servers under user-level file surfaces.
+- `gemini_cli_io.py` - Gemini CLI agents, skills, rules, commands, and MCP servers.
+- `antigravity_io.py` - Antigravity skills under `~/.gemini/antigravity/skills/<name>/SKILL.md`.
+- `opencode_io.py` - OpenCode agents and skills; shared helpers cover OpenCode rules, commands, and MCP rendering.
 
 **Tool-agnostic gateways** that hide platform / filesystem concerns
 from the use cases:
@@ -195,10 +198,9 @@ Three concrete invariants the codebase upholds today:
 1. **No use case imports an adapter directly.** `sync.py`, `adoption.py`,
    `discovery.py`, and `tool_status.py` import from `agentic_tool_spec`,
    `rendering`, `archive`, `canonical`, `state`, `identity`, and
-   `sync_types`. They do **not** import from `claude_io`, `codex_io`, or
-   `antigravity_io`. The only place adapters are referenced by name is
-   the `_build_*_spec` factories in `agentic_tool_spec.py` itself —
-   which is the registry, not a use case.
+   `sync_types`. They do **not** import concrete `*_io.py` adapters. The
+   only place adapters are referenced by name is the spec factory layer,
+   which is the registry wiring, not a use case.
 2. **No entity imports a use case or an adapter.** `canonical.py`,
    `identity.py`, `sync_types.py`, and the dataclasses in `state.py`
    import only from the standard library and from each other. One
@@ -212,8 +214,7 @@ Three concrete invariants the codebase upholds today:
    See deviation D-2.)
 
 The import graph (verified by `grep -RE "^(from|import) agents_sync" src/`)
-forms a DAG with the seven layer-2 / layer-3 modules at the centre, the
-four adapter modules on the rim, and the four framework modules on the
+forms a DAG with the layer-2 / layer-3 modules at the centre, the adapter modules on the rim, and the framework modules on the
 outside.
 
 ---
@@ -227,11 +228,9 @@ outside.
 | `canonical.py` | 72 | 1 / 3 | Canonical schema + JSON I/O (D-1) | `state`, `identity` |
 | `state.py` (dataclasses + slug) | ~110 of 221 | 1 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug` | `identity` (validation), `filesystem_windows_retry` (I/O half) |
 | `state.py` (load/save/digest/atomic_write) | ~110 of 221 | 3 | State JSON gateway | `identity`, `filesystem_windows_retry` |
-| `agentic_tool_spec.py` | 180 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports the four IO adapters lazily |
-| `claude_io.py` | 215 | 3 | Claude `.md` + `SKILL.md` parser/renderer | `canonical` |
-| `codex_io.py` | 253 | 3 | Codex `.toml` agents + `SKILL.md` skills | `canonical` |
-| `antigravity_io.py` | 180 | 3 | Antigravity `SKILL.md` parser/renderer | `canonical` |
-| `opencode_io.py` | 310 | 3 | opencode `.md` agents + `SKILL.md` skills | `canonical`, `claude_io` |
+| `agentic_tool_spec.py` | ~310 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports `tool_specs` factories lazily |
+| `tool_specs/*.py` | varies | 3 | Per-tool `AgenticToolSpec` factories | concrete IO adapters |
+| `*_io.py` adapters | varies | 3 | Per-tool parsers/renderers for native formats | `canonical`, shared IO helpers |
 | `archive.py` | 72 | 3 | Archive-copy / archive-move gateway | `filesystem_windows_retry`, `identity`, `state` |
 | `rendering.py` | 185 | 3 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
 | `discovery.py` | 313 | 2 | Per-poll discovery + collision blocking | `agentic_tool_spec`, `canonical`, `config`, `identity`, `rendering`, `state`, `sync_types`, `tool_status` |
@@ -379,17 +378,13 @@ Properties this control flow gives us:
 ## 7. Ports and adapters
 
 `AgenticToolSpec` is the **port**; each `*_io.py` module is an
-**adapter** that satisfies it. The factory functions in
-`agentic_tool_spec._build_*_spec` are the wiring; `default_agentic_tools()`
-exposes the resulting registry as an ordered dict (order matters for the
-v0.4 plan §5.5 alphabetical tiebreaker).
+**adapter** that satisfies it. The factory functions under
+`src/agents_sync/tool_specs/` are the wiring; `default_agentic_tools()`
+exposes the resulting registry as an ordered dict.
 
-Today the registry is built eagerly at module import. US-10 anticipates
-a discovery mechanism that walks `src/agents_sync/agentic_tools/` and
-imports every module that exposes an `AGENTIC_TOOL` constant; that is
-the v0.5 refactor target. The current `_build_*_spec` shape is a
-shim that produces the same result without yet enforcing
-"one module per tool". See deviation D-3.
+The registry is built explicitly from spec factories. US-10's load-bearing
+property is that adding a tool changes the registry/factory layer and config
+surface, not the sync algorithm.
 
 ### What flows across the port
 
@@ -509,16 +504,13 @@ the architectural escape hatch and document it as such. Today it is the
 single Layer-4 symbol any use case imports — a real (if narrow)
 violation.
 
-### D-3 — The registry is a hand-rolled factory, not a discovered set
+### D-3 - The registry is explicit rather than plugin-discovered
 
-`agentic_tool_spec.default_agentic_tools` calls four concrete
-`_build_*_spec` functions that lazily import the four IO modules.
-US-10's intended end-state is a `pkgutil.iter_modules` walk under
-`src/agents_sync/agentic_tools/` that picks up every module exporting an
-`AGENTIC_TOOL` constant, with structured fail-closed errors per AC-5,
-AC-6, AC-8. Refactor: move the IO modules under
-`agentic_tools/<name>.py`, have each export its `AGENTIC_TOOL`, replace
-`default_agentic_tools` with a discovery loop.
+`agentic_tool_spec.default_agentic_tools` calls concrete factory functions from
+`src/agents_sync/tool_specs/`. This is intentional for the built-in tool set:
+it keeps startup deterministic and keeps validation at `AgenticToolSpec`
+construction time. A future external-plugin registry would need its own
+discovery and fail-closed validation layer.
 
 ### D-4 — Codex's two IO modes coexist
 
@@ -548,12 +540,12 @@ covered transitively by integration tests. A grep-style guard test
 ## 12. Worked example: adding a new agentic_tool
 
 This is the expected path for the next built-in agentic_tool, stated against
-the current v0.4.1 architecture:
+the current v0.5 architecture:
 
 | Step | File | Layer | Why |
 |---|---|---|---|
 | 1 | `src/agents_sync/<tool>_io.py` (new) | 3 | One adapter module implementing `parse`, `render`, `extract_pair_id`, and any tool-specific slugging needed by `CustomizationTypeIO`. |
-| 2 | `src/agents_sync/agentic_tool_spec.py` | 3 (port) | Add `_build_<tool>_spec` and include it in `default_agentic_tools` — or deliver D-3 first and then nothing changes here. |
+| 2 | `src/agents_sync/tool_specs/<tool>.py` plus `tool_specs/__init__.py` and registry wiring in `agentic_tool_spec.py` | 3 (port) | Add `build_<tool>_spec` and include it in `default_agentic_tools`. |
 | 3 | `src/agents_sync/config.py` | 4 | Add the tool's default roots and enable flag, if it is optional. |
 | 4 | `src/agents_sync/cli.py` | 4 | Add explicit override flags for the tool's roots and enable flag. |
 | 5 | `tests/test_<tool>_io.py` (new) | tests | Round-trip, BOM/line-ending tolerance, unknown-field passthrough, and no leak of foreign fields. |
