@@ -67,16 +67,16 @@ Built by [CognitiveSand](https://cognitivesand.ai/en/).
 - MCP servers sync across Claude Code, Codex, Copilot CLI, Cursor, Gemini CLI, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
-flowchart LR
-    Claude[Claude Code] <-->|changes| Sync[agents_sync]
-    Codex[Codex] <-->|changes| Sync
-    Copilot[GitHub Copilot] <-->|changes| Sync
-    Cursor[Cursor] <-->|changes| Sync
-    Gemini[Gemini CLI] <-->|changes| Sync
-    Antigravity[Antigravity skills only] <-->|changes| Sync
-    OpenCode[OpenCode] <-->|changes| Sync
-    Sync --> State[pair_id and digests]
-    Sync --> Archive[archive before overwrite or removal]
+graph LR
+    CLAUDE["Claude Code"] <--> SYNC["agents_sync"]
+    CODEX["Codex"] <--> SYNC
+    COPILOT["GitHub Copilot"] <--> SYNC
+    CURSOR["Cursor"] <--> SYNC
+    GEMINI["Gemini CLI"] <--> SYNC
+    ANTIGRAVITY["Antigravity skills only"] <--> SYNC
+    OPENCODE["OpenCode"] <--> SYNC
+    SYNC --> STATE["pair_id and digests"]
+    SYNC --> ARCHIVE["archive before overwrite or removal"]
 ```
 
 ---
