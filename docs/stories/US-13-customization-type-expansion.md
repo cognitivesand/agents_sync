@@ -48,4 +48,6 @@ Vocabulary used in this story is defined in the project glossary at `docs/projec
 
 - GitHub Copilot's adapter ships with `agent`, `skill`, `rules`, `slash_command`, and `mcp_server`. Coverage spans the CLI half (`~/.copilot/`) and the VS Code user-profile half (the per-OS `prompts/` directory plus user `mcp.json`).
 
-Related requirements: FR-07 (rules matrix — load-bearing for AC-1), FR-08 (slash_command matrix — AC-2, AC-8), FR-09 (mcp_server matrix — AC-3, AC-7), NFR-11 (extensibility), NFR-15 (secret handling — AC-5, AC-6).
+- The secret-handling behaviour in AC-5 / AC-6 realises description goal 6 ("No user secret is ever silently propagated") via NFR-15. `secrets_refused` (the default) is the fail-closed branch; `secrets_accepted` is the explicit operator opt-in.
+
+Related requirements: FR-07 (rules matrix — load-bearing for AC-1), FR-08 (slash_command matrix — AC-2, AC-8), FR-09 (mcp_server matrix — AC-3, AC-7), NFR-11 (extensibility), NFR-15 (secret handling — AC-5, AC-6). Realises description goals: goal 6 (secret safety — AC-5, AC-6).

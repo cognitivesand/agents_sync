@@ -23,7 +23,7 @@ Release history:
 - v0.3: first-class Windows operations.
 - v0.4: generalisation to **N agentic_tools** via the agentic-tool-integration protocol (`docs/agentic_tool_integration_protocol.md`). Each additional agentic_tool is a small, isolated spec factory plus config entries; no sync-algorithm changes are required.
 - v0.4.1: opencode added for agents and skills; Codex custom agents restored under `~/.codex/agents/*.toml`.
-- v0.5: three new agentic_tools (Cursor, Gemini CLI, GitHub Copilot) and three new customization_types (`rules`, `slash_command`, `mcp_server`). Antigravity remains the canonical owner of `~/.gemini/antigravity/skills/`; Gemini CLI also exposes `~/.gemini/skills/` as a normal `skill` root. A new top-level config key `secret_policy` (`secrets_refused` / `secrets_accepted`, default `secrets_refused`) governs how literal secrets in MCP-server `env`, `headers`, and `auth.*` fields are handled. The deprecated `mcp_server_secret_policy` key and its legacy values are accepted for one release as compatibility aliases.
+- v0.5: three new agentic_tools (Cursor, Gemini CLI, GitHub Copilot) and three new customization_types (`rules`, `slash_command`, `mcp_server`). Antigravity remains the canonical owner of `~/.gemini/antigravity/skills/`; Gemini CLI also exposes `~/.gemini/skills/` as a normal `skill` root. A new top-level config key `secret_policy` (`secrets_refused` / `secrets_accepted`, default `secrets_refused`) governs how literal secrets in MCP-server `env`, `headers`, and `auth.*` fields are handled. The deprecated `mcp_server_secret_policy` key and its legacy values are accepted for one release as compatibility aliases, scheduled for removal in v0.6 (see `docs/mcp_server_secret_policy_deprecation_cleanup_plan.md`).
 
 ## Scope
 
@@ -64,10 +64,11 @@ Out of scope (initially):
 ## Goals
 
 1. Editing a customization on any one agentic_tool propagates to every other participating agentic_tool within at most two polling intervals.
-2. Renaming, editing, or reorganising a customization on any one agentic_tool does not break the customization_artifact's sync across the other agentic_tools.
+2. Renaming, editing, or reorganising a customization on any one agentic_tool preserves its `customization_artifact_id` and continues to propagate to the other agentic_tools: a rename is never mistaken for a delete-plus-create, and no duplicate customization_artifact is produced (US-04).
 3. No user-authored content is ever destroyed; every overwrite or removal first archives the prior bytes under a deterministic, recoverable layout.
-4. The tool runs unattended as a background user service/task and recovers from transient errors without operator intervention.
-5. Adding support for a new agentic_tool is a small, isolated change: one new spec factory under `src/agents_sync/tool_specs/<tool_name>.py` plus matching config defaults and CLI/config keys - no edits to the sync engine.
+4. The tool runs unattended as a background user service/task and, as far as possible, recovers from transient errors without operator intervention.
+5. Adding support for a new agentic_tool is a small, isolated change: one new spec factory under `src/agents_sync/tool_specs/<tool_name>.py`, registered in `default_agentic_tools()`, plus matching config defaults and CLI/config keys — with no edits to the sync engine. This is the v0.5 objective: the engine now carries enough generality that adding a post-v0.5 agentic_tool needs no engine change (only minimal additions if a new compatibility issue surfaces). Adding a new `customization_type` is a larger change — it must teach the engine how to store and reconcile the type via `agents_sync.agentic_tool_spec` (NFR-11) — and so is not covered by this no-engine-edit guarantee.
+6. No user secret is ever silently propagated: literal credentials carried in a customization_artifact are handled per the configured `secret_policy`, which defaults to refusing to propagate them (NFR-15).
 
 ## Non-goals
 
