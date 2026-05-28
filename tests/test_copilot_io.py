@@ -55,12 +55,36 @@ def test_copilot_agent_round_trips_known_and_unknown_frontmatter(tmp_path: Path)
     assert "mcp-servers:" in rendered
 
 
+def test_copilot_agent_render_drops_empty_tools_list():
+    canonical = {
+        "pair_id": PAIR_ID,
+        "name": "reviewer",
+        "body": "Review the change.",
+        "tools": [],
+        "per_agentic_tool_only": {"copilot": {}},
+        "per_agentic_tool_extra": {"copilot": {}},
+    }
+
+    rendered = render_copilot_agent_md(canonical)
+
+    assert "tools:" not in rendered
+
+
 def test_copilot_legacy_chatmode_uses_clean_agent_name(tmp_path: Path):
     path = tmp_path / "planner.chatmode.md"
 
     canonical = parse_copilot_agent_md("Plan carefully.\n", None, artifact_path=path)
 
     assert canonical["name"] == "planner"
+
+
+def test_copilot_agent_frontmatter_name_wins_over_path(tmp_path: Path):
+    path = tmp_path / "renamed.agent.md"
+    text = f"---\npair_id: {PAIR_ID}\nname: reviewer\n---\nReview.\n"
+
+    canonical = parse_copilot_agent_md(text, None, artifact_path=path)
+
+    assert canonical["name"] == "reviewer"
 
 
 def test_copilot_skill_round_trips_open_skill_shape(tmp_path: Path):

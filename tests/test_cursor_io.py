@@ -49,7 +49,7 @@ def test_cursor_agent_round_trips_frontmatter_body_and_unknown_keys(tmp_path: Pa
     canonical = parse_cursor_agent_md(text, None, artifact_path=source)
 
     assert canonical["kind"] == "agent"
-    assert canonical["name"] == "reviewer"
+    assert canonical["name"] == "ignored-name"
     assert canonical["description"] == "Reviews diffs"
     assert canonical["model"] == "claude-4-sonnet"
     assert canonical["tools"] == ["Read", "Grep"]
@@ -62,6 +62,32 @@ def test_cursor_agent_round_trips_frontmatter_body_and_unknown_keys(tmp_path: Pa
     rendered = render_cursor_agent_md(canonical, text)
     assert "cursor_knob: keep-me" in rendered
     assert extract_pair_id_from_cursor_agent_md(rendered) == PAIR_ID
+
+
+def test_cursor_agent_uses_filename_when_name_is_missing(tmp_path: Path):
+    source = tmp_path / "agents" / "reviewer.md"
+    source.parent.mkdir()
+
+    canonical = parse_cursor_agent_md(
+        f"---\npair_id: {PAIR_ID}\n---\nReview.",
+        None,
+        artifact_path=source,
+    )
+
+    assert canonical["name"] == "reviewer"
+
+
+def test_cursor_agent_render_drops_empty_tools_list():
+    canonical = {
+        "pair_id": PAIR_ID,
+        "name": "reviewer",
+        "body": "Review the current diff.",
+        "tools": [],
+    }
+
+    rendered = render_cursor_agent_md(canonical)
+
+    assert "tools:" not in rendered
 
 
 def test_cursor_skill_round_trips_open_skill_fields(tmp_path: Path):

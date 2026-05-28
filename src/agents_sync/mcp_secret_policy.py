@@ -32,15 +32,18 @@ _ENV_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 ENV_NAME_RE = re.compile(rf"^{_ENV_NAME}$")
 _ENV_REFERENCE_TOKEN_RE = re.compile(
     rf"\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
-    rf"\$({_ENV_NAME})|%({_ENV_NAME})%"
+    rf"\$({_ENV_NAME})|%({_ENV_NAME})%",
+    re.IGNORECASE,
 )
 ENV_REFERENCE_RE = re.compile(
     rf"^(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
-    rf"\$({_ENV_NAME})|%({_ENV_NAME})%)$"
+    rf"\$({_ENV_NAME})|%({_ENV_NAME})%)$",
+    re.IGNORECASE,
 )
 _BEARER_ENV_REFERENCE_RE = re.compile(
     rf"^Bearer\s+(?:\$\{{(?:env:)?({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}|"
     rf"\$({_ENV_NAME})|%({_ENV_NAME})%)$",
+    re.IGNORECASE,
 )
 SECRET_FIELD_RE = re.compile(
     r"(api[_-]?key|authentication[_-]?blob|auth[_-]?blob|"

@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from agents_sync.artifact_names import resolve_artifact_name
 from agents_sync.canonical import (
     apply_per_tool_partition,
     empty_canonical,
@@ -12,8 +13,9 @@ from agents_sync.canonical import (
 from agents_sync.markdown_yaml_metadata_block import (
     extract_pair_id_from_md,
     frontmatter_for_render,
+    render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
     split_frontmatter,
-    yaml_dump,
 )
 
 
@@ -58,12 +60,15 @@ def parse_rules_md(
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("rules")
     canonical["body"] = body
 
-    if canonical_name is not None:
-        canonical["name"] = canonical_name
-    elif artifact_path is not None:
-        canonical["name"] = artifact_path.stem
-    elif "name" in frontmatter_data:
-        canonical["name"] = str(frontmatter_data["name"])
+    name = resolve_artifact_name(
+        override_name=canonical_name,
+        path_name=artifact_path.stem if artifact_path is not None else None,
+        frontmatter_name=frontmatter_data.get("name"),
+        prior_name=canonical.get("name"),
+        precedence=("override", "path", "frontmatter", "prior"),
+    )
+    if name is not None:
+        canonical["name"] = name
 
     if "description" in frontmatter_data:
         canonical["description"] = str(frontmatter_data["description"])
@@ -106,14 +111,20 @@ def render_rules_md(
 
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
-    _set_or_pop(frontmatter, "description", canonical.get("description"))
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
 
     for field_name in CANONICAL_RULE_FIELDS:
-        _set_or_pop(frontmatter, field_name, canonical.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, canonical.get(field_name),
+        )
 
     tool_only = canonical.get("per_agentic_tool_only", {}).get(agentic_tool_name, {})
     for field_name in TOOL_ONLY_RULE_FIELDS:
-        _set_or_pop(frontmatter, field_name, tool_only.get(field_name))
+        set_or_remove_empty_metadata_field(
+            frontmatter, field_name, tool_only.get(field_name),
+        )
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get(
         agentic_tool_name, {}
@@ -121,21 +132,7 @@ def render_rules_md(
         if key not in KNOWN_RULE_FIELDS:
             frontmatter[key] = value
 
-    return _render_markdown(frontmatter, canonical.get("body", ""))
-
-
-def _render_markdown(frontmatter: dict[str, Any], body: str) -> str:
-    rendered_frontmatter = yaml_dump(frontmatter).rstrip("\n")
-    if body:
-        return f"---\n{rendered_frontmatter}\n---\n{body}\n"
-    return f"---\n{rendered_frontmatter}\n---\n"
-
-
-def _set_or_pop(target: dict[str, Any], key: str, value: Any) -> None:
-    if value is None or value == "":
-        target.pop(key, None)
-        return
-    target[key] = value
+    return render_markdown_with_metadata_block(frontmatter, canonical.get("body", ""))
 
 
 def _coerce_provenance(value: Any) -> str:

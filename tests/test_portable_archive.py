@@ -7,6 +7,7 @@ against a tmp directory — no mocks, per CLAUDE.md §7.
 from __future__ import annotations
 
 import json
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import pytest
 
 pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
+import agents_sync
 from agents_sync.portable_archive import (
     CANONICAL_PREFIX,
     MANIFEST_NAME,
@@ -113,6 +115,25 @@ def test_export_manifest_carries_expected_keys(syncer: Syncer, tmp_path: Path):
     assert manifest["artifact_count"] == 1
     for key in ("exported_at", "source_host", "source_platform", "agents_sync_version"):
         assert key in manifest
+
+
+def _pyproject_version() -> str:
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    return data["project"]["version"]
+
+
+def test_export_manifest_uses_pyproject_version(
+    syncer: Syncer,
+    tmp_path: Path,
+):
+    zip_path = _seed_and_export(syncer, tmp_path, "foo")
+
+    with zipfile.ZipFile(zip_path) as zf:
+        manifest = json.loads(zf.read(MANIFEST_NAME))
+
+    assert manifest["agents_sync_version"] == agents_sync.__version__
+    assert manifest["agents_sync_version"] == _pyproject_version()
 
 
 def test_export_does_not_mutate_state_dir(syncer: Syncer, tmp_path: Path):

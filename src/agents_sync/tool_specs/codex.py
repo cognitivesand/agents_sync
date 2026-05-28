@@ -16,7 +16,6 @@ from agents_sync.tool_specs._rules_factory import build_global_rules_io
 
 def build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
     from agents_sync.mcp_server_io import McpServerDialect
-    from agents_sync.claude_io import extract_pair_id_from_md
     from agents_sync.codex_io import (
         extract_pair_id,
         parse_codex_agent_toml,
@@ -24,6 +23,7 @@ def build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec
         render_codex_agent_toml,
         render_codex_skill_md,
     )
+    from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
     from agents_sync.slash_command_io import (
         parse_slash_command_markdown,
         render_slash_command_markdown,

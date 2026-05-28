@@ -5,16 +5,17 @@ back into the canonical and propagated to the Claude side.
 """
 from __future__ import annotations
 
-import io
 import json
 import re
 import tomllib
 from typing import Any
 
-from ruamel.yaml import YAML
-
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.markdown_yaml_metadata_block import split_frontmatter
+from agents_sync.markdown_yaml_metadata_block import (
+    split_frontmatter,
+    unknown_metadata_fields,
+    yaml_dump,
+)
 
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}
@@ -48,20 +49,6 @@ CODEX_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 # v0.1 used to append a JSON metadata blob to developer_instructions; strip it
 # on parse so adopted v0.1 artifacts don't leak the marker into canonical.body.
 _LEGACY_REVIEW_MARKER = "\n\n---\nConverted Claude-specific metadata for manual review:"
-
-
-def _make_yaml() -> YAML:
-    yml = YAML(typ="rt")
-    yml.preserve_quotes = True
-    yml.width = 4096
-    yml.indent(mapping=2, sequence=4, offset=2)
-    return yml
-
-
-def _yaml_dump(data: Any) -> str:
-    buf = io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
 
 
 def _normalize_toml_text(text: str) -> str:
@@ -326,7 +313,7 @@ def render_codex_skill_md(canonical: dict[str, Any]) -> str:
 
     parts = [
         "---",
-        _yaml_dump(frontmatter).rstrip(),
+        yaml_dump(frontmatter).rstrip(),
         "---",
         "",
         body,
@@ -350,11 +337,10 @@ def parse_codex_skill_md(
         canonical["description"] = str(frontmatter_data["description"])
 
     per_agentic_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_agentic_tool_extra["codex"] = {
-        key: value
-        for key, value in frontmatter_data.items()
-        if key not in {"pair_id", "name", "description"}
-    }
+    per_agentic_tool_extra["codex"] = unknown_metadata_fields(
+        frontmatter_data,
+        frozenset({"pair_id", "name", "description"}),
+    )
     canonical["per_agentic_tool_extra"] = per_agentic_tool_extra
 
     if "pair_id" in frontmatter_data:

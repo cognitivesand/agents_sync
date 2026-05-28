@@ -46,11 +46,12 @@ def test_known_opencode_fields_match_v0_4_1_plan():
     })
 
 
-def test_parse_opencode_agent_uses_filename_and_preserves_known_fields(tmp_path: Path):
+def test_parse_opencode_agent_uses_shared_frontmatter_name_policy(tmp_path: Path):
     text = textwrap.dedent(
         """\
         ---
         pair_id: 00000000-0000-4000-8000-000000000001
+        name: reviewer
         description: Reviews code
         mode: subagent
         model: anthropic/claude-sonnet-4-5
@@ -226,7 +227,7 @@ def test_parse_opencode_agent_md_raises_when_no_name_source():
     neither prior canonical nor frontmatter carries a name, the parser must
     raise instead of silently minting name=''."""
     text = "---\ndescription: nameless\n---\nbody"
-    with pytest.raises(ValueError, match="needs either artifact_path"):
+    with pytest.raises(ValueError, match="needs a non-empty artifact name"):
         parse_opencode_agent_md(text)
 
 
