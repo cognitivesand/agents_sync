@@ -35,16 +35,22 @@ true or amended.
 
 ## 1. Architectural goals
 
-The system has four load-bearing goals, drawn from the project description
-and requirements. The architecture exists to make these goals provably
-true, not aspirationally true.
+The goals this architecture exists to make provably true — not
+aspirationally true — are the project goals defined in
+[`docs/project_description.md`](project_description.md) ("Goals", goals
+1–6). They are the single source of truth; this section does not restate
+their text, only the architectural consequence of each, keyed by goal
+number so that adding or amending a goal cascades here without
+duplication.
 
 | Goal | Source | Architectural consequence |
 |---|---|---|
-| Editing a customization on **any** participating agentic_tool propagates to **every other** within ≤ 2 polling intervals | description goal 1, NFR-02 | A poll-driven use case (`sync_once`) that is a pure function of on-disk state + persisted state. |
-| No user-authored content is ever destroyed | description goal 3, NFR-01 | Every destructive operation goes through an **archive-before-write** gateway (`archive.py`). No alternative write path exists. |
-| The daemon recovers from transient errors unattended | description goal 4, NFR-04, NFR-10 | Use-case code is idempotent and re-entrant; failures inside `process_pair` are caught and logged but do not crash the loop. |
-| Adding a new agentic_tool is **one new spec factory + config keys** | description goal 5, NFR-11, US-10 AC-2 | A frozen-dataclass port (`AgenticToolSpec` / `CustomizationTypeIO`) at the boundary of the use cases; adapters live one layer outside. The sync engine never references a concrete tool name. |
+| Goal 1 (propagation ≤ 2 polling intervals) | NFR-02 | A poll-driven use case (`sync_once`) that is a pure function of on-disk state + persisted state. |
+| Goal 2 (rename/edit/reorganise preserves identity, never duplicates) | US-04, identity.py | The `customization_artifact_id` is the identity key; discovery groups by it, so a rename re-binds the same artifact rather than minting a new one. |
+| Goal 3 (no user content destroyed) | NFR-01 | Every destructive operation goes through an **archive-before-write** gateway (`archive.py`). No alternative write path exists. |
+| Goal 4 (unattended recovery from transient errors, as far as possible) | NFR-04, NFR-10 | Use-case code is idempotent and re-entrant; failures inside `process_pair` are caught and logged but do not crash the loop. |
+| Goal 5 (new agentic_tool = one spec factory + config keys) | NFR-11, US-10 AC-2 | A frozen-dataclass port (`AgenticToolSpec` / `CustomizationTypeIO`) at the boundary of the use cases; adapters live one layer outside. The sync engine never references a concrete tool name. |
+| Goal 6 (no secret silently propagated) | NFR-15 | The configured `secret_policy` is evaluated by the sync core at every egress boundary (parse, render, export, import), not per adapter; `secrets_refused` fails the artifact closed. |
 
 Uncle Bob's "stable abstractions" rule applies directly: the names
 `claude`, `codex`, `copilot`, `cursor`, `gemini_cli`, `antigravity`, and `opencode` appear in
@@ -63,7 +69,7 @@ The use cases see only `agentic_tools.values()`.
 │                                                               │
 │   ┌─────────────────────────────────────────────────────────┐ │
 │   │ 3. Interface Adapters                                   │ │
-│   │    claude_io · codex_io · antigravity_io                │ │
+│   │    <tool>_io  (one gateway per registered agentic_tool) │ │
 │   │    rendering · archive · state (I/O half)               │ │
 │   │    agentic_tool_spec (the port that defines the seam)   │ │
 │   │                                                         │ │
@@ -575,8 +581,11 @@ often:
   synchronisation. Legacy code still uses `pair` and `pair_id`; new code
   uses `customization_artifact` and `customization_artifact_id` where it
   has been refactored.
-- **`customization_type`** — `agent` (single file) or `skill` (folder
-  with `SKILL.md`). Each agentic_tool declares which types it supports.
+- **`customization_type`** — the category of a customization_artifact;
+  each agentic_tool declares which types it supports. The registered set
+  and each type's `file_layout` are defined once in the
+  [`docs/project_description.md`](project_description.md) glossary — not
+  restated here, so the list does not drift per release.
 - **Canonical** — per-artifact JSON document storing the union of fields
   from every agentic_tool; the lossless intermediate that drives every
   renderer.
@@ -591,7 +600,7 @@ often:
 - Martin, Robert C. *Clean Architecture: A Craftsman's Guide to Software
   Structure and Design*. Prentice Hall, 2017.
 - `docs/project_description.md` — purpose, scope, goals, glossary.
-- `docs/project_requirements.md` — FR-01..06, NFR-01..14.
+- `docs/project_requirements.md` — the FR and NFR requirement set.
 - `docs/agentic_tool_integration_protocol.md` — the port contract.
 - `docs/stories/US-*.md` — user-visible behaviour.
 - `docs/v0.4_implementation_plan.md` — Antigravity / N-tool engineering plan.
