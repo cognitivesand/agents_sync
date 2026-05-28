@@ -34,7 +34,7 @@ so a manual revert is always possible.
 Exit codes:
     0 — no migration needed, or migration completed.
     1 — migration declined.
-    2 — migration failed; partial backup may exist.
+    2 — migration failed, detection was inconclusive, or another migration is running.
 """
 from __future__ import annotations
 
@@ -82,22 +82,30 @@ def detect_pre_v04_fix_state() -> bool:
     if CONFIG_FILE.exists():
         try:
             cfg_text = CONFIG_FILE.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            print(
-                f"warning: could not read {CONFIG_FILE} during detection "
-                f"({type(exc).__name__}: {exc}); proceeding as if empty",
-                file=sys.stderr,
-            )
-            cfg_text = ""
+        except OSError as exc:
+            raise MigrationDetectionError(
+                f"could not read {CONFIG_FILE} during migration detection "
+                f"({type(exc).__name__}: {exc})"
+            ) from exc
+        except UnicodeDecodeError as exc:
+            raise MigrationDetectionError(
+                f"could not decode {CONFIG_FILE} during migration detection "
+                f"({type(exc).__name__}: {exc})"
+            ) from exc
         if _STALE_CODEX_PATH_RE.search(cfg_text):
             return True
     if not STATE_FILE.exists():
         return False
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except OSError as exc:
+        raise MigrationDetectionError(
+            f"could not read {STATE_FILE} during migration detection "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         print(
-            f"warning: state.json is unreadable or malformed "
+            f"warning: state.json is malformed "
             f"({type(exc).__name__}: {exc}); will migrate to be safe",
             file=sys.stderr,
         )
@@ -251,12 +259,64 @@ class MigrationResults:
     stripped: dict[str, int]
 
 
+class MigrationDetectionError(Exception):
+    """Raised when detection cannot safely decide whether migration is needed."""
+
+
+class MigrationLockError(Exception):
+    """Raised when another migration process already holds the lock."""
+
+
+class MigrationFileLock:
+    """Exclusive filesystem lock for the full detect-and-migrate decision."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.fd: int | None = None
+
+    def __enter__(self) -> "MigrationFileLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.fd = os.open(
+                self.path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+        except FileExistsError as exc:
+            raise MigrationLockError(
+                f"migration lock already exists at {self.path}"
+            ) from exc
+        try:
+            os.write(self.fd, f"pid={os.getpid()}\n".encode("ascii"))
+        except Exception:
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
+            self.path.unlink(missing_ok=True)
+            raise
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+        self.path.unlink(missing_ok=True)
+
+
 class MigrationError(Exception):
     """A migration phase failed; carries the phase name and chains the cause."""
 
     def __init__(self, phase: str) -> None:
         super().__init__(f"phase {phase!r} failed")
         self.phase = phase
+
+
+class MigrationRollbackError(MigrationError):
+    """Rollback failed after an earlier migration phase failed."""
+
+    def __init__(self, phase: str, original: MigrationError) -> None:
+        super().__init__(phase)
+        self.original = original
 
 
 T = TypeVar("T")
@@ -309,6 +369,42 @@ def _snapshot_tool_roots(backup_dir: Path) -> None:
         backup_copy(root, backup_dir, f"sources/{root.relative_to(HOME)}")
 
 
+def _remove_path(path: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _restore_path(source: Path, target: Path) -> None:
+    if not source.exists() and not source.is_symlink():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _remove_path(target)
+    if source.is_dir() and not source.is_symlink():
+        shutil.copytree(source, target, symlinks=True)
+    else:
+        shutil.copy2(source, target)
+
+
+def rollback_migration(backup_dir: Path) -> None:
+    """Restore live files from the pre-mutation backup snapshot.
+
+    ``run_migration`` calls this whenever a mutating phase fails after the
+    source roots have been snapshotted. That makes the live filesystem
+    all-or-nothing: a later failure cannot leave stripped frontmatter next to
+    stale state.
+    """
+    for root in (*AGENT_ROOTS, *SKILL_ROOTS):
+        snapshot = backup_dir / "sources" / root.relative_to(HOME)
+        _restore_path(snapshot, root)
+    _restore_path(backup_dir / "config.toml", CONFIG_FILE)
+    _restore_path(backup_dir / "state.json", STATE_FILE)
+    _restore_path(backup_dir / "canonical", CANONICAL_DIR)
+
+
 def _move_all_skill_suffix_duplicates(backup_dir: Path) -> dict[str, int]:
     return {
         str(root): move_skill_suffix_duplicates(root, backup_dir)
@@ -341,16 +437,23 @@ def run_migration(backup_dir: Path) -> MigrationResults:
         lambda: backup_dir.mkdir(parents=True, exist_ok=True),
     )
     _run_phase("snapshot tool roots", lambda: _snapshot_tool_roots(backup_dir))
-    config_updated = _run_phase(
-        "rewrite config.toml",
-        lambda: update_config_codex_skills_path(backup_dir),
-    )
-    suffix_counts = _run_phase(
-        "move -skill duplicates aside",
-        lambda: _move_all_skill_suffix_duplicates(backup_dir),
-    )
-    stripped = _run_phase("strip pair_id frontmatter", _strip_pair_ids_everywhere)
-    _run_phase("wipe state and canonical", lambda: wipe_state(backup_dir))
+    try:
+        config_updated = _run_phase(
+            "rewrite config.toml",
+            lambda: update_config_codex_skills_path(backup_dir),
+        )
+        suffix_counts = _run_phase(
+            "move -skill duplicates aside",
+            lambda: _move_all_skill_suffix_duplicates(backup_dir),
+        )
+        stripped = _run_phase("strip pair_id frontmatter", _strip_pair_ids_everywhere)
+        _run_phase("wipe state and canonical", lambda: wipe_state(backup_dir))
+    except MigrationError as exc:
+        try:
+            rollback_migration(backup_dir)
+        except Exception as rollback_exc:
+            raise MigrationRollbackError("rollback migration", exc) from rollback_exc
+        raise
     return MigrationResults(
         config_updated=config_updated,
         suffix_counts=suffix_counts,
@@ -372,15 +475,11 @@ def _print_summary(backup_dir: Path, results: MigrationResults) -> None:
     print(f"  backup: {backup_dir}")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--yes",
-        action="store_true",
-        help="proceed without an interactive confirmation prompt",
-    )
-    args = parser.parse_args()
+def _migration_lock_path() -> Path:
+    return STATE_DIR / "migration.lock"
 
+
+def _run_main_under_lock(args: argparse.Namespace) -> int:
     if not detect_pre_v04_fix_state():
         print("agents-sync v0.4 migration: nothing to migrate.")
         return 0
@@ -396,6 +495,22 @@ def main() -> int:
 
     try:
         results = run_migration(backup_dir)
+    except MigrationRollbackError as exc:
+        rollback_cause = exc.__cause__
+        original = exc.original
+        original_cause = original.__cause__
+        print(
+            f"Migration failed during phase {original.phase!r}: "
+            f"{type(original_cause).__name__}: {original_cause}",
+            file=sys.stderr,
+        )
+        print(
+            f"Rollback then failed: "
+            f"{type(rollback_cause).__name__}: {rollback_cause}",
+            file=sys.stderr,
+        )
+        print(f"Backup may exist at: {backup_dir}", file=sys.stderr)
+        return 2
     except MigrationError as exc:
         underlying = exc.__cause__
         print(
@@ -403,11 +518,42 @@ def main() -> int:
             f"{type(underlying).__name__}: {underlying}",
             file=sys.stderr,
         )
-        print(f"Partial backup may exist at: {backup_dir}", file=sys.stderr)
+        print(
+            "Live files were rolled back from the backup where a mutation had "
+            "already started.",
+            file=sys.stderr,
+        )
+        print(f"Backup retained at: {backup_dir}", file=sys.stderr)
         return 2
 
     _print_summary(backup_dir, results)
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="proceed without an interactive confirmation prompt",
+    )
+    args = parser.parse_args()
+
+    try:
+        with MigrationFileLock(_migration_lock_path()):
+            return _run_main_under_lock(args)
+    except MigrationLockError as exc:
+        print(
+            f"Migration skipped because another migration appears to be running: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    except MigrationDetectionError as exc:
+        print(
+            f"Migration detection failed without changing files: {exc}",
+            file=sys.stderr,
+        )
+        return 2
 
 
 if __name__ == "__main__":

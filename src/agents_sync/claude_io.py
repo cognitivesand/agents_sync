@@ -2,7 +2,8 @@
 
 Uses ruamel.yaml for round-trip preservation when injecting fields into
 an existing user-authored frontmatter (e.g., a fresh `pair_id`). The
-generic YAML-frontmatter primitives live in :mod:`yaml_frontmatter` so
+generic Markdown YAML metadata-block primitives live in
+:mod:`markdown_yaml_metadata_block` so
 the four Markdown-based adapters share one parse-prelude and one
 exception type instead of four near-duplicates.
 """
@@ -12,7 +13,7 @@ from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.field_names import CanonicalField, ClaudeField
-from agents_sync.yaml_frontmatter import (
+from agents_sync.markdown_yaml_metadata_block import (
     FRONTMATTER_RE,
     extract_pair_id_from_md,
     frontmatter_for_render,

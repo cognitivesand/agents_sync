@@ -1,13 +1,13 @@
-"""YAML-frontmatter primitives shared by every Markdown-based adapter.
+"""Markdown YAML metadata-block primitives shared by Markdown-based adapters.
 
 Historically each adapter (claude_io, antigravity_io, opencode_io, codex_io)
 hand-rolled the same 14-line parse-prelude (BOM strip + frontmatter regex
 match + YAML load + isinstance-dict guard) with subtly different error
 messages, and three of them imported the underscore-prefixed helpers from
 ``claude_io`` despite the helpers not being Claude-specific. This module
-collects those helpers under one public surface so a fifth adapter is a
-one-line consumer and a change to BOM handling or YAML loader options is
-a one-place change.
+collects the helpers for the YAML metadata block at the top of Markdown
+files under one public surface, so a fifth adapter is a one-line consumer
+and a change to BOM handling or YAML loader options is a one-place change.
 
 Public API:
 

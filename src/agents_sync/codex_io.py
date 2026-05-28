@@ -14,7 +14,7 @@ from typing import Any
 from ruamel.yaml import YAML
 
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.yaml_frontmatter import split_frontmatter
+from agents_sync.markdown_yaml_metadata_block import split_frontmatter
 
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}

@@ -82,7 +82,7 @@ def test_yaml_alias_bomb_rejected_by_bounded_composer() -> None:
     composed node. With MAX_YAML_ALIAS_RESOLUTIONS = 10_000, a
     document that resolves 11_000 nodes must be rejected.
     """
-    from agents_sync.yaml_frontmatter import yaml_load
+    from agents_sync.markdown_yaml_metadata_block import yaml_load
 
     # Many sequential list items resolved as the document is composed.
     # 12_000 entries comfortably crosses the 10_000 cap.
@@ -94,7 +94,7 @@ def test_yaml_alias_bomb_rejected_by_bounded_composer() -> None:
 
 def test_yaml_load_small_document_succeeds() -> None:
     """Regression: the cap must not interfere with legitimate inputs."""
-    from agents_sync.yaml_frontmatter import yaml_load
+    from agents_sync.markdown_yaml_metadata_block import yaml_load
 
     doc = "name: skill-one\ndescription: ok\n"
     loaded = yaml_load(doc)
@@ -107,7 +107,7 @@ def test_split_frontmatter_bounds_regex_scan_for_huge_body() -> None:
     not force FRONTMATTER_RE to walk the whole text. The frontmatter
     block lives in the first ~1 KB; the body is 1 MB of binary-ish
     text. The split must complete in linear time on the head window."""
-    from agents_sync.yaml_frontmatter import split_frontmatter
+    from agents_sync.markdown_yaml_metadata_block import split_frontmatter
 
     huge_body = "x" * (MAX_FRONTMATTER_BYTES * 4)  # 1 MB body
     doc = f"---\nname: huge\n---\n{huge_body}"

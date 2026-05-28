@@ -19,7 +19,7 @@ from agents_sync.canonical import (
 )
 from agents_sync.codex_io import _normalize_toml_text
 from agents_sync.state import target_slug
-from agents_sync.yaml_frontmatter import (
+from agents_sync.markdown_yaml_metadata_block import (
     extract_pair_id_from_md,
     split_frontmatter,
     yaml_dump,

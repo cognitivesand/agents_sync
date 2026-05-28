@@ -57,3 +57,47 @@ def test_run_migration_reports_failing_phase(migrate_mod, monkeypatch, tmp_path)
 
     assert exc_info.value.phase == "snapshot tool roots"
     assert isinstance(exc_info.value.__cause__, OSError)
+
+
+def test_detection_aborts_on_transient_state_read_error(
+    migrate_mod,
+    monkeypatch,
+    tmp_path,
+):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(migrate_mod, "STATE_FILE", state_file)
+    monkeypatch.setattr(migrate_mod, "CONFIG_FILE", tmp_path / "config.toml")
+
+    original_read_text = Path.read_text
+
+    def flaky_read_text(self, *args, **kwargs):
+        if self == state_file:
+            raise OSError("simulated lock contention")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    with pytest.raises(migrate_mod.MigrationDetectionError):
+        migrate_mod.detect_pre_v04_fix_state()
+
+
+def test_main_exits_without_detection_when_migration_lock_is_held(
+    migrate_mod,
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    monkeypatch.setattr(migrate_mod, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(sys, "argv", ["migrate_v0.4.py", "--yes"])
+
+    def fail_if_called():
+        raise AssertionError("detection should not run while lock is held")
+
+    monkeypatch.setattr(migrate_mod, "detect_pre_v04_fix_state", fail_if_called)
+
+    with migrate_mod.MigrationFileLock(migrate_mod._migration_lock_path()):
+        assert migrate_mod.main() == 2
+
+    captured = capsys.readouterr()
+    assert "another migration appears to be running" in captured.err

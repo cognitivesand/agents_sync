@@ -24,7 +24,7 @@ def render_mcp_server_json(
     agentic_tool_name: str,
     dialect: McpServerDialect = DEFAULT_MCP_SERVER_DIALECT,
     slot_format: str = "json",
-    secret_policy: str = "refuse",
+    secret_policy: str = "secrets_refused",
 ) -> str:
     """Render one canonical ``mcp_server`` document as a JSON slot."""
     prior_obj = (

@@ -6,13 +6,13 @@
   "total_lines": 2495,
   "verdict": "AUDIT_PASS",
   "verdict_rationale": "No CRITICAL injection / RCE / unsafe-deserialization defects; ruamel.yaml is correctly pinned to typ='rt' which is safe-by-default; JSON/TOML use stdlib parsers without object hooks; the JSONC tokenizer is string-aware and round-trip-safe. Two MAJOR DoS gaps (no YAML alias/anchor expansion cap, no input-size cap at any parser boundary) and several documented data-loss/footgun behaviours warrant follow-up but none are exploitable for code execution.",
-  "detailed_analysis": "Phase 2.1's extraction of yaml_frontmatter.py collapsed five near-duplicate parse-preludes into one audit point covering claude_io, codex_io (skill), antigravity_io, opencode_io, rules_io, slash_command_io. That single point uses ruamel.yaml.YAML(typ='rt'), a direct derivative of the safe loader: it does NOT instantiate arbitrary Python objects from !!python/object, !!python/object/apply, !!python/name, or any other unsafe tag. No yaml.load without SafeLoader; no pickle; no eval; no marshal; no subprocess with shell=True. JSON and TOML are routed exclusively through json.loads and tomllib.loads with no object_hook, no parse_float=eval, no custom decoder. The JSONC handler's hand-rolled tokenizer was audited against every classical pitfall: // inside a string is preserved, \\\" does not terminate the string, trailing-comma inside a string is preserved, unterminated block comments eat to EOF and then json.loads rejects (no silent truncation, no infinite loop). The canonical and state loaders quarantine corrupt JSON. The schema-version check is strict equality. _LEGACY_REVIEW_MARKER strip is gated on schema_version < 4. extract_pair_id regex is anchored and linear. FRONTMATTER_RE uses lazy DOTALL but is bounded; no catastrophic backtracking. The portable archive zip importer reads only well-known entry names and validates every pair_id against validate_pair_id (canonical UUIDv4) before using it. mcp_secret_policy.py applies NFKC + casefold normalization defeating homoglyph and case-confusion attacks on field names. Two MAJOR DoS gaps: (1) no input-size cap at any parser boundary; (2) ruamel.yaml typ='rt' resolves anchors/aliases without expansion cap (quadratic billion-laughs variant remains feasible).",
+  "detailed_analysis": "Phase 2.1's extraction of markdown_yaml_metadata_block.py collapsed five near-duplicate parse-preludes into one audit point covering claude_io, codex_io (skill), antigravity_io, opencode_io, rules_io, slash_command_io. That single point uses ruamel.yaml.YAML(typ='rt'), a direct derivative of the safe loader: it does NOT instantiate arbitrary Python objects from !!python/object, !!python/object/apply, !!python/name, or any other unsafe tag. No yaml.load without SafeLoader; no pickle; no eval; no marshal; no subprocess with shell=True. JSON and TOML are routed exclusively through json.loads and tomllib.loads with no object_hook, no parse_float=eval, no custom decoder. The JSONC handler's hand-rolled tokenizer was audited against every classical pitfall: // inside a string is preserved, \\\" does not terminate the string, trailing-comma inside a string is preserved, unterminated block comments eat to EOF and then json.loads rejects (no silent truncation, no infinite loop). The canonical and state loaders quarantine corrupt JSON. The schema-version check is strict equality. _LEGACY_REVIEW_MARKER strip is gated on schema_version < 4. extract_pair_id regex is anchored and linear. FRONTMATTER_RE uses lazy DOTALL but is bounded; no catastrophic backtracking. The portable archive zip importer reads only well-known entry names and validates every pair_id against validate_pair_id (canonical UUIDv4) before using it. mcp_secret_policy.py applies NFKC + casefold normalization defeating homoglyph and case-confusion attacks on field names. Two MAJOR DoS gaps: (1) no input-size cap at any parser boundary; (2) ruamel.yaml typ='rt' resolves anchors/aliases without expansion cap (quadratic billion-laughs variant remains feasible).",
   "findings": [
     {
       "id": "SEC-C-01",
       "severity": "MAJOR",
       "category": "Resource exhaustion / DoS",
-      "file": "src/agents_sync/yaml_frontmatter.py",
+      "file": "src/agents_sync/markdown_yaml_metadata_block.py",
       "line": 69,
       "description": "yaml_load calls make_yaml().load(io.StringIO(text)) with typ='rt' and NO max_anchors, max_aliases, or document-size cap. ruamel.yaml's round-trip loader is RCE-safe but does resolve anchors and aliases. The quadratic billion-laughs pattern can drive parse time and memory to gigabytes on a sub-100KB input.",
       "exploit_scenario": "A user installs a third-party Claude skill from an untrusted source. The skill's SKILL.md frontmatter contains nested anchor/alias references. split_frontmatter reaches dict(loaded) which forces materialization of the alias tree. The daemon's next poll hangs for minutes consuming all available RAM.",
@@ -72,7 +72,7 @@
       "id": "SEC-C-07",
       "severity": "INFO",
       "category": "Unbounded regex / linear scan",
-      "file": "src/agents_sync/yaml_frontmatter.py",
+      "file": "src/agents_sync/markdown_yaml_metadata_block.py",
       "line": 39,
       "description": "FRONTMATTER_RE bounded by file length but does a forward scan for \\r?\\n--- on every position. On a 100 MB Markdown file the regex linearly scans all 100 MB even when the frontmatter ends at byte 1000.",
       "exploit_scenario": "User opens an editor that auto-saves a .md with hundreds of MB of base64-encoded image content in the body. The discovery walker reads the file, runs FRONTMATTER_RE.match against the whole text. Linear time but seconds-of-blocking per poll.",
@@ -84,7 +84,7 @@
       "category": "Inconsistent exception type from parser boundary",
       "file": "src/agents_sync/mcp_server_io/_slot_codec.py",
       "line": 18,
-      "description": "loads_slot raises bare ValueError('mcp_server JSON slot must be an object') while formats/json_format.py:20 raises bare ValueError('shared keyed-map root must be a JSON object') and yaml_frontmatter.py:135 raises AdapterParseError. Three different parser-error exception types which all need catching individually by upstream callers.",
+      "description": "loads_slot raises bare ValueError('mcp_server JSON slot must be an object') while formats/json_format.py:20 raises bare ValueError('shared keyed-map root must be a JSON object') and markdown_yaml_metadata_block.py:135 raises AdapterParseError. Three different parser-error exception types which all need catching individually by upstream callers.",
       "exploit_scenario": "Not a security attack on its own — a maintainability hazard. A future caller doing targeted parse-error handling will miss one.",
       "recommendation": "Promote AdapterParseError (or rename to ParserError) to a package-wide base class in a neutral module; have json_format, toml_format, _slot_codec, and portable_archive all raise subclasses of it."
     },
@@ -94,9 +94,9 @@
       "category": "BOM normalization not applied uniformly",
       "file": "src/agents_sync/codex_io.py",
       "line": 24,
-      "description": "codex_io._CORRUPTED_UTF8_BOM = '\\u00ef\\u00bb\\u00bf' and yaml_frontmatter._CORRUPTED_UTF8_BOM = 'ï»¿' are byte-equivalent but the constant is duplicated rather than imported. formats/jsonc_tokenizer.strip_utf8_bom strips only the real BOM, not the corrupted-rendered-as-text form.",
+      "description": "codex_io._CORRUPTED_UTF8_BOM = '\\u00ef\\u00bb\\u00bf' and markdown_yaml_metadata_block._CORRUPTED_UTF8_BOM = 'ï»¿' are byte-equivalent but the constant is duplicated rather than imported. formats/jsonc_tokenizer.strip_utf8_bom strips only the real BOM, not the corrupted-rendered-as-text form.",
       "exploit_scenario": "Footgun. A Windows user copies an mcp.json between editors and the file ends up with the corrupted BOM. The daemon logs JSONDecodeError: Expecting value repeatedly with no hint about the BOM.",
-      "recommendation": "Move strip_bom_prefix from yaml_frontmatter.py to a neutral module handling both real and corrupted UTF-8 BOMs, and have formats/jsonc_tokenizer.strip_utf8_bom and codex_io._normalize_toml_text both call into it."
+      "recommendation": "Move strip_bom_prefix from markdown_yaml_metadata_block.py to a neutral module handling both real and corrupted UTF-8 BOMs, and have formats/jsonc_tokenizer.strip_utf8_bom and codex_io._normalize_toml_text both call into it."
     }
   ]
 }

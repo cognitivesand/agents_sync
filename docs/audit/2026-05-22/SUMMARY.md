@@ -35,7 +35,7 @@
 - **SEC-A-01 (MAJOR) — `export_to_zip` does not re-apply secret policy.**
   Under `mcp_server_secret_policy = permissive`, literal secrets sit in `<state_dir>/canonical/`. Export zips them verbatim. No `contains_secret_literals` flag in the manifest, no CLI warning. Mitigation: re-apply the policy at export, or set a manifest flag + WARNING line.
 - **SEC-C-01 (MAJOR) — No YAML alias/anchor expansion cap.**
-  `yaml_frontmatter.yaml_load` uses `typ='rt'` (RCE-safe) with no alias / anchor / size cap. Quadratic YAML-bomb is feasible against the long-running daemon.
+  `markdown_yaml_metadata_block.yaml_load` uses `typ='rt'` (RCE-safe) with no alias / anchor / size cap. Quadratic YAML-bomb is feasible against the long-running daemon.
 - **SEC-C-02 (MAJOR) — No input-size cap at any parser boundary.**
   `read_slots` / `_read_root_and_node` / canonical/state loaders all `read_text()` without size guards. A 2 GB hostile `mcp.json` will OOM the daemon every poll.
 - **TQ-01 / slice 10 (MAJOR) — slow/integration pytest markers are registered but applied to ZERO modules.**

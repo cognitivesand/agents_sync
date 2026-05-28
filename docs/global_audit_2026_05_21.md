@@ -66,7 +66,7 @@ Slice 05 · CQ-03 · `src/agents_sync/agentic_tool_spec.py:160`
 ### 2.6 `claude_io.py` is the de-facto YAML-frontmatter library
 Slice 07 · CQ-02 · the three sibling adapters import 5 underscore-prefixed helpers from `claude_io` (`_make_yaml`, `_yaml_load`, `_strip_bom_prefix`, `_normalize_markdown_text`, `FRONTMATTER_RE`). `codex_io` does it lazily at function scope to hide the dependency. The YAML-frontmatter parse prelude is duplicated **4 times** with 3 different error messages for the same logical condition (CQ-03, CQ-06). Render prelude duplicated 3 times.
 
-**Recommended shape:** extract `agents_sync/yaml_frontmatter.py` with public API; `claude_io` consumes it like the others. Define a shared `AdapterParseError`.
+**Recommended shape:** extract `agents_sync/markdown_yaml_metadata_block.py` with public API; `claude_io` consumes it like the others. Define a shared `AdapterParseError`.
 
 ### 2.7 Liskov violation in `parse_X` adapter family
 Slice 07 · CQ-01 · `parse_opencode_agent_md` alone derives `name` from `artifact_path.stem` (keyword-only, default None). All siblings derive `name` from document content. **`sync.py` / `discovery.py` must treat the family as interchangeable**; a caller that forgets the kw-only arg gets a silent `name=''`. No `Protocol`/ABC declares the divergence. Exactly the `artifact_path=None` branch has no test (CQ-13).
@@ -177,7 +177,7 @@ A regression flipping claude's map path to `mcp_servers` would pass the entire t
 **Tier 2 — structural cleanup before adding a third file layout:**
 6. Polymorphic `FileLayout` protocol; eliminate `isinstance(SharedKeyedMapLayout, ...)` switches (cross-cutting, §2.1).
 7. `canonicalize()` + `canonical_equal()` + an assertion that `parse(render(canonical))` round-trips at adoption time (§2.2).
-8. Extract `yaml_frontmatter` module; collapse 4× duplicated parse prelude; unify `AdapterParseError` (§2.6).
+8. Extract `markdown_yaml_metadata_block` module; collapse 4× duplicated parse prelude; unify `AdapterParseError` (§2.6).
 9. `__post_init__` invariant on `AgenticToolSpec` (§2.5).
 10. Split `adoption.py` (`AdoptionEngine` → 5 collaborators); split `agentic_tool_spec.py` per-tool builders into a thin data-only registry; lift in-function imports.
 
