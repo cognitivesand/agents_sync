@@ -45,16 +45,12 @@ def parse_mcp_server_json(
     """Parse one JSON slot into the canonical ``mcp_server`` shape."""
     del artifact_root
     obj = loads_slot(slot_text, slot_format=slot_format)
-    obj, redactions = _apply_secret_policy(obj, dialect, artifact_path, secret_policy)
+    obj = _apply_secret_policy(obj, dialect, artifact_path, secret_policy)
     canonical = _extract_canonical(obj, prior_canonical, dialect)
     transport, transport_field = _transport_from_slot(obj, dialect)
     canonical["transport"] = transport
     _copy_common_fields(obj, canonical, dialect)
     _copy_transport_fields(obj, canonical, transport, dialect)
-    if redactions:
-        canonical["secret_redactions"] = redactions
-    else:
-        canonical.pop("secret_redactions", None)
     _build_per_tool_views(obj, canonical, dialect, agentic_tool_name, transport_field)
     return canonical
 
@@ -64,7 +60,7 @@ def _apply_secret_policy(
     dialect: McpServerDialect,
     artifact_path: Path | None,
     secret_policy: str,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> dict[str, Any]:
     raw_artifact = obj.get(dialect.name_field) or obj.get("name")
     artifact = (
         str(raw_artifact)

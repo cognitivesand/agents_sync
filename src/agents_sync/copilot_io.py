@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agents_sync.artifact_names import resolve_artifact_name
+from agents_sync.artifact_names import CANONICAL_NAME_FIELD, resolve_artifact_name
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.markdown_yaml_metadata_block import (
     as_string_list,
@@ -45,6 +45,7 @@ KNOWN_AGENT_FIELDS = frozenset({
 KNOWN_SKILL_FIELDS = frozenset({
     "pair_id",
     "name",
+    CANONICAL_NAME_FIELD,
     "description",
     "argument-hint",
     "user-invocable",
@@ -284,10 +285,15 @@ def parse_copilot_skill_md(
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
 
-    if "name" in frontmatter:
-        canonical["name"] = str(frontmatter["name"])
-    elif artifact_path is not None:
-        canonical["name"] = artifact_path.name
+    name = resolve_artifact_name(
+        frontmatter_name=frontmatter.get(CANONICAL_NAME_FIELD),
+        prior_name=canonical.get("name"),
+        override_name=frontmatter.get("name"),
+        path_name=artifact_path.name if artifact_path is not None else None,
+        precedence=("frontmatter", "prior", "override", "path"),
+    )
+    if name is not None:
+        canonical["name"] = name
     if "description" in frontmatter:
         canonical["description"] = str(frontmatter["description"])
 
@@ -306,7 +312,14 @@ def render_copilot_skill_md(
 ) -> str:
     frontmatter = frontmatter_for_render(prior_text)
     frontmatter["pair_id"] = canonical["pair_id"]
-    frontmatter["name"] = copilot_skill_slug(canonical["name"])
+    canonical_name = str(canonical["name"])
+    skill_slug = copilot_skill_slug(canonical_name)
+    frontmatter["name"] = skill_slug
+    set_or_remove_empty_metadata_field(
+        frontmatter,
+        CANONICAL_NAME_FIELD,
+        canonical_name if canonical_name != skill_slug else None,
+    )
     set_or_remove_empty_metadata_field(
         frontmatter, "description", canonical.get("description"),
     )

@@ -7,7 +7,9 @@ from typing import Any
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    DirectorySkillLayout,
     RulesFileLayout,
+    SingleFileLayout,
 )
 from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 
@@ -45,16 +47,14 @@ def build_copilot_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSp
                 parse=parse_copilot_agent_md,
                 render=render_copilot_agent_md,
                 extract_pair_id=extract_pair_id_from_copilot_agent_md,
-                storage="single_file",
-                file_suffix=".agent.md",
+                file_layout=SingleFileLayout(extension=".agent.md"),
                 accepted_file_suffixes=(".agent.md", ".chatmode.md", ".md"),
             ),
             "skill": CustomizationTypeIO(
                 parse=parse_copilot_skill_md,
                 render=render_copilot_skill_md,
                 extract_pair_id=extract_pair_id_from_copilot_skill_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
                 slugify_name=copilot_skill_slug,
             ),
             "rules": CustomizationTypeIO(
@@ -67,8 +67,7 @@ def build_copilot_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSp
                 parse=parse_copilot_prompt_md,
                 render=render_copilot_prompt_md,
                 extract_pair_id=extract_pair_id_from_copilot_prompt_md,
-                storage="single_file",
-                file_suffix=".prompt.md",
+                file_layout=SingleFileLayout(extension=".prompt.md"),
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),

@@ -14,7 +14,12 @@ from agents_sync.agentic_tool_spec import (
     default_agentic_tools,
 )
 from agents_sync.canonical import is_private
-from agents_sync.config import expand_path, validate_config
+from agents_sync.config import (
+    expand_path,
+    normalize_config,
+    prepare_state_storage,
+    validate_config,
+)
 from agents_sync.discovery import DiscoveryWalker
 from agents_sync.mcp_secret_policy import reset_mcp_secret_warning_cache
 from agents_sync.rendering import read_artifact_text, slot_aware_collision_key
@@ -28,7 +33,7 @@ from agents_sync.sync_types import AgenticToolInfo, CustomizationArtifactInfo
 from agents_sync.tool_status import ToolStatusTracker
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class SyncResult:
     """Outcome of one ``Syncer.sync_once`` call.
 
@@ -40,8 +45,12 @@ class SyncResult:
     """
 
     changed: int = 0
-    failed: list[str] = field(default_factory=list)
-    blocked: list[str] = field(default_factory=list)
+    failed: tuple[str, ...] = field(default_factory=tuple)
+    blocked: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "failed", tuple(self.failed))
+        object.__setattr__(self, "blocked", tuple(self.blocked))
 
     def __bool__(self) -> bool:
         """A poll counts as truthy when something changed (back-compat)."""
@@ -53,9 +62,22 @@ class SyncResult:
 
     def __eq__(self, other: object) -> bool:
         """Back-compat for older tests/callers that compared sync_once() to int."""
+        if isinstance(other, SyncResult):
+            return (
+                self.changed,
+                self.failed,
+                self.blocked,
+            ) == (
+                other.changed,
+                other.failed,
+                other.blocked,
+            )
         if isinstance(other, int):
             return self.changed == other
-        return super().__eq__(other)
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((self.changed, self.failed, self.blocked))
 
 
 class Syncer:
@@ -64,13 +86,13 @@ class Syncer:
         config: dict[str, Any],
         agentic_tools: dict[str, AgenticToolSpec] | None = None,
     ) -> None:
-        self.config = dict(config)
+        self.config = normalize_config(config, source="syncer", warn_deprecated=False)
         validate_config(self.config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (
             agentic_tools if agentic_tools is not None
             else default_agentic_tools(self.config)
         )
-        self.state_dir = expand_path(config["state_path"]).parent
+        self.state_dir = prepare_state_storage(self.config)
         self._blocked_pair_ids: set[str] = set()
         self.tool_status = ToolStatusTracker(self.config, self.agentic_tools)
         self.discovery = DiscoveryWalker(
@@ -95,7 +117,6 @@ class Syncer:
     # ---------- top-level loop ----------
 
     def sync_once(self) -> SyncResult:
-        validate_config(self.config)
         reset_mcp_secret_warning_cache()
         self.tool_status.refresh()
         state = load_state(self.state_dir)
@@ -140,8 +161,8 @@ class Syncer:
         save_state(self.state_dir, state)
         result = SyncResult(
             changed=changed,
-            failed=failed,
-            blocked=sorted(self._blocked_pair_ids),
+            failed=tuple(failed),
+            blocked=tuple(sorted(self._blocked_pair_ids)),
         )
         logging.info(
             "Sync poll complete: changed=%d failed=%d blocked=%d",

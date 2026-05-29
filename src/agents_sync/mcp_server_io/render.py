@@ -56,7 +56,7 @@ def render_mcp_server_json(
     _render_common_fields(canonical, obj, dialect, tool_only, prior_obj)
     _render_transport_fields(canonical, obj, transport, dialect, tool_only, prior_obj)
 
-    obj, _ = apply_mcp_secret_policy(
+    obj = apply_mcp_secret_policy(
         obj,
         policy=secret_policy,
         artifact=str(canonical.get("name", "<unknown>")),

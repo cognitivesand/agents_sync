@@ -14,6 +14,7 @@ pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
 import json
 import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -65,6 +66,106 @@ def test_routine_retranslation_does_not_grow_archive(syncer: Syncer):
         p for p in (syncer.state_dir / "archive").rglob("*") if p.is_file()
     ]
     assert len(archived_files_after) == len(archived_files_before)
+
+
+def test_adoption_crash_after_source_pair_id_injection_keeps_state(
+    syncer: Syncer,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    claude_dir = _write_claude_skill(syncer)
+
+    import agents_sync.adoption.engine as engine_mod
+    from agents_sync.state import load_state
+
+    original_write = engine_mod.write_artifact_inplace
+    crashed = False
+
+    def flaky_write(io, path: Path, text: str, slot: str | None = None):
+        nonlocal crashed
+        result = original_write(io, path, text, slot=slot)
+        if not crashed:
+            crashed = True
+            raise RuntimeError("simulated crash after source pair_id injection")
+        return result
+
+    monkeypatch.setattr(engine_mod, "write_artifact_inplace", flaky_write)
+
+    first_result = syncer.sync_once()
+
+    assert first_result.changed == 0
+    assert first_result.failed
+    source_text = (claude_dir / "SKILL.md").read_text()
+    assert "pair_id:" in source_text
+    state_after_crash = load_state(syncer.state_dir)
+    assert len(state_after_crash) == 1
+    pair_id = next(iter(state_after_crash))
+    assert pair_id in source_text
+
+    second_result = syncer.sync_once()
+
+    assert second_result.failed == ()
+    assert second_result.changed == 1
+    recovered_state = load_state(syncer.state_dir)
+    assert pair_id in recovered_state
+    assert set(recovered_state[pair_id].agentic_tools) >= {"claude", "codex"}
+
+
+def test_removal_failure_after_partial_success_updates_state_for_removed_survivors(
+    syncer: Syncer,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _write_claude_skill(syncer)
+    syncer.sync_once()
+
+    from agents_sync import archive as archive_module
+    from agents_sync.state import load_state
+
+    state = load_state(syncer.state_dir)
+    pair_id, pair_state = next(iter(state.items()))
+    available = syncer.adoption._available_participating_tools("skill")
+    source_tool = next(tool for tool in available if tool in pair_state.agentic_tools)
+    survivors = [
+        tool for tool in available
+        if tool in pair_state.agentic_tools and tool != source_tool
+    ]
+    assert len(survivors) >= 2
+    first_survivor, failing_survivor = survivors[:2]
+    source_path = pair_state.agentic_tools[source_tool].path
+    first_path = pair_state.agentic_tools[first_survivor].path
+    failing_path = pair_state.agentic_tools[failing_survivor].path
+
+    real_archive_move = archive_module.archive_move
+    failed_once = False
+
+    def flaky_archive_move(state_dir: Path, pair_id: str, tool: str, source: Path):
+        nonlocal failed_once
+        if tool == failing_survivor and not failed_once:
+            failed_once = True
+            raise OSError("simulated survivor archive failure")
+        return real_archive_move(state_dir, pair_id, tool, source)
+
+    monkeypatch.setattr(archive_module, "archive_move", flaky_archive_move)
+
+    shutil.rmtree(source_path)
+    first_result = syncer.sync_once()
+
+    assert first_result.changed == 1
+    assert not first_path.exists()
+    assert failing_path.exists()
+    partial_state = load_state(syncer.state_dir)
+    assert source_tool in partial_state[pair_id].agentic_tools
+    assert first_survivor not in partial_state[pair_id].agentic_tools
+    assert failing_survivor in partial_state[pair_id].agentic_tools
+
+    second_result = syncer.sync_once()
+
+    assert second_result.changed == 1
+    assert not failing_path.exists()
+    recovered_state = load_state(syncer.state_dir)
+    if pair_id in recovered_state:
+        assert first_survivor not in recovered_state[pair_id].agentic_tools
+        assert source_tool not in recovered_state[pair_id].agentic_tools
+        assert failing_survivor not in recovered_state[pair_id].agentic_tools
 
 
 # ---------------- skill folders ----------------

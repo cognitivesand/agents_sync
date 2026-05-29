@@ -111,6 +111,26 @@ def test_copilot_skill_round_trips_open_skill_shape(tmp_path: Path):
     assert "context:" in rendered
 
 
+def test_copilot_skill_preserves_canonical_name_across_slugged_render():
+    canonical = {
+        "kind": "skill",
+        "pair_id": PAIR_ID,
+        "name": "Release Checklist!",
+        "description": "Prepare releases",
+        "body": "Check every release gate.",
+        "per_agentic_tool_only": {"copilot": {}},
+        "per_agentic_tool_extra": {"copilot": {}},
+    }
+
+    rendered = render_copilot_skill_md(canonical)
+    reparsed = parse_copilot_skill_md(rendered)
+
+    assert "name: release-checklist" in rendered
+    assert "x-agents-sync-name" in rendered
+    assert reparsed["name"] == "Release Checklist!"
+    assert reparsed["per_agentic_tool_extra"]["copilot"] == {}
+
+
 def test_copilot_instruction_maps_to_rules_and_preserves_extra(tmp_path: Path):
     path = tmp_path / "typescript.instructions.md"
     text = textwrap.dedent(

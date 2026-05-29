@@ -294,30 +294,50 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
     for arg_attr, config_key in _ARG_TO_CONFIG_KEY:
         maybe_set(config, config_key, getattr(args, arg_attr, None))
 
+    return normalize_config(config, source="config", warn_deprecated=True)
+
+
+def normalize_config(
+    config: dict[str, Any],
+    *,
+    source: str = "config",
+    warn_deprecated: bool = True,
+) -> dict[str, Any]:
+    """Return a copy with config aliases and values normalized.
+
+    This is the config-boundary mutation point: callers get a fresh dict with
+    canonical keys and values, while ``validate_config`` remains read-only.
+    """
+    normalized = dict(config)
+
     # Compat shim (1/2): if an external config file or CLI flag used the
     # deprecated key ``mcp_server_secret_policy``, copy its value into the
     # canonical ``secret_policy`` slot (only when no explicit canonical
     # value was provided), and emit one DEPRECATION-WARNING at startup.
     # The deprecated key is then discarded so downstream code never sees
     # it. To be removed in v0.6.
-    legacy_value = config.pop("mcp_server_secret_policy", None)
+    legacy_value = normalized.pop("mcp_server_secret_policy", None)
     if legacy_value is not None:
-        if config.get("secret_policy") == DEFAULTS["secret_policy"]:
-            config["secret_policy"] = legacy_value
-        logging.warning(
-            "DEPRECATED config key 'mcp_server_secret_policy' — use 'secret_policy' instead",
-        )
+        if (
+            "secret_policy" not in normalized
+            or normalized.get("secret_policy") == DEFAULTS["secret_policy"]
+        ):
+            normalized["secret_policy"] = legacy_value
+        if warn_deprecated:
+            logging.warning(
+                "DEPRECATED config key 'mcp_server_secret_policy' — use 'secret_policy' instead",
+            )
 
     # Compat shim (2/2): normalize the policy value through
     # ``normalize_secret_policy`` so the old spellings (refuse/redact/permissive)
     # become the new ones (secrets_refused/secrets_accepted). The shim logs
     # the deprecation once at startup; downstream code sees only the new
     # spelling.
-    raw_policy = config.get("secret_policy", DEFAULTS["secret_policy"])
-    config["secret_policy"] = normalize_secret_policy(
-        str(raw_policy), source="config", warn_deprecated=True,
+    raw_policy = normalized.get("secret_policy", DEFAULTS["secret_policy"])
+    normalized["secret_policy"] = normalize_secret_policy(
+        str(raw_policy), source=source, warn_deprecated=warn_deprecated,
     )
-    return config
+    return normalized
 
 
 REQUIRED_DIR_KEYS: tuple[str, ...] = (
@@ -376,11 +396,13 @@ def validate_config(config: dict[str, Any]) -> None:
     but does not abort the daemon. This rule is uniform across Claude, Codex,
     and Antigravity.
 
-    This function still fails closed on:
+    This function fails closed on:
       - missing or non-numeric `poll_interval_seconds`;
       - missing required directory keys (well-formed paths required);
-      - inability to create / write the `state_path` parent (state must
-        survive crashes).
+      - malformed `state_path`, `secret_policy`, and import strategy values.
+
+    It is intentionally read-only: it does not normalize config values,
+    create directories, or probe filesystem permissions.
     """
     try:
         interval = float(config["poll_interval_seconds"])
@@ -405,6 +427,11 @@ def validate_config(config: dict[str, Any]) -> None:
         if key in config and not isinstance(config[key], bool):
             raise ConfigError(f"{key} must be a boolean")
 
+    if "state_path" not in config:
+        raise ConfigError("missing required config key: state_path")
+    if not isinstance(config["state_path"], (str, Path)):
+        raise ConfigError("state_path must be a path string")
+
     strategy = config.get("import_collision_strategy", "mtime_wins")
     if strategy not in {"skip", "mtime_wins", "overwrite"}:
         raise ConfigError(
@@ -413,14 +440,13 @@ def validate_config(config: dict[str, Any]) -> None:
         )
 
     # secret_policy validation: accept either the canonical key or the
-    # deprecated alias, accept either new or old value spellings, normalize
-    # silently here (the per-startup deprecation was already logged by
-    # merged_config). Reject anything outside the union.
+    # deprecated alias, and accept either new or old value spellings without
+    # writing the normalized value back into the provided dict.
     raw_policy = config.get("secret_policy")
     if raw_policy is None:
         raw_policy = config.get("mcp_server_secret_policy", "secrets_refused")
     try:
-        normalized = normalize_secret_policy(
+        normalize_secret_policy(
             str(raw_policy), source="validate_config", warn_deprecated=False,
         )
     except ValueError as exc:
@@ -428,8 +454,10 @@ def validate_config(config: dict[str, Any]) -> None:
             "secret_policy must be "
             f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
         ) from exc
-    config["secret_policy"] = normalized
 
+
+def prepare_state_storage(config: dict[str, Any]) -> Path:
+    """Create and verify the state directory, then return it."""
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent
     try:
@@ -440,3 +468,4 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError(f"state_path parent is not a directory: {state_parent}")
     if not os.access(state_parent, os.W_OK):
         raise ConfigError(f"state_path parent is not writable: {state_parent}")
+    return state_parent

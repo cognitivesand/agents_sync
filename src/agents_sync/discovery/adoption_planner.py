@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any
 
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
+    DirectorySkillLayout,
     SharedKeyedMapLayout,
+    SingleFileLayout,
     is_reserved_customization_name,
 )
 from agents_sync.canonical import is_private
@@ -102,8 +104,8 @@ class AdoptionPlannerMixin(_WalkerHostBase):
         io: Any,
         canonical: dict[str, Any],
     ) -> PlannedTarget | None:
-        if isinstance(io.file_layout, SharedKeyedMapLayout):
-            layout = io.file_layout
+        layout = io.file_layout
+        if isinstance(layout, SharedKeyedMapLayout):
             raw_shared = self.config.get(layout.shared_path_config_key)
             if raw_shared is None:
                 return None  # shared file not configured on this tool — skip
@@ -122,9 +124,11 @@ class AdoptionPlannerMixin(_WalkerHostBase):
         root = expand_path(raw_root)
         slugger = io.slugify_name or target_slug
         slug = slugger(canonical["name"])
-        if io.storage == "single_file":
+        if isinstance(layout, SingleFileLayout):
             return PlannedTarget(path=single_file_target(root, io, slug))
-        return PlannedTarget(path=root / slug)
+        if isinstance(layout, DirectorySkillLayout):
+            return PlannedTarget(path=root / slug)
+        raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
     def _available_participating_tools(self, kind: str) -> list[str]:
         return [

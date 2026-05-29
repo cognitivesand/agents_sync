@@ -785,8 +785,7 @@ def test_apply_mcp_secret_policy_no_findings_returns_deep_copy():
     from agents_sync.mcp_secret_policy import apply_mcp_secret_policy
 
     original = {"name": "x", "transport": "stdio", "command": "echo"}
-    returned, redactions = apply_mcp_secret_policy(original, policy="refuse")
-    assert redactions == []
+    returned = apply_mcp_secret_policy(original, policy="refuse")
     returned["mutated"] = True
     assert "mutated" not in original
 

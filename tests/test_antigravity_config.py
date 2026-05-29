@@ -18,7 +18,13 @@ from pathlib import Path
 import pytest
 
 from agents_sync.cli import build_parser
-from agents_sync.config import ConfigError, merged_config, platform_defaults, validate_config
+from agents_sync.config import (
+    ConfigError,
+    merged_config,
+    platform_defaults,
+    prepare_state_storage,
+    validate_config,
+)
 from agents_sync.sync import Syncer
 
 # ---------- per-OS defaults ----------
@@ -280,6 +286,46 @@ def test_merged_config_accepts_legacy_mcp_secret_policy_flag_with_deprecation(
     assert config["secret_policy"] == "secrets_accepted"
     assert "mcp_server_secret_policy" not in config
     assert any("DEPRECATED" in r.message for r in caplog.records)
+
+
+def test_validate_config_is_read_only_and_does_not_create_state_dir(tmp_path: Path):
+    config = _test_config(tmp_path)
+    state_parent = tmp_path / "missing-state" / "nested"
+    config["state_path"] = str(state_parent / "state.json")
+    config["secret_policy"] = "refuse"
+    before = dict(config)
+
+    validate_config(config)
+
+    assert config == before
+    assert not state_parent.exists()
+
+
+def test_prepare_state_storage_creates_state_parent(tmp_path: Path):
+    config = _test_config(tmp_path)
+    state_parent = tmp_path / "prepared-state" / "nested"
+    config["state_path"] = str(state_parent / "state.json")
+
+    result = prepare_state_storage(config)
+
+    assert result == state_parent.resolve()
+    assert state_parent.is_dir()
+
+
+def test_sync_once_does_not_revalidate_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from agents_sync import sync as sync_module
+
+    syncer = Syncer(_test_config(tmp_path))
+
+    def fail_on_poll_validation(config: dict[str, object]) -> None:
+        raise AssertionError("sync_once should not revalidate config")
+
+    monkeypatch.setattr(sync_module, "validate_config", fail_on_poll_validation)
+
+    assert syncer.sync_once().changed == 0
 
 
 @pytest.mark.parametrize(

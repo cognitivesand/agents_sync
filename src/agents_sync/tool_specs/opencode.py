@@ -8,6 +8,8 @@ from typing import Any
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    DirectorySkillLayout,
+    SingleFileLayout,
 )
 from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 from agents_sync.tool_specs._rules_factory import build_global_rules_io
@@ -52,7 +54,11 @@ def build_opencode_spec(config: Mapping[str, Any] | None = None) -> AgenticToolS
         artifact_path: Path | None = None,
         artifact_root: Path | None = None,
     ) -> dict[str, Any]:
-        return parse_opencode_skill_md(text, prior_canonical=prior_canonical)
+        return parse_opencode_skill_md(
+            text,
+            prior_canonical=prior_canonical,
+            artifact_path=artifact_path,
+        )
 
     def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
         return render_opencode_skill_md(canonical, prior_text=prior_text)
@@ -96,23 +102,20 @@ def build_opencode_spec(config: Mapping[str, Any] | None = None) -> AgenticToolS
                 parse=parse_agent,
                 render=render_agent,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
             ),
             "skill": CustomizationTypeIO(
                 parse=parse_skill,
                 render=render_skill,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
                 slugify_name=opencode_skill_slug,
             ),
             "slash_command": CustomizationTypeIO(
                 parse=parse_slash_command,
                 render=render_slash_command,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
                 slugify_name=slash_command_slug,
                 recursive=True,
                 reserved_names=frozenset({

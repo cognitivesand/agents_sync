@@ -232,7 +232,7 @@ def apply_mcp_secret_policy(
     policy: str,
     artifact: str | None = None,
     warning_cache: set[tuple[str, tuple[str, ...]]] | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> dict[str, Any]:
     """Return ``data`` after applying the configured secret policy.
 
     Always returns a deep-copied object: even when no findings exist or the
@@ -258,7 +258,7 @@ def apply_mcp_secret_policy(
     normalized_policy = normalize_secret_policy(policy, source="apply_mcp_secret_policy")
     findings = find_mcp_secret_literals(data)
     if not findings:
-        return copy.deepcopy(data), []
+        return copy.deepcopy(data)
 
     field_paths = [finding.field_path for finding in findings]
     if normalized_policy == "secrets_refused":
@@ -275,7 +275,7 @@ def apply_mcp_secret_policy(
             field_paths,
         )
         cache.add(cache_key)
-    return copy.deepcopy(data), []
+    return copy.deepcopy(data)
 
 
 def find_mcp_secret_literals(data: Any) -> list[SecretFinding]:

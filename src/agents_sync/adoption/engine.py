@@ -21,6 +21,7 @@ from agents_sync.adoption.privacy_gate import PrivacyGateMixin
 from agents_sync.adoption.removal_propagator import RemovalPropagatorMixin
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
+    DirectorySkillLayout,
     SharedKeyedMapLayout,
     is_reserved_customization_name,
 )
@@ -32,7 +33,7 @@ from agents_sync.rendering import (
     update_state_n_way,
     write_artifact_inplace,
 )
-from agents_sync.state import CustomizationArtifactState
+from agents_sync.state import CustomizationArtifactState, save_state
 from agents_sync.sync_types import (
     AgenticToolInfo,
     CustomizationArtifactInfo,
@@ -83,6 +84,14 @@ class AdoptionEngine(
             )
         if not present:
             return False
+
+        missing_pair_id_tools = [
+            t for t in present
+            if t in ps.agentic_tools and not info.agentic_tools[t].pair_id_present
+        ]
+        if missing_pair_id_tools:
+            source = self._pick_winner(missing_pair_id_tools, info)
+            return self._sync_from_agentic_tool(pair_id, source, info, state)
 
         changed = [
             t for t in present
@@ -166,6 +175,21 @@ class AdoptionEngine(
             return False
         canonical["pair_id"] = pair_id
 
+        # Persist canonical + source state entry before mutating any on-disk
+        # bytes, so a crash mid-adoption leaves a recoverable state entry
+        # bound to the injected pair_id (audit: adoption-crash recovery).
+        source_result = RenderResult(path=source_info.path, slot=source_info.slot)
+        save_canonical(self.state_dir, pair_id, canonical)
+        update_state_n_way(
+            state,
+            pair_id,
+            info.kind,
+            {source_tool: source_result},
+            self.agentic_tools,
+            bump=False,
+        )
+        save_state(self.state_dir, state)
+
         if not source_info.pair_id_present:
             self._archive_source_before_write(
                 pair_id,
@@ -180,10 +204,21 @@ class AdoptionEngine(
                 source_io.render(canonical, text),
                 slot=source_info.slot,
             )
+            update_state_n_way(
+                state,
+                pair_id,
+                info.kind,
+                {source_tool: source_result},
+                self.agentic_tools,
+                bump=False,
+            )
+            save_state(self.state_dir, state)
 
-        save_canonical(self.state_dir, pair_id, canonical)
-
-        source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        source_dir = (
+            source_info.path
+            if isinstance(source_io.file_layout, DirectorySkillLayout)
+            else None
+        )
         results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,
@@ -195,6 +230,7 @@ class AdoptionEngine(
         self._archive_prior_slot_results(pair_id, info.kind, results)
 
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
+        save_state(self.state_dir, state)
         logging.info(
             "Adopted from %s: pair_id=%s paths=%s",
             source_tool,
@@ -257,8 +293,22 @@ class AdoptionEngine(
             return False
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
+        if not source_info.pair_id_present:
+            self._archive_source_before_write(
+                pair_id, source_tool, source_io, source_info, text,
+            )
+            write_artifact_inplace(
+                source_io,
+                source_info.path,
+                source_io.render(canonical, text),
+                slot=source_info.slot,
+            )
 
-        source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        source_dir = (
+            source_info.path
+            if isinstance(source_io.file_layout, DirectorySkillLayout)
+            else None
+        )
         results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,

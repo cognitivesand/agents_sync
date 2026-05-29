@@ -8,6 +8,7 @@ pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 import json
 from pathlib import Path
 
+from agents_sync.opencode_io import parse_opencode_skill_md
 from agents_sync.sync import Syncer
 
 
@@ -123,3 +124,29 @@ def test_opencode_skill_adopts_to_all_skill_tools(syncer: Syncer):
         assert "from opencode" in (
             Path(entry["agentic_tools"][tool]["path"]) / "SKILL.md"
         ).read_text()
+
+
+def test_claude_skill_projects_to_opencode_slug_path_without_renaming(syncer: Syncer):
+    source = syncer.tool_root("claude", "skill") / "source-skill"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\n"
+        "name: My_Skill\n"
+        "description: from claude\n"
+        "---\n"
+        "body\n"
+    )
+
+    syncer.sync_once()
+
+    pair_id, entry = _the_only_pair(syncer)
+    opencode_path = syncer.tool_root("opencode", "skill") / "my-skill"
+    opencode_text = (opencode_path / "SKILL.md").read_text()
+    parsed = parse_opencode_skill_md(opencode_text, artifact_path=opencode_path)
+
+    assert entry["customization_type"] == "skill"
+    assert f"pair_id: {pair_id}" in opencode_text
+    assert opencode_path.exists()
+    assert not (syncer.tool_root("opencode", "skill") / "My_Skill").exists()
+    assert "name: my-skill" in opencode_text
+    assert parsed["name"] == "My_Skill"

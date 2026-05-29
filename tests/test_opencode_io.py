@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agents_sync.artifact_names import CANONICAL_NAME_FIELD
 from agents_sync.canonical import empty_canonical
 from agents_sync.opencode_io import (
     KNOWN_OPENCODE_AGENT_FIELDS,
@@ -39,6 +40,7 @@ def test_known_opencode_fields_match_v0_4_1_plan():
     assert KNOWN_OPENCODE_SKILL_FIELDS == frozenset({
         "pair_id",
         "name",
+        CANONICAL_NAME_FIELD,
         "description",
         "license",
         "compatibility",
@@ -215,6 +217,22 @@ def test_opencode_skill_slug_normalises_underscores_for_render():
     rendered = render_opencode_skill_md(canonical)
     assert "name: my-skill" in rendered
     assert opencode_skill_slug("My_Skill") == "my-skill"
+
+
+def test_opencode_skill_preserves_canonical_name_across_slugged_render():
+    canonical = empty_canonical("skill")
+    canonical["pair_id"] = "00000000-0000-4000-8000-000000000008"
+    canonical["name"] = "My_Skill"
+    canonical["description"] = "x"
+    canonical["body"] = "Skill body."
+
+    rendered = render_opencode_skill_md(canonical)
+    reparsed = parse_opencode_skill_md(rendered)
+
+    assert "name: my-skill" in rendered
+    assert "x-agents-sync-name" in rendered
+    assert reparsed["name"] == "My_Skill"
+    assert reparsed["per_agentic_tool_extra"]["opencode"] == {}
 
 
 def test_extract_pair_id_from_md():

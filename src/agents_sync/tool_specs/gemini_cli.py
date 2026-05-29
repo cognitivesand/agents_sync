@@ -7,7 +7,9 @@ from typing import Any
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    DirectorySkillLayout,
     RulesFileLayout,
+    SingleFileLayout,
 )
 from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 
@@ -44,15 +46,13 @@ def build_gemini_cli_spec(config: Mapping[str, Any] | None = None) -> AgenticToo
                 parse=parse_gemini_agent_md,
                 render=render_gemini_agent_md,
                 extract_pair_id=extract_pair_id_from_gemini_agent_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
             ),
             "skill": CustomizationTypeIO(
                 parse=parse_gemini_skill_md,
                 render=render_gemini_skill_md,
                 extract_pair_id=extract_pair_id_from_gemini_skill_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
             ),
             "rules": CustomizationTypeIO(
                 parse=parse_gemini_rules_md,
@@ -67,8 +67,7 @@ def build_gemini_cli_spec(config: Mapping[str, Any] | None = None) -> AgenticToo
                 parse=parse_gemini_command_toml,
                 render=render_gemini_command_toml,
                 extract_pair_id=extract_pair_id_from_gemini_command_toml,
-                storage="single_file",
-                file_suffix=".toml",
+                file_layout=SingleFileLayout(extension=".toml"),
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),

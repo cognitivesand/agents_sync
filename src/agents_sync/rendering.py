@@ -19,7 +19,9 @@ from typing import Any
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    DirectorySkillLayout,
     SharedKeyedMapLayout,
+    SingleFileLayout,
 )
 from agents_sync.config import expand_path
 from agents_sync.filesystem_windows_retry import retry_fs
@@ -135,14 +137,17 @@ def read_artifact_text(
     returns it serialised via the layout's format handler. For per-file
     artifacts ``slot`` must be ``None``.
     """
-    if isinstance(io.file_layout, SharedKeyedMapLayout):
+    layout = io.file_layout
+    if isinstance(layout, SharedKeyedMapLayout):
         if slot is None:
             raise ValueError("SharedKeyedMapLayout requires a slot to read")
-        slots, _ = read_slots(path, io.file_layout)
+        slots, _ = read_slots(path, layout)
         return slots.get(slot, "")
-    if io.storage == "single_file":
+    if isinstance(layout, SingleFileLayout):
         return path.read_text(encoding="utf-8")
-    return (path / "SKILL.md").read_text(encoding="utf-8")
+    if isinstance(layout, DirectorySkillLayout):
+        return (path / "SKILL.md").read_text(encoding="utf-8")
+    raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
 
 def write_artifact_inplace(
@@ -159,21 +164,24 @@ def write_artifact_inplace(
     is never archived, only the changed slot). For per-file artifacts
     returns ``None``.
     """
-    if isinstance(io.file_layout, SharedKeyedMapLayout):
+    layout = io.file_layout
+    if isinstance(layout, SharedKeyedMapLayout):
         if slot is None:
             raise ValueError("SharedKeyedMapLayout requires a slot to write")
         return apply_slot(
             path,
-            io.file_layout,
+            layout,
             slot,
             text,
             expected_pair_id=io.extract_pair_id(text),
             allow_unpaired_existing=True,
         )
-    if io.storage == "single_file":
+    if isinstance(layout, SingleFileLayout):
         atomic_write_text(path, text)
-    else:
+    elif isinstance(layout, DirectorySkillLayout):
         atomic_write_text(path / "SKILL.md", text)
+    else:
+        raise ValueError(f"Unknown file layout: {type(layout).__name__}")
     return None
 
 
@@ -201,7 +209,8 @@ def render_to_agentic_tool(
     io = spec.io[kind]
     slugger = io.slugify_name or target_slug
     slug = slugger(canonical["name"])
-    if isinstance(io.file_layout, SharedKeyedMapLayout):
+    layout = io.file_layout
+    if isinstance(layout, SharedKeyedMapLayout):
         return _render_keyed_map_slot(
             config, io, canonical, slug,
             existing_slot=existing_slot,
@@ -209,15 +218,15 @@ def render_to_agentic_tool(
             prior_text=prior_text,
         )
     root = expand_path(config[spec.config_dir_keys[kind]])
-    if io.storage == "single_file":
+    if isinstance(layout, SingleFileLayout):
         return _render_single_file(
             io, canonical, root, slug, existing_path, prior_text,
         )
-    if io.storage == "directory_skill":
+    if isinstance(layout, DirectorySkillLayout):
         return _render_directory_skill(
             io, canonical, root, slug, existing_path, prior_text, source_dir,
         )
-    raise ValueError(f"Unknown storage shape: {io.storage}")
+    raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
 
 def _render_keyed_map_slot(
@@ -284,9 +293,12 @@ def _render_directory_skill(
 
 
 def single_file_target(root: Path, io: CustomizationTypeIO, slug: str) -> Path:
-    if io.fixed_file_name is not None:
-        return root / io.fixed_file_name
-    return root / f"{slug}{io.file_suffix}"
+    layout = io.file_layout
+    if not isinstance(layout, SingleFileLayout):
+        raise ValueError(f"SingleFileLayout required, got {type(layout).__name__}")
+    if layout.fixed_file_name is not None:
+        return root / layout.fixed_file_name
+    return root / f"{slug}{layout.file_suffix}"
 
 
 # ---------- state update ----------
@@ -297,6 +309,8 @@ def update_state_n_way(
     kind: str,
     results: dict[str, RenderResult],
     agentic_tools: dict[str, AgenticToolSpec],
+    *,
+    bump: bool = True,
 ) -> None:
     """Record ``results`` (one per tool) into ``state[pair_id]``, computing
     digests.
@@ -311,18 +325,22 @@ def update_state_n_way(
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
-    ps.bump(now=time.time())
+    if bump:
+        ps.bump(now=time.time())
     for tool_name, result in results.items():
         spec = agentic_tools[tool_name]
         io = spec.io[kind]
-        if isinstance(io.file_layout, SharedKeyedMapLayout):
-            slots, _ = read_slots(result.path, io.file_layout)
+        layout = io.file_layout
+        if isinstance(layout, SharedKeyedMapLayout):
+            slots, _ = read_slots(result.path, layout)
             slot_text = slots.get(result.slot or "", "")
             digest = sha256_text(slot_text)
-        elif io.storage == "single_file":
+        elif isinstance(layout, SingleFileLayout):
             digest = sha256_file(result.path)
-        else:
+        elif isinstance(layout, DirectorySkillLayout):
             digest = sha256_tree(result.path)
+        else:
+            raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         ps.agentic_tools[tool_name] = AgenticToolState(
             path=result.path,
             last_seen=digest,

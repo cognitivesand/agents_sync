@@ -9,6 +9,7 @@ from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
     DirectorySkillLayout,
+    SingleFileLayout,
 )
 from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 from agents_sync.tool_specs._rules_factory import build_global_rules_io
@@ -87,8 +88,7 @@ def build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
                 parse=parse_agent,
                 render=render,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
             ),
             "skill": CustomizationTypeIO(
                 parse=parse_skill,
@@ -100,8 +100,7 @@ def build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
                 parse=parse_slash_command,
                 render=render_slash_command,
                 extract_pair_id=extract_pair_id_from_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),
