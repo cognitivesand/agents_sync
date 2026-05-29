@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agents_sync.artifact_names import resolve_artifact_name
+from agents_sync.artifact_names import CANONICAL_NAME_FIELD, resolve_artifact_name
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.markdown_yaml_metadata_block import (
     extract_pair_id_from_md,
@@ -43,6 +43,7 @@ KNOWN_OPENCODE_AGENT_FIELDS = frozenset({
 KNOWN_OPENCODE_SKILL_FIELDS = frozenset({
     "pair_id",
     "name",
+    CANONICAL_NAME_FIELD,
     "description",
     "license",
     "compatibility",
@@ -82,6 +83,7 @@ FOREIGN_AGENT_FIELDS = frozenset({
 })
 
 FOREIGN_SKILL_FIELDS = frozenset({
+    CANONICAL_NAME_FIELD,
     "model",
     "effort",
     "tools",
@@ -245,13 +247,22 @@ def render_opencode_agent_md(
 def parse_opencode_skill_md(
     text: str,
     prior_canonical: dict[str, Any] | None = None,
+    *,
+    artifact_path: Path | None = None,
 ) -> dict[str, Any]:
     frontmatter_data, body = split_frontmatter(text, label="opencode SKILL.md")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
 
-    if "name" in frontmatter_data:
-        canonical["name"] = str(frontmatter_data["name"])
+    name = resolve_artifact_name(
+        frontmatter_name=frontmatter_data.get(CANONICAL_NAME_FIELD),
+        prior_name=canonical.get("name"),
+        override_name=frontmatter_data.get("name"),
+        path_name=artifact_path.name if artifact_path is not None else None,
+        precedence=("frontmatter", "prior", "override", "path"),
+    )
+    if name is not None:
+        canonical["name"] = name
     if "description" in frontmatter_data:
         canonical["description"] = str(frontmatter_data["description"])
 
@@ -288,7 +299,14 @@ def render_opencode_skill_md(
         frontmatter.pop(key, None)
 
     frontmatter["pair_id"] = canonical["pair_id"]
-    frontmatter["name"] = opencode_skill_slug(canonical["name"])
+    canonical_name = str(canonical["name"])
+    skill_slug = opencode_skill_slug(canonical_name)
+    frontmatter["name"] = skill_slug
+    set_or_remove_empty_metadata_field(
+        frontmatter,
+        CANONICAL_NAME_FIELD,
+        canonical_name if canonical_name != skill_slug else None,
+    )
     set_or_remove_empty_metadata_field(
         frontmatter, "description", canonical.get("description"),
     )

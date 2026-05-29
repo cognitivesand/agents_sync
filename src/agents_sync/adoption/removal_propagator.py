@@ -4,7 +4,9 @@ Available tools that no longer surface the artifact are removal
 signals. Surviving copies on other available tools are archived and
 deleted; state entries for unavailable tools are preserved verbatim
 (US-11 AC-4). If every entry in the pair would be dropped, the
-pair_id itself is dropped.
+pair_id itself is dropped. If a survivor removal fails after earlier
+survivors were already deleted, state advances for the completed
+survivors so the next poll retries only the entries still present.
 """
 from __future__ import annotations
 
@@ -70,6 +72,8 @@ class RemovalPropagatorMixin:
         missing_tools: list[str],
         survivors: list[str],
     ) -> bool:
+        removed_survivors: list[str] = []
+        failed_survivor: str | None = None
         for tool in survivors:
             survivor_info = info.agentic_tools[tool]
             survivor_io = self.agentic_tools[tool].io[info.kind]
@@ -77,28 +81,54 @@ class RemovalPropagatorMixin:
                 if not self._remove_keyed_map_slot(
                     pair_id, tool, survivor_info, survivor_io,
                 ):
-                    return False
+                    failed_survivor = tool
+                    break
+                removed_survivors.append(tool)
                 continue
             if not self._remove_file_artifact(
                 pair_id, tool, survivor_info.path,
             ):
+                failed_survivor = tool
+                break
+            removed_survivors.append(tool)
+
+        if failed_survivor is not None:
+            if not removed_survivors:
                 return False
-        ps = state[pair_id]
-        for tool in list(missing_tools) + list(survivors):
-            ps.agentic_tools.pop(tool, None)
-        if not ps.agentic_tools:
-            del state[pair_id]
+            self._drop_state_tools(pair_id, state, removed_survivors)
+            logging.warning(
+                "Removal propagation partially applied: pair_id=%s "
+                "missing=%s removed_survivors=%s failed_survivor=%s",
+                pair_id, missing_tools, removed_survivors, failed_survivor,
+            )
+            return True
+
+        self._drop_state_tools(pair_id, state, list(missing_tools) + removed_survivors)
+        if pair_id not in state:
             logging.info(
                 "Propagated removal (fully dropped): pair_id=%s missing=%s survivors=%s",
                 pair_id, missing_tools, survivors,
             )
         else:
+            ps = state[pair_id]
             logging.info(
                 "Propagated removal: pair_id=%s missing=%s survivors=%s "
                 "preserved_unavailable=%s",
                 pair_id, missing_tools, survivors, list(ps.agentic_tools.keys()),
             )
         return True
+
+    def _drop_state_tools(
+        self,
+        pair_id: str,
+        state: dict[str, CustomizationArtifactState],
+        tools: list[str],
+    ) -> None:
+        ps = state[pair_id]
+        for tool in tools:
+            ps.agentic_tools.pop(tool, None)
+        if not ps.agentic_tools:
+            del state[pair_id]
 
     def _remove_keyed_map_slot(
         self,
@@ -109,8 +139,8 @@ class RemovalPropagatorMixin:
     ) -> bool:
         """Archive the prior slot text and delete the slot from the shared file.
 
-        Returns False on failure (the caller aborts and leaves the survivor
-        on disk; state is preserved so the next poll retries).
+        Returns False on failure. The caller records successful earlier
+        removals in state so the next poll retries only the remaining tools.
         """
         slot_key = survivor_info.slot
         if slot_key is None:

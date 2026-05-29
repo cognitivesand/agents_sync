@@ -28,6 +28,21 @@ class _FakeSyncer:
         return outcome
 
 
+def test_sync_result_compares_by_value_and_is_hashable():
+    first_result = SyncResult(changed=1, failed=["p1"], blocked=["p2"])
+    second_result = SyncResult(changed=1, failed=("p1",), blocked=("p2",))
+    different_result = SyncResult(changed=1, failed=["p3"], blocked=["p2"])
+
+    assert first_result == second_result
+    assert first_result != different_result
+    assert hash(first_result) == hash(second_result)
+    assert {first_result: "seen"}[second_result] == "seen"
+    assert first_result == 1
+    assert 1 == first_result
+    assert first_result.failed == ("p1",)
+    assert first_result.blocked == ("p2",)
+
+
 def test_register_signal_if_available_ignores_registration_errors(monkeypatch):
     def boom(signum: int, handler) -> None:
         raise ValueError("unsupported")

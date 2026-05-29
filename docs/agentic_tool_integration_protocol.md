@@ -54,7 +54,11 @@ Each agentic_tool factory returns one `AgenticToolSpec`:
 
 ```python
 # src/agents_sync/tool_specs/<agentic_tool_name>.py
-from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    CustomizationTypeIO,
+    DirectorySkillLayout,
+)
 
 def build_<agentic_tool_name>_spec(config=None) -> AgenticToolSpec:
     return AgenticToolSpec(
@@ -209,8 +213,7 @@ def build_example_spec(config=None) -> AgenticToolSpec:
                 extract_pair_id=extract_pair_id_from_example_skill_md,
                 parse=parse_example_skill_md,
                 render=render_example_skill_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
             ),
         },
         disable_config_key="example_enabled",

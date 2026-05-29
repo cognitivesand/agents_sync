@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from agents_sync.claude_io import extract_pair_id_from_md
-from agents_sync.copilot_io import extract_pair_id_from_copilot_agent_md
+from agents_sync.copilot_io import (
+    extract_pair_id_from_copilot_agent_md,
+    parse_copilot_skill_md,
+)
 from agents_sync.sync import Syncer
 
 
@@ -102,6 +105,35 @@ def test_agent_from_other_tool_projects_to_copilot_agent_md(tmp_path: Path):
     target = syncer.tool_root("copilot", "agent") / "planner.agent.md"
     assert target.exists()
     assert extract_pair_id_from_copilot_agent_md(target.read_text(encoding="utf-8")) == pair_id
+
+
+def test_skill_from_other_tool_keeps_canonical_name_on_copilot_slug_path(tmp_path: Path):
+    syncer = Syncer(_config(tmp_path, with_vscode=False))
+    source = syncer.tool_root("claude", "skill") / "source-skill"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        textwrap.dedent(
+            """\
+            ---
+            name: Release Checklist!
+            description: Prepare releases
+            ---
+            Check every release gate.
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    assert syncer.sync_once() == 1
+
+    target = syncer.tool_root("copilot", "skill") / "release-checklist"
+    target_text = (target / "SKILL.md").read_text(encoding="utf-8")
+    parsed = parse_copilot_skill_md(target_text, None, artifact_path=target)
+
+    assert target.exists()
+    assert not (syncer.tool_root("copilot", "skill") / "Release Checklist!").exists()
+    assert "name: release-checklist" in target_text
+    assert parsed["name"] == "Release Checklist!"
 
 
 def test_copilot_prompt_syncs_as_slash_command_with_namespace(tmp_path: Path):

@@ -8,8 +8,10 @@ from typing import Any
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    DirectorySkillLayout,
     RulesFileLayout,
     SharedKeyedMapLayout,
+    SingleFileLayout,
 )
 
 
@@ -81,15 +83,13 @@ def build_cursor_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
                 parse=parse_cursor_agent_md,
                 render=render_cursor_agent_md,
                 extract_pair_id=extract_pair_id_from_cursor_agent_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
             ),
             "skill": CustomizationTypeIO(
                 parse=parse_cursor_skill_md,
                 render=render_cursor_skill_md,
                 extract_pair_id=extract_pair_id_from_cursor_skill_md,
-                storage="directory_skill",
-                file_suffix="",
+                file_layout=DirectorySkillLayout(),
             ),
             "rules": CustomizationTypeIO(
                 parse=parse_cursor_rule_mdc,
@@ -102,8 +102,7 @@ def build_cursor_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
                 parse=parse_cursor_command_md,
                 render=render_cursor_command_md,
                 extract_pair_id=extract_pair_id_from_cursor_command_md,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),
