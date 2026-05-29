@@ -16,7 +16,6 @@ from agents_sync.portable_archive import (
 )
 from agents_sync.sync import Syncer
 
-
 # v0.1 install paths. Phase 4 declines to auto-migrate; if either of these
 # exists we emit a clear error and exit so the user can clean up.
 _LEGACY_PATHS = [

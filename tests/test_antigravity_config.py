@@ -21,7 +21,6 @@ from agents_sync.cli import build_parser
 from agents_sync.config import ConfigError, merged_config, platform_defaults, validate_config
 from agents_sync.sync import Syncer
 
-
 # ---------- per-OS defaults ----------
 
 def test_linux_defaults_include_antigravity_skills_dir():

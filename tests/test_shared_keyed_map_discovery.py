@@ -30,7 +30,6 @@ from agents_sync.shared_keyed_map_io import read_slots
 from agents_sync.state import AgenticToolState, CustomizationArtifactState
 from agents_sync.sync import Syncer
 
-
 _PAIR_ID_KEY = "pair_id"
 
 

@@ -17,7 +17,6 @@ from agents_sync.markdown_yaml_metadata_block import (
     yaml_dump,
 )
 
-
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 

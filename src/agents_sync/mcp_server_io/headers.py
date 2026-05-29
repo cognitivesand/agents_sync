@@ -15,7 +15,6 @@ from agents_sync.mcp_secret_policy import (
     env_reference_name,
     format_env_reference,
 )
-
 from agents_sync.mcp_server_io._helpers import (
     as_mapping,
     canonicalize_env_refs,

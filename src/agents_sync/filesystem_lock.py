@@ -28,9 +28,8 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
-
 
 DEFAULT_LOCK_TIMEOUT_SECONDS = 5.0
 _RETRY_INTERVAL_SECONDS = 0.05

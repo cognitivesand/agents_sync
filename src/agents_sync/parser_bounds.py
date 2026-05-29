@@ -37,7 +37,6 @@ from typing import Any
 
 from agents_sync.markdown_yaml_metadata_block import AdapterParseError
 
-
 MAX_PARSE_BYTES: int = 16 * 1024 * 1024
 """Per-file parse-input ceiling in bytes (16 MB).
 

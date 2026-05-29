@@ -26,7 +26,6 @@ from agents_sync.markdown_yaml_metadata_block import (
     yaml_dump,
 )
 
-
 # Frontmatter keys the Antigravity canonical maps explicitly. Anything else
 # is preserved in canonical["per_agentic_tool_extra"]["antigravity"].
 KNOWN_ANTIGRAVITY_FIELDS = frozenset({

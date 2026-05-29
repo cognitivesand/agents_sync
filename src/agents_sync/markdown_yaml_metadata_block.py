@@ -37,7 +37,6 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
-
 FRONTMATTER_RE = re.compile(
     r"\A(?:﻿)?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)(.*)\Z",
     re.DOTALL,

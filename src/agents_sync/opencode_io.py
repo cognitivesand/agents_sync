@@ -22,7 +22,6 @@ from agents_sync.markdown_yaml_metadata_block import (
     unknown_metadata_fields,
 )
 
-
 KNOWN_OPENCODE_AGENT_FIELDS = frozenset({
     "pair_id",
     "description",

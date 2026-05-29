@@ -21,20 +21,19 @@ pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 from agents_sync.canonical import canonical_path, save_canonical
 from agents_sync.identity import validate_pair_id
 from agents_sync.portable_archive import (
-    MANIFEST_NAME,
     CANONICAL_PREFIX,
+    MANIFEST_NAME,
     ExportReport,
     ImportReport,
     export_to_zip,
     import_from_zip,
 )
 from agents_sync.state import (
-    CustomizationArtifactState,
     AgenticToolState,
-    save_state,
+    CustomizationArtifactState,
     load_state,
+    save_state,
 )
-
 
 # ----------------------- helpers -----------------------
 

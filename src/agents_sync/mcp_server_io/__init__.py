@@ -18,7 +18,6 @@ from agents_sync.mcp_server_io.parse import (
 )
 from agents_sync.mcp_server_io.render import render_mcp_server_json
 
-
 __all__ = [
     "DEFAULT_MCP_SERVER_DIALECT",
     "McpServerDialect",

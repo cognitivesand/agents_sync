@@ -17,8 +17,7 @@ from agents_sync.canonical import is_private
 from agents_sync.config import expand_path, validate_config
 from agents_sync.discovery import DiscoveryWalker
 from agents_sync.mcp_secret_policy import reset_mcp_secret_warning_cache
-from agents_sync.rendering import read_artifact_text
-from agents_sync.rendering import slot_aware_collision_key
+from agents_sync.rendering import read_artifact_text, slot_aware_collision_key
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,

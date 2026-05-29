@@ -28,7 +28,6 @@ pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 from agents_sync import archive as archive_module
 from agents_sync.sync import Syncer
 
-
 # ---------- helpers ----------
 
 def _skill_md(name: str, description: str = "x", body: str = "body") -> str:

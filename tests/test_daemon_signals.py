@@ -118,9 +118,9 @@ def test_watch_treats_whole_poll_exception_like_a_failure(monkeypatch):
     monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
     syncer = _FakeSyncer(
         [
-            IOError("disk full"),
-            IOError("disk full"),
-            IOError("disk full"),
+            OSError("disk full"),
+            OSError("disk full"),
+            OSError("disk full"),
         ]
     )
 

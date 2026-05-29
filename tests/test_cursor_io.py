@@ -23,7 +23,6 @@ from agents_sync.cursor_io import (
     render_cursor_skill_md,
 )
 
-
 PAIR_ID = "11111111-2222-4333-8444-555555555555"
 
 

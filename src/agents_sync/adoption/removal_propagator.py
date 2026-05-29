@@ -22,7 +22,6 @@ from agents_sync.shared_keyed_map_io import (
 from agents_sync.state import CustomizationArtifactState
 from agents_sync.sync_types import AgenticToolInfo, CustomizationArtifactInfo
 
-
 # Narrow except set used by removal-propagation paths: I/O errors,
 # format-parse errors, and the two lock/collision failures that apply_slot
 # raises by contract. Captured here so the per-pair handlers don't swallow

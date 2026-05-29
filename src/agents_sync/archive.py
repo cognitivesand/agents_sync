@@ -48,7 +48,7 @@ def iso_timestamp(now: _dt.datetime | None = None) -> str:
     adoption that archives pre-injection bytes followed immediately by a
     conflict-loser archive in the same second.
     """
-    moment = now or _dt.datetime.now(tz=_dt.timezone.utc)
+    moment = now or _dt.datetime.now(tz=_dt.UTC)
     return moment.strftime("%Y-%m-%dT%H-%M-%S-%fZ")
 
 

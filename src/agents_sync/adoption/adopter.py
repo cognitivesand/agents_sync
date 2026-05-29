@@ -10,8 +10,9 @@ bytes against the prior canonical and projects to the rest.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import (

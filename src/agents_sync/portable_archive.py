@@ -61,7 +61,6 @@ from agents_sync.state import (
 from agents_sync.sync_types import RenderResult
 from agents_sync.tool_status import ToolStatusTracker
 
-
 PORTABLE_ARCHIVE_SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
 CANONICAL_PREFIX = "canonical/"
@@ -106,7 +105,7 @@ def _build_manifest(
 ) -> dict[str, Any]:
     return {
         "schema_version": PORTABLE_ARCHIVE_SCHEMA_VERSION,
-        "exported_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
+        "exported_at": _dt.datetime.now(tz=_dt.UTC).isoformat(),
         "source_host": socket.gethostname(),
         "source_platform": platform.system(),
         "agents_sync_version": _agents_sync_version(),

@@ -25,10 +25,9 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from agents_sync.sync import Syncer
-
 
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
 """Exit after this many consecutive polls with at least one failed pair."""

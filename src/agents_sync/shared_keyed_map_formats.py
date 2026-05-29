@@ -14,9 +14,9 @@ this module's core or the layout class.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from agents_sync.formats import json_format, toml_format
 

@@ -36,7 +36,6 @@ from agents_sync.state import (
 )
 from agents_sync.sync_types import RenderResult
 
-
 # ---------- path identity ----------
 
 def path_collision_key(path: Path) -> str:

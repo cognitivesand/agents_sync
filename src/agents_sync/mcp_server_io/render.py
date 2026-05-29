@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any
 
 from agents_sync.mcp_secret_policy import apply_mcp_secret_policy
-
 from agents_sync.mcp_server_io._helpers import (
     render_env_refs,
     render_field_name,

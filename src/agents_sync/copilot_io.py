@@ -24,7 +24,6 @@ from agents_sync.markdown_yaml_metadata_block import (
 )
 from agents_sync.state import target_slug
 
-
 KNOWN_AGENT_FIELDS = frozenset({
     "pair_id",
     "name",

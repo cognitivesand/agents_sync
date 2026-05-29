@@ -294,6 +294,7 @@ def test_atomic_write_text_two_concurrent_writers_do_not_corrupt(tmp_path: Path)
     """Two concurrent writers produce a file with exactly one writer's content,
     never interleaved bytes nor a stale staging file left behind."""
     import threading
+
     from agents_sync.state import atomic_write_text
 
     target = tmp_path / "out.txt"

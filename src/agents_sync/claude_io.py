@@ -21,7 +21,6 @@ from agents_sync.markdown_yaml_metadata_block import (
     yaml_dump,
 )
 
-
 # Frontmatter keys the canonical maps explicitly. Anything else is preserved
 # in canonical["per_agentic_tool_extra"]["claude"] so user-set fields we don't
 # yet model are not silently dropped.

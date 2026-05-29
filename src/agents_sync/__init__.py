@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
-from pathlib import Path
 import tomllib
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+from pathlib import Path
 
 
 def _version_from_pyproject() -> str | None:

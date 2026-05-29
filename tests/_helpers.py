@@ -31,7 +31,6 @@ from typing import Any
 
 from agents_sync.sync import Syncer
 
-
 # Two-letter tmp_path directory names are the historic shorthand for
 # ``<tool>_<kind>_dir``. The mapping is exposed so a test can reach for
 # ``CONFIG_DIRS["claude_agents_dir"]`` instead of remembering the cipher.

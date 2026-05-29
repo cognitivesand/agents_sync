@@ -13,7 +13,6 @@ from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 
 
 def build_copilot_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
-    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.copilot_io import (
         copilot_skill_slug,
         extract_pair_id_from_copilot_agent_md,
@@ -29,6 +28,7 @@ def build_copilot_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSp
         render_copilot_prompt_md,
         render_copilot_skill_md,
     )
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.slash_command_io import slash_command_slug
 
     return AgenticToolSpec(
