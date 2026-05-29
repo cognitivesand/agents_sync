@@ -1,0 +1,90 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/adoption/engine.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 109,
+
+  "detailed_analysis": "src/agents_sync/adoption/engine.py is a thin per-pair dispatcher (109 lines, one class, four methods) that composes five responsibility mixins (Adopter, ConflictResolver, Extender, PrivacyGate, RemovalPropagator) and routes one discovered pair to exactly one operation. The file is structurally sound: well under the 300-line module limit, every method is well under the 40-line function limit, names are intention-revealing and two-word, type annotations are complete on all signatures, and there are no hardcoded secrets, paths, or magic numbers. No security smells: no I/O, no subprocess, no deserialization, no string interpolation into commands or queries. No silent error swallowing, no mutable default arguments, no no-op implementations. The dispatch logic in process_pair correctly encodes the US-11 AC-4 / FR-04 safety invariant (only `available` tools can be removal sources) by filtering through _available_participating_tools, and the file references no concrete tool name (Goal 5 / NFR-11 stable-abstraction invariant holds). The only observations are minor: process_pair carries non-trivial branching (cyclomatic ~7, below the >10 threshold) so it is flagged only as an INFO-level complexity note, not a Long Function; and the engine inherits private methods from five mixins, a deliberate composition pattern documented in the module docstring rather than a God Class (state and behaviour are distributed across the mixin files). No CRITICAL or MAJOR findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "engine.py", "imported_by": "n/a (single-file scope)"},
+    "highest_fan_out": {"module": "engine.py", "imports": 7}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/adoption/engine.py",
+      "lines": 109,
+      "function_count": 4,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 1
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/adoption/engine.py",
+      "line": 47,
+      "function_or_class": "AdoptionEngine.process_pair",
+      "anti_pattern": "M2",
+      "variant": "Branching density (below threshold — INFO)",
+      "severity": "INFO",
+      "metrics": {"lines": 43, "cyclomatic_complexity": 7},
+      "evidence": "def process_pair(self, pair_id, info, state) -> bool:\n    ps = state.get(pair_id)\n    if ps is None: ...\n    if missing_from_state: return self._propagate_removal(...)\n    if not present: return False\n    if not changed: ...\n    if len(changed) == 1: return self._sync_from_agentic_tool(...)\n    return self._resolve_conflict_n_way(...)",
+      "evidence_lines": "47-89",
+      "problem": "process_pair spans 43 source lines (counting the signature and inline list comprehensions; ~36 non-blank/non-comment) — marginally over the 40-line guideline if the multi-line signature is counted, comfortably under it otherwise. Cyclomatic complexity is ~7, well below the >10 MAJOR threshold. The branching is the irreducible essence of the dispatcher (adopt / remove / no-op / extend / sync / conflict) and each branch delegates to a single mixin method, so the function holds one level of abstraction. Recorded as INFO only; not a Long Function defect.",
+      "affected_axis": "structure"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 1.0,
+    "weakest_axis": "none"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean thin dispatcher; conforms to layer-2 placement, FR-04/US-11 AC-4 removal safety, and the no-concrete-tool-name invariant. Zero CRITICAL/MAJOR findings."
+}

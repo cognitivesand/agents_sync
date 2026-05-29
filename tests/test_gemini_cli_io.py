@@ -22,7 +22,6 @@ from agents_sync.gemini_cli_io import (
     render_gemini_skill_md,
 )
 
-
 PAIR_ID = "00000000-0000-4000-8000-000000000501"
 
 

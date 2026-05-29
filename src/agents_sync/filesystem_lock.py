@@ -28,9 +28,8 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
-
 
 DEFAULT_LOCK_TIMEOUT_SECONDS = 5.0
 _RETRY_INTERVAL_SECONDS = 0.05
@@ -81,7 +80,7 @@ def _posix_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
                     raise LockTimeoutError(
                         f"Could not acquire lock on {lock_path} within "
                         f"{timeout_seconds:.1f}s"
-                    )
+                    ) from None
                 time.sleep(_RETRY_INTERVAL_SECONDS)
         try:
             yield
@@ -113,21 +112,22 @@ def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
     try:
         while True:
             try:
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                # msvcrt is Windows-only; attrs are invisible to a POSIX type-check.
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                 break
             except OSError:
                 if time.monotonic() >= deadline:
                     raise LockTimeoutError(
                         f"Could not acquire lock on {lock_path} within "
                         f"{timeout_seconds:.1f}s"
-                    )
+                    ) from None
                 time.sleep(_RETRY_INTERVAL_SECONDS)
         try:
             yield
         finally:
             try:
                 os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
             except OSError:
                 logging.exception("msvcrt unlock failed for %s", lock_path)
     finally:

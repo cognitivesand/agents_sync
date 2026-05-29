@@ -1,0 +1,188 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/state.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 412,
+
+  "detailed_analysis": "src/agents_sync/state.py is a 412-line module straddling Clean-Architecture Layer 1 (the CustomizationArtifactState / AgenticToolState dataclasses and the target_slug/slugify domain rules) and Layer 3 (load_state/save_state/atomic_write_text + sha256 digest helpers). This dual-layer character is explicitly acknowledged as known deviation D-1 in architecture.md §11, so it is not scored as a fresh violation, but the module is over the project's 300-line file limit (AGENTS.md §3). Code quality is otherwise high: atomic_write_text is crash-consistent (temp+fsync+os.replace+dir fsync), inputs are validated at the load boundary (validate_pair_id, isinstance gates, numeric coercion with explicit ValueError), and error handling is structured and loud rather than silent. No hardcoded secrets, no injection vectors, no mutable default arguments, no SQL/shell, no no-op implementations. The bare `except Exception:` in atomic_write_text re-raises after best-effort cleanup, so it is not silent swallowing. The findings are bounded: the file-length overrun, two `except OSError: pass`/`except Exception` blocks whose log-or-swallow behaviour deserves scrutiny, two lazy intra-function imports, a couple of unnamed magic numbers, and minor naming. Security posture is clean. The single material spec deviation is documentation drift: the code is at STATE_SCHEMA_VERSION=3 while architecture.md §5.2 and §6 still assert schema_version=2.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "state.py", "imported_by": "canonical, archive, rendering, discovery, adoption, sync (per architecture §4)"},
+    "highest_fan_out": {"module": "state.py", "imports": "filesystem_windows_retry, identity, parser_bounds (lazy)"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/state.py",
+      "lines": 412,
+      "function_count": 14,
+      "class_count": 2,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 7
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/state.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "Module over file-size limit / Divergent Change (D-1)",
+      "severity": "MINOR",
+      "metrics": {"lines": 412, "limit": 300},
+      "evidence": "412-line module containing two domain dataclasses, slug rules, digest helpers, atomic-write, fsync, quarantine, and load/save JSON gateway.",
+      "evidence_lines": "1-412",
+      "problem": "Exceeds AGENTS.md §3 file limit of 300 lines and mixes Layer-1 entity types (AgenticToolState, CustomizationArtifactState, slugify/target_slug) with Layer-3 I/O gateways (load_state, save_state, atomic_write_text, sha256_*). Acknowledged in architecture.md §11 as deviation D-1, so it is pre-existing technical debt, not a new defect — but it remains a live SRP/SOC concern. Reported as MINOR for that reason.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/state.py",
+      "line": 252,
+      "function_or_class": "atomic_write_text",
+      "anti_pattern": "C3",
+      "variant": "Catch-and-ignore (OSError on tmp cleanup)",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "try:\n    tmp.unlink()\nexcept OSError:\n    pass",
+      "evidence_lines": "252-255",
+      "problem": "The staging-file cleanup swallows OSError with a bare `pass` and no log line. This is defensible (the user's data is safe because the rename never landed, and the original exception is re-raised on the next line), but it leaves an orphan temp file with no trace. Borderline against NFR-13 (structured error reporting) for the leaked temp; not a true silent-swallow because the real error still propagates via `raise`.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/state.py",
+      "line": 272,
+      "function_or_class": "_fsync_directory",
+      "anti_pattern": "C3",
+      "variant": "Catch-and-ignore (OSError on fsync)",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "try:\n    os.fsync(fd)\nexcept OSError:\n    pass",
+      "evidence_lines": "270-273",
+      "problem": "Directory fsync failure is swallowed with no log. The docstring justifies the open-failure no-op for Windows, but a post-open fsync failure on a POSIX system silently weakens the durability guarantee atomic_write_text advertises, with no diagnostic. Low severity: it degrades a durability optimisation, not correctness of the rename.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/state.py",
+      "line": 354,
+      "function_or_class": "_read_text_for_recovery / _monotonic_ms",
+      "anti_pattern": "W5",
+      "variant": "Lazy in-function import",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded  (line 354)\nimport time as _time  (line 397)",
+      "evidence_lines": "354, 397",
+      "problem": "Two imports are performed inside function bodies rather than at module top. The parser_bounds one carries an explanatory comment (import-order cycle avoidance at load time) so it is a deliberate workaround, not an oversight; the `import time as _time` inside _monotonic_ms has no such justification and is an unnecessary per-call import of a stdlib module. Minor; the parser_bounds case hints at a latent module-load ordering coupling.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/state.py",
+      "line": 235,
+      "function_or_class": "atomic_write_text",
+      "anti_pattern": "I4",
+      "variant": "Magic numbers",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "uuid.uuid4().hex[:8]  (line 235)\n0o644  (line 238)\nbase: file.read(1024 * 1024)  (line 191)",
+      "evidence_lines": "191, 235, 238",
+      "problem": "Unnamed literals: the 8-char temp-suffix truncation length, the 0o644 file mode, and the 1 MiB block size in sha256_file are inline magic numbers (AGENTS.md §9). None affects correctness; they would benefit from named constants with units/intent (e.g. TEMP_SUFFIX_HEX_LEN, STATE_FILE_MODE, SHA256_BLOCK_BYTES).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/state.py",
+      "line": 190,
+      "function_or_class": "sha256_file",
+      "anti_pattern": "I5",
+      "variant": "Single-word / weak local name",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "with path.open(\"rb\") as file:  (line 190)\nfor block in iter(...)  (line 191)",
+      "evidence_lines": "190-192",
+      "problem": "The handle is named `file` (shadows builtin connotation, one-word) against AGENTS.md §4 two-word-minimum guidance. Minor and local-scope only.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-07",
+      "file": "src/agents_sync/state.py",
+      "line": 200,
+      "function_or_class": "is_ignored_tree_path / ignored_tree_names",
+      "anti_pattern": "I1",
+      "variant": "DRY — duplicated ignore predicate",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "is_ignored_tree_path: path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(_IGNORED_TREE_FILE_PREFIXES)\nignored_tree_names: name in _IGNORED_TREE_FILE_NAMES or name.startswith(_IGNORED_TREE_FILE_PREFIXES)",
+      "evidence_lines": "200-209",
+      "problem": "The same ignore predicate is expressed twice — once over a Path.name and once over a raw str name. Low-stakes duplication; the two could share one name-level predicate. Not a true Rule-of-Three trigger (two sites), reported as SMELL.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 2},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 1},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 1},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 1},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §5.2 and §6",
+        "file": "src/agents_sync/state.py",
+        "line": 18,
+        "description": "Code declares STATE_SCHEMA_VERSION = 3 and load_state/save_state read and write schema_version=3 (the docstring at lines 282-303 explicitly documents v3). Architecture §5.2 ('state.json is schema-versioned (schema_version=2)') and §6 (the sync_once flow annotations: 'schema_version=2 envelope') still assert version 2. Documentation drift between the code and the architecture artifact; the code is internally consistent and correct, the governance doc is stale.",
+        "reference2": "architecture §9 also lists 'schema version v2' for the state.py slug row"
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, secure, crash-consistent state gateway; code_score 0.75 (over file-size limit + D-1 layer mixing). One spec deviation: architecture.md still documents schema_version=2 while code is at v3."
+}

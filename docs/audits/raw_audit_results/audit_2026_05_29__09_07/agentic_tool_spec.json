@@ -1,0 +1,125 @@
+{
+  "project_version": "v0.5.0",
+  "scope": "file:src/agents_sync/agentic_tool_spec.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 310,
+
+  "detailed_analysis": "agentic_tool_spec.py is the Layer-3 port (architecture §4, §5.1) defining the seam between use cases and tool adapters. It is a passive descriptor: six frozen dataclasses/Protocols (FileLayout, SingleFileLayout, RulesFileLayout, DirectorySkillLayout, SharedKeyedMapLayout, CustomizationTypeIO, AgenticToolSpec), one predicate (is_reserved_customization_name), and one registry factory (default_agentic_tools). Code health is strong: immutable value objects, fail-fast validation in three __post_init__ hooks (storage/layout coherence, fixed_file_name suffix invariant, capability-matrix drift detection), zero hardcoded secrets, zero injection vectors, no global mutable state, no deep nesting, and no concrete tool-name branching inside the type definitions (the only tool names are confined to the default_agentic_tools registry wiring, which is the permitted location per architecture §1). The one genuine code-quality breach is the module length: 310 lines exceeds the project's explicit 300-line module limit (AGENTS.md §3); architecture §4 itself records the file as '~310', so this is a known, marginal overrun rather than uncontrolled growth. Remaining observations are minor: storage shape strings ('single_file', 'directory_skill', 'shared_keyed_map') are repeated as inline literals across layout classes and the §5.1 contract without a shared named constant (mild magic-string / DRY smell), and the CustomizationTypeIO function-type fields rely on module-level Callable aliases without runtime validation (acceptable for a frozen descriptor). No CRITICAL or MAJOR findings. Spec/architecture conformance is clean: the file satisfies US-10 AC-1, AC-5, AC-6 and architecture invariants for goal 5 / NFR-11.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "notes": "Lazy imports only: tool_specs factories imported inside default_agentic_tools() (line 291-299) and get_format imported inside SharedKeyedMapLayout.file_suffix (line 165). Both are deferred to call time, avoiding import cycles and import side effects. No top-level intra-package imports — Dependency Rule (architecture §3) upheld; this Layer-3 port references no use-case (Layer 2) or framework (Layer 4) module.",
+    "highest_fan_in": {"module": "agentic_tool_spec.py", "imported_by": "use cases sync/adoption/discovery/tool_status + rendering + all tool_specs factories (high blast radius)"},
+    "highest_fan_out": {"module": "agentic_tool_spec.py", "imports": "lazy: tool_specs.*, shared_keyed_map_formats"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/agentic_tool_spec.py",
+      "lines": 310,
+      "function_count": 12,
+      "class_count": 7,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/agentic_tool_spec.py",
+      "line": 310,
+      "function_or_class": "<module>",
+      "anti_pattern": "M1",
+      "variant": "Module length over project limit",
+      "severity": "MINOR",
+      "metrics": {"lines": 310, "limit": 300},
+      "evidence": "File spans lines 1-310; AGENTS.md §3 sets the module limit at 300 lines. architecture.md §4 records the file as '~310'.",
+      "evidence_lines": "1-310",
+      "problem": "Module is 310 lines, 10 over the project's explicit 300-line limit (AGENTS.md §3). This is marginal and already acknowledged in architecture §4 ('~310'). Not a God Module: the file holds a single cohesive concern (the port's value objects + the registry factory) with high cohesion and no unrelated responsibility clusters. Flagged only because it crosses the hard numeric limit the project sets for itself.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/agentic_tool_spec.py",
+      "line": 93,
+      "function_or_class": "storage properties across layout classes",
+      "anti_pattern": "I4",
+      "variant": "Magic strings / DRY",
+      "severity": "SMELL",
+      "metrics": {"occurrences": 3},
+      "evidence": "return \"single_file\"  (line 93)\nreturn \"directory_skill\"  (line 119)\nreturn \"shared_keyed_map\"  (line 161)",
+      "evidence_lines": "93,119,161",
+      "problem": "The storage-shape discriminator strings 'single_file', 'directory_skill', and 'shared_keyed_map' are repeated as inline literals in each layout class and described again in the architecture §5.1 contract. They are load-bearing identity tokens compared elsewhere (CustomizationTypeIO.storage validation, line 211) yet are not centralised as named constants or an enum. A drift between a layout's literal and a consumer's expected literal would not be caught at construction. Low blast radius given the frozen-dataclass design, but a named constant set would make the contract explicit.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/agentic_tool_spec.py",
+      "line": 192,
+      "function_or_class": "CustomizationTypeIO",
+      "anti_pattern": "I1",
+      "variant": "Callable-alias fields without runtime contract",
+      "severity": "SMELL",
+      "metrics": {"fields": 3},
+      "evidence": "parse: ParseFn\n    render: RenderFn\n    extract_pair_id: ExtractPairIdFn",
+      "evidence_lines": "192-194",
+      "problem": "The three function fields are typed via module-level Callable/Protocol aliases (lines 22-36) but are never validated as callable at construction time, unlike the storage/file_layout/fixed_file_name invariants which ARE enforced in __post_init__. This is consistent with the project's 'validate at boundaries, trust inside' rule (AGENTS.md §8) since the registry factories are the construction boundary, so this is an observation rather than a defect. No action implied beyond awareness.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 1},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 1, "total": 1},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": "US-10 AC-1 (single-module spec surface): the AgenticToolSpec/CustomizationTypeIO contract and default_agentic_tools registry satisfy the structure. AC-5 (unique name by construction): registry is a dict keyed by name (lines 301-309) — duplicate keys structurally impossible, no separate dedup step. AC-6 (fail-closed construction): AgenticToolSpec.__post_init__ raises ValueError naming the tool and divergent customization_types (lines 257-266); CustomizationTypeIO.__post_init__ raises when neither storage nor file_layout is coherent (lines 203-216). AC-7/AC-8 are owned by config/registry-build, not this file. Architecture goal 5 / §1 'sync engine never references a concrete tool name': the type definitions are tool-agnostic; the only tool names ('antigravity', 'claude', ...) appear in default_agentic_tools registry wiring (lines 302-308), which §1 explicitly permits as the adapter/registry layer. NFR-11 (extensibility): adding a customization_type/tool needs only a new file_layout class + factory, matching the requirement text. Dependency Rule (§3) upheld via lazy imports (lines 165, 291). No NFR-15 secret-egress concern: this is a passive descriptor with no egress boundary. No deviations found.",
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean tool-agnostic port; only defect is a 10-line module-length overrun (310 vs 300) already noted in architecture §4. No CRITICAL/MAJOR findings; full US-10 / goal-5 / NFR-11 conformance."
+}

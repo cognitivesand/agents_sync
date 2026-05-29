@@ -22,8 +22,7 @@ from agents_sync.config import (
 )
 from agents_sync.discovery import DiscoveryWalker
 from agents_sync.mcp_secret_policy import reset_mcp_secret_warning_cache
-from agents_sync.rendering import read_artifact_text
-from agents_sync.rendering import slot_aware_collision_key
+from agents_sync.rendering import read_artifact_text, slot_aware_collision_key
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,
@@ -162,8 +161,8 @@ class Syncer:
         save_state(self.state_dir, state)
         result = SyncResult(
             changed=changed,
-            failed=failed,
-            blocked=sorted(self._blocked_pair_ids),
+            failed=tuple(failed),
+            blocked=tuple(sorted(self._blocked_pair_ids)),
         )
         logging.info(
             "Sync poll complete: changed=%d failed=%d blocked=%d",

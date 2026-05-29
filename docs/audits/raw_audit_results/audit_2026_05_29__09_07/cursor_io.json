@@ -1,0 +1,132 @@
+{
+  "project_version": "v0.5.0",
+  "scope": "file:src/agents_sync/cursor_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 399,
+
+  "detailed_analysis": "src/agents_sync/cursor_io.py is a Layer-3 interface adapter (per architecture.md §4) that implements the CustomizationTypeIO triple (parse/render/extract_pair_id) for Cursor's five customization types: agents, skills, rules, slash commands, and MCP servers. The module is healthy: 399 lines but structured as a flat catalog of short, single-responsibility functions, none exceeding ~45 lines and most under 25. It delegates all shared mechanics (frontmatter splitting, markdown rendering, MCP dialect parse/render, rules parse/render) to dedicated helper modules, keeping each Cursor function thin. The module correctly threads the configured secret_policy through both MCP egress boundaries (parse_cursor_mcp_server_json, render_cursor_mcp_server_json), satisfying NFR-15 / goal 6. It references only the concrete tool name 'cursor' (legitimate for an adapter; the architecture forbids concrete tool names only in the sync engine, not in adapters). The Dependency Rule is upheld: it imports only inward (canonical, artifact_names, and sibling Layer-3 IO helpers) and no Layer-2/Layer-4 modules. No CRITICAL or MAJOR anti-patterns found. The only findings are minor: the parse functions accept a positional prior_canonical plus three keyword-only Path arguments and immediately mutate a canonical dict (a shared signature shape across four parse functions, near the W4/data-clump boundary but mandated by the CustomizationTypeIO port contract, so not a true defect); some magic string literals in the MCP transport-default helper; and a near-duplicate parse/render body shape between the agent and skill paths that stays just below the Rule-of-Three threshold given their differing field sets. The 399-line module length exceeds the project's 300-line soft cap (NFR-14 / guideline §3), the single notable structural observation.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "n/a (single-file scope)", "imported_by": 0},
+    "highest_fan_out": {"module": "cursor_io.py", "imports": 6}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/cursor_io.py",
+      "lines": 399,
+      "function_count": 17,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/cursor_io.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "Module length over project soft cap",
+      "severity": "MINOR",
+      "metrics": {"lines": 399, "module_cap": 300},
+      "evidence": "Module is 399 lines (399 > 300).",
+      "evidence_lines": "1-399",
+      "problem": "The module exceeds the project's 300-line file soft cap (AGENTS.md §3 / NFR-14). It does NOT meet the God Module threshold (>500 lines, >3 unrelated responsibility clusters): all functions serve a single cohesive responsibility — Cursor native-format <-> canonical translation. The five customization-type sections (agents/skills/rules/commands/MCP) are facets of one concern, not divergent responsibilities. The overage is driven by the breadth of Cursor's five supported customization types, each needing a parse/render/extract triple. Splitting into per-type submodules is the conventional remedy, but cohesion is high; this is a soft-cap note, not structural decay.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/cursor_io.py",
+      "line": 326,
+      "function_or_class": "_slot_text_with_cursor_transport_default",
+      "anti_pattern": "I4",
+      "variant": "Magic strings in logic",
+      "severity": "SMELL",
+      "metrics": {"literals": 2},
+      "evidence": "    if not has_transport and has_url:\n        obj = dict(obj)\n        obj[\"type\"] = \"streamable-http\"",
+      "evidence_lines": "334-337",
+      "problem": "The transport key 'type' and the default transport value 'streamable-http' are inline string literals (AGENTS.md §9: no hardcoded magic strings). 'streamable-http' is a protocol-defined canonical transport already named as a constant elsewhere (mcp_server_io/dialect.py CANONICAL_TRANSPORTS), and 'type' duplicates CURSOR_MCP_DIALECT.transport_fields[0]. Neither is named here, so the Cursor-specific default could silently drift from the shared dialect definition. Low blast radius (one function), but the duplication of an already-named protocol constant is the textbook drift hazard §9 warns about.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/cursor_io.py",
+      "line": 90,
+      "function_or_class": "parse_cursor_agent_md / parse_cursor_skill_md",
+      "anti_pattern": "DRY",
+      "variant": "Near-duplicate parse body shape",
+      "severity": "SMELL",
+      "metrics": {"duplicated_blocks": 2, "shared_lines_approx": 20},
+      "evidence": "    per_tool_only = dict(canonical.get(\"per_agentic_tool_only\") or {})\n    per_tool_only[\"cursor\"] = ...\n    canonical[\"per_agentic_tool_only\"] = per_tool_only\n    per_tool_extra = dict(canonical.get(\"per_agentic_tool_extra\") or {})\n    per_tool_extra[\"cursor\"] = unknown_metadata_fields(frontmatter, ...)\n    ...\n    if \"pair_id\" in frontmatter:\n        canonical[\"pair_id\"] = str(frontmatter[\"pair_id\"])\n    elif prior_canonical is None:\n        canonical[\"pair_id\"] = new_pair_id()",
+      "evidence_lines": "118-134, 184-203, 297-310",
+      "problem": "The per_agentic_tool_only / per_agentic_tool_extra assignment block and the pair_id-fallback block (if 'pair_id' in frontmatter ... elif prior_canonical is None: new_pair_id()) are repeated near-verbatim across parse_cursor_agent_md, parse_cursor_skill_md, and parse_cursor_command_md. This is at the Rule-of-Three boundary (AGENTS.md §3). The blocks differ in their field-set arguments (CURSOR_AGENT_FIELDS vs CURSOR_SKILL_FIELDS vs empty), which is why they were not yet extracted; the pattern is shared across sibling adapters too, suggesting a candidate shared helper. Not a defect today — flagged as a duplication watch item.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/cursor_io.py",
+      "line": 90,
+      "function_or_class": "parse_cursor_agent_md / parse_cursor_skill_md / parse_cursor_command_md / parse_cursor_rule_mdc",
+      "anti_pattern": "W4",
+      "variant": "Data clump (artifact_path + artifact_root)",
+      "severity": "SMELL",
+      "metrics": {"co_occurring_params": 2, "signatures": 4},
+      "evidence": "def parse_cursor_agent_md(text, prior_canonical=None, *, artifact_path: Path | None = None, artifact_root: Path | None = None) -> dict[str, Any]:",
+      "evidence_lines": "90-96, 165-171, 238-244, 272-278",
+      "problem": "The (artifact_path, artifact_root) keyword pair co-occurs across all four parse signatures, and parse_cursor_agent_md / parse_cursor_rule_mdc discard artifact_root via 'del artifact_root' (line 97, 245) — they accept it only to satisfy a uniform signature. This is a mild data clump, but it is dictated by the CustomizationTypeIO port contract (architecture §5.1), which requires a uniform parse signature across all adapters; the unused-parameter 'del' is the idiomatic way to honor the contract without a linter warning. Acceptable given the port constraint; noted for completeness.",
+      "affected_axis": "structure"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 1},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 1},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean Layer-3 Cursor adapter; secret_policy threaded at both MCP egress boundaries; only minor notes (399-line soft-cap overage, a magic-string transport default, mild duplication/data-clump dictated by the port contract)."
+}

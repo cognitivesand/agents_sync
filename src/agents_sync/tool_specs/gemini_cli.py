@@ -15,7 +15,6 @@ from agents_sync.tool_specs._mcp_server_factory import build_mcp_server_io
 
 
 def build_gemini_cli_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
-    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.gemini_cli_io import (
         extract_pair_id_from_gemini_agent_md,
         extract_pair_id_from_gemini_command_toml,
@@ -30,6 +29,7 @@ def build_gemini_cli_spec(config: Mapping[str, Any] | None = None) -> AgenticToo
         render_gemini_rules_md,
         render_gemini_skill_md,
     )
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.slash_command_io import slash_command_slug
 
     return AgenticToolSpec(

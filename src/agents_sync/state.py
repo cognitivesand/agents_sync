@@ -14,7 +14,6 @@ from typing import Any
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 
-
 STATE_SCHEMA_VERSION = 3
 
 
@@ -80,7 +79,7 @@ class AgenticToolState:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgenticToolState":
+    def from_dict(cls, data: dict[str, Any]) -> AgenticToolState:
         return cls(
             path=Path(data["path"]),
             last_seen=data.get("last_seen"),
@@ -131,7 +130,7 @@ class CustomizationArtifactState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CustomizationArtifactState":
+    def from_dict(cls, data: dict[str, Any]) -> CustomizationArtifactState:
         raw_tools = data.get("agentic_tools") or {}
         if not isinstance(raw_tools, dict):
             raise ValueError("agentic_tools must be a mapping")
@@ -198,7 +197,9 @@ def sha256_text(text: str) -> str:
 
 
 def is_ignored_tree_path(path: Path) -> bool:
-    return path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(_IGNORED_TREE_FILE_PREFIXES)
+    return path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(
+        _IGNORED_TREE_FILE_PREFIXES
+    )
 
 
 def ignored_tree_names(names: list[str]) -> set[str]:

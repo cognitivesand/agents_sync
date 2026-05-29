@@ -23,12 +23,16 @@ from agents_sync.markdown_yaml_metadata_block import (
     extract_pair_id_from_md,
     frontmatter_for_render,
     metadata_subset,
-    normalize_markdown_text as _normalize_markdown_text,
     render_markdown_with_metadata_block,
     set_or_remove_empty_metadata_field,
     split_frontmatter,
-    strip_bom_prefix as _strip_bom_prefix,
     unknown_metadata_fields,
+)
+from agents_sync.markdown_yaml_metadata_block import (
+    normalize_markdown_text as _normalize_markdown_text,
+)
+from agents_sync.markdown_yaml_metadata_block import (
+    strip_bom_prefix as _strip_bom_prefix,
 )
 from agents_sync.mcp_server_io import (
     McpServerDialect,
@@ -42,7 +46,6 @@ from agents_sync.rules_io import (
     render_rules_md,
 )
 from agents_sync.slash_command_io import slash_command_name_from_path
-
 
 CURSOR_AGENT_FIELDS = frozenset({
     "pair_id",

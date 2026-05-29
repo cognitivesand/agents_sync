@@ -1,0 +1,148 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/codex_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 352,
+
+  "detailed_analysis": "codex_io.py is a Layer-3 interface adapter implementing the Codex CustomizationTypeIO triple (parse/render/extract_pair_id) for the agent (.toml) and skill (SKILL.md) customization types. The module is well structured: every function is small (largest is render_codex_agent_toml at ~38 effective lines, just under the 40-line limit), nesting stays shallow, names are intention-revealing and two-word minimum, and there are no security smells — no hardcoded secrets, no injection vectors, no shell or eval, no unsafe deserialization (tomllib is the safe stdlib reader). Input is validated at the boundary (parse_codex_agent_toml raises ValueError when the TOML root is not a table; split_frontmatter is used for skills). Error handling is fail-loud (TypeError for unsupported scalars). The findings are minor: an unused `prior_text` parameter on render_codex_agent_toml (dead parameter / API noise — though this is acknowledged tradeoff D-4 in the architecture, TOML rendering being deterministic and not preserving prior formatting), a couple of magic literals (the [1:] / [3:] BOM slices and the schema-version threshold 4), an in-function import of SCHEMA_VERSION, and primitive-obsession around the canonical dict[str, Any] currency (project-wide design choice, not local to this file). No CRITICAL or MAJOR findings. The module conforms to its US-10 / NFR-06 / NFR-11 obligations and respects the Dependency Rule and the tool-name-locality invariant.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "intra_package_imports": ["canonical", "markdown_yaml_metadata_block"],
+    "in_function_import": "agents_sync.canonical.SCHEMA_VERSION (line 196, lazy import inside _strip_legacy_review_metadata)",
+    "notes": "All imports point inward (Layer 1 canonical, Layer 3 helper). No use-case or framework import. Dependency Rule upheld."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/codex_io.py",
+      "lines": 352,
+      "function_count": 16,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 213,
+      "function_or_class": "render_codex_agent_toml",
+      "anti_pattern": "I2",
+      "variant": "Dead parameter / unused argument",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "def render_codex_agent_toml(\n    canonical: dict[str, Any],\n    prior_text: str | None = None,\n) -> str:\n    # `prior_text` is never referenced in the 38-line body.",
+      "evidence_lines": "212-250",
+      "problem": "The `prior_text` parameter is accepted to satisfy the RenderFn port signature but is never used. TOML rendering is fully deterministic from the canonical, so prior formatting is discarded. This is the acknowledged architecture tradeoff D-4 (and §5.1 rule 2 explicitly permits not preserving formatting when the syntax/implementation does not). It is therefore not a spec deviation, but the unused parameter is API noise that can mislead a caller into believing formatting is preserved. No fix proposed.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 200,
+      "function_or_class": "_strip_legacy_review_metadata",
+      "anti_pattern": "I4",
+      "variant": "Magic number in comparison",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if int(prior_version) >= 4:\n    return body",
+      "evidence_lines": "200",
+      "problem": "The schema-version cutover threshold 4 is an inline literal. Its meaning (\"schema_version >= 4 is modern, do not strip the legacy review marker\") is documented in the docstring but the 4 is not a named constant tied to the canonical schema version family. If the canonical schema bumps, this comparison can silently drift from the source of truth. A named constant (e.g. FIRST_NON_LEGACY_SCHEMA_VERSION) would bind intent to value.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 196,
+      "function_or_class": "_strip_legacy_review_metadata",
+      "anti_pattern": "W5",
+      "variant": "In-function import (deferred import)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if prior_canonical is not None:\n    from agents_sync.canonical import SCHEMA_VERSION",
+      "evidence_lines": "196",
+      "problem": "SCHEMA_VERSION is imported lazily inside the function body rather than at module top, while empty_canonical / new_pair_id from the same module are imported at top (line 13). Inconsistent import placement; the deferred import suggests either a circular-import workaround or oversight. If no cycle exists it should be hoisted to the module header for discoverability. Low impact — single symbol, no side effect.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 55,
+      "function_or_class": "_normalize_toml_text",
+      "anti_pattern": "I4",
+      "variant": "Magic slice lengths for BOM handling",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if text.startswith(\"\\ufeff\"):\n    return text[1:]\nif text.startswith(_CORRUPTED_UTF8_BOM):\n    return text[3:]",
+      "evidence_lines": "55-59",
+      "problem": "The slice lengths 1 and 3 are unnamed literals tied to the BOM forms above them. 1 (length of the BOM character) and 3 (length of the 3-char corrupted-BOM string) are derivable from len(\"\\ufeff\") and len(_CORRUPTED_UTF8_BOM); hardcoding them is a small DRY/magic-number smell where a structural change to _CORRUPTED_UTF8_BOM would not propagate. Minor.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 1},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 2, "total": 2},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "deviations": [],
+    "checks_performed": [
+      "US-10 AC-1/AC-3: codex_io provides parse/render/extract_pair_id per customization_type (agent .toml, skill SKILL.md); participation/registration is in tool_specs, not here — conforms.",
+      "US-10 AC-4 / I-1: extract_pair_id returns str|None and never raises on malformed input (regex search returning None); per_agentic_tool_extra/only bags keyed by 'codex' verbatim — conforms.",
+      "NFR-06 (round-trip stability): unknown fields preserved via _codex_extra_from_toml / unknown_metadata_fields into per_agentic_tool_extra['codex']; render emits no leading auto-comment for skills to keep parse a fixed point (documented at line 304-306) — conforms.",
+      "§5.1 rule 5 / NFR-06 (no foreign-tool leak): render only emits canonical core fields + codex_only + stored codex extras; no other tool's bag is read — conforms.",
+      "Goal 5 / 'sync engine never references a concrete tool name': this IS a concrete-tool adapter (correct layer for the name 'codex' to appear); the use cases do not import it — conforms.",
+      "NFR-15 (secret_policy at egress): codex_io handles only agent/skill, not mcp_server (no env/headers/auth.* fields); secret policy is evaluated in mcp_server_io and sync.py egress — NFR-15 does not apply to this file. No deviation.",
+      "Dependency Rule (architecture §3): imports only canonical (Layer 1) and markdown_yaml_metadata_block (Layer 3 helper); no use-case/framework import — conforms.",
+      "Fail-fast (AGENTS §8): parse raises ValueError on non-table TOML root (line 264-265); _toml_scalar raises TypeError on unsupported types (line 84) — conforms."
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean Layer-3 Codex adapter; no CRITICAL/MAJOR findings, conforms to US-10/NFR-06/NFR-11 and the Dependency Rule; only minor maintainability nits (unused prior_text param, two magic literals, one deferred import)."
+}

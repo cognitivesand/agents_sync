@@ -18,10 +18,10 @@ from agents_sync.canonical import load_canonical
 from agents_sync.slash_command_io import (
     extract_pair_id_from_slash_command_markdown,
     extract_pair_id_from_slash_command_toml,
-    parse_slash_command_toml,
     parse_slash_command_markdown,
-    render_slash_command_toml,
+    parse_slash_command_toml,
     render_slash_command_markdown,
+    render_slash_command_toml,
     slash_command_slug,
 )
 from agents_sync.state import load_state

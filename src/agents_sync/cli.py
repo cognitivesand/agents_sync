@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from agents_sync.agentic_tool_spec import default_agentic_tools
 from agents_sync.config import ConfigError, expand_path, merged_config, validate_config
@@ -15,7 +16,6 @@ from agents_sync.portable_archive import (
     preview_import,
 )
 from agents_sync.sync import Syncer
-
 
 # v0.1 install paths. Phase 4 declines to auto-migrate; if either of these
 # exists we emit a clear error and exit so the user can clean up.
@@ -148,7 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gemini-cli-settings-file",
         type=str,
-        help="Gemini CLI settings.json file containing mcpServers. Defaults to ~/.gemini/settings.json.",
+        help="Gemini CLI settings.json file containing mcpServers. "
+        "Defaults to ~/.gemini/settings.json.",
     )
     parser.add_argument(
         "--gemini-cli-enabled",
@@ -159,27 +160,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--opencode-agents-dir",
         type=str,
-        help="opencode agents root. Defaults to ~/.config/opencode/agents on POSIX and APPDATA\\opencode\\agents on Windows.",
+        help="opencode agents root. Defaults to ~/.config/opencode/agents on POSIX "
+        "and APPDATA\\opencode\\agents on Windows.",
     )
     parser.add_argument(
         "--opencode-commands-dir",
         type=str,
-        help="opencode slash-command root. Defaults to ~/.config/opencode/commands on POSIX and APPDATA\\opencode\\commands on Windows.",
+        help="opencode slash-command root. Defaults to ~/.config/opencode/commands on POSIX "
+        "and APPDATA\\opencode\\commands on Windows.",
     )
     parser.add_argument(
         "--opencode-skills-dir",
         type=str,
-        help="opencode skills root. Defaults to ~/.config/opencode/skills on POSIX and APPDATA\\opencode\\skills on Windows.",
+        help="opencode skills root. Defaults to ~/.config/opencode/skills on POSIX "
+        "and APPDATA\\opencode\\skills on Windows.",
     )
     parser.add_argument(
         "--opencode-rules-dir",
         type=str,
-        help="opencode rules root. Defaults to ~/.config/opencode on POSIX and APPDATA\\opencode on Windows, containing AGENTS.md.",
+        help="opencode rules root. Defaults to ~/.config/opencode on POSIX "
+        "and APPDATA\\opencode on Windows, containing AGENTS.md.",
     )
     parser.add_argument(
         "--opencode-config-file",
         type=str,
-        help="opencode JSON/JSONC config file containing mcp. Defaults to opencode.json in the opencode config root.",
+        help="opencode JSON/JSONC config file containing mcp. "
+        "Defaults to opencode.json in the opencode config root.",
     )
     parser.add_argument(
         "--opencode-enabled",
@@ -321,7 +327,7 @@ def _check_legacy_install() -> int | None:
     return 2
 
 
-def _run_export(args: argparse.Namespace, config: dict) -> int:
+def _run_export(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
     secret_policy = str(
@@ -350,7 +356,7 @@ def _run_export(args: argparse.Namespace, config: dict) -> int:
     return 0
 
 
-def _run_import(args: argparse.Namespace, config: dict) -> int:
+def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
     strategy = args.collision_strategy or config["import_collision_strategy"]

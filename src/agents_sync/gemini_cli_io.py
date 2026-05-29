@@ -40,7 +40,6 @@ from agents_sync.slash_command_io import (
     render_slash_command_toml,
 )
 
-
 KNOWN_GEMINI_AGENT_FIELDS = frozenset({
     "pair_id",
     "name",

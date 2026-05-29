@@ -9,8 +9,6 @@ exhibits (audit slice 10 · CQ-12).
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from agents_sync.state import (
@@ -37,7 +35,9 @@ def test_target_slug_returns_bare_slugified_name():
     assert target_slug("review-agent") == "review-agent"
 
 
-def test_state_owner_lookup_can_be_case_insensitive(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
+def test_state_owner_lookup_can_be_case_insensitive(
+    syncer: Syncer, monkeypatch: pytest.MonkeyPatch
+):
     monkeypatch.setattr("agents_sync.rendering.os.path.normcase", lambda value: value.lower())
     codex_path = syncer.tool_root("codex", "skill") / "Alpha"
     state = {

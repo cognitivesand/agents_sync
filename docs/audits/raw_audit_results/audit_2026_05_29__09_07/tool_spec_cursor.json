@@ -1,0 +1,146 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/cursor.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 123,
+
+  "detailed_analysis": "src/agents_sync/tool_specs/cursor.py is a Layer-3 (port/wiring) AgenticToolSpec factory for the Cursor agentic_tool. It is a thin, almost entirely declarative module: a single public factory build_cursor_spec(config) that returns a frozen AgenticToolSpec wiring five CustomizationTypeIO cells to functions imported (lazily, inside the factory) from cursor_io and slash_command_io. The code is correct on the happy path, contains no hardcoded secrets, no injection vectors, no mutable default arguments, no silent error swallowing, and no global mutable state. The secret_policy is correctly resolved at call time inside the parse/render closures (lines 36-68, invoked at 57 and 67), so it is re-evaluated at every egress boundary as NFR-15 demands. The two substantive concerns are: (1) a DRY/SRP divergence from its sibling factories — cursor.py hand-rolls a secret_policy() closure plus bespoke parse_mcp_server / render_mcp_server wrappers that duplicate the shared agents_sync.tool_specs._mcp_server_factory.build_mcp_server_io helper that gemini_cli.py and the other MCP tools use; and (2) the public factory body is ~107 lines, over the project's 40-line function limit (though the bulk is a flat declarative dict literal). The more important issue is a SPEC deviation, not a code smell: the module declares io/config cells for the 'agent' and 'skill' customization_types, which contradicts US-10 AC-3's explicit statement that cursor supports {rules, slash_command, mcp_server} only.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "internal_imports": [
+      "agents_sync.agentic_tool_spec (AgenticToolSpec, CustomizationTypeIO, RulesFileLayout, SharedKeyedMapLayout)",
+      "agents_sync.cursor_io (parse/render/extract_pair_id for agent, skill, rules, command, mcp_server) — lazy import inside factory",
+      "agents_sync.slash_command_io (slash_command_slug) — lazy import inside factory"
+    ],
+    "highest_fan_in": {"module": "agentic_tool_spec.py", "imported_by": "this + all sibling factories"},
+    "highest_fan_out": {"module": "cursor.py", "imports": 3},
+    "dependency_rule_compliance": "Conforms: a Layer-3 wiring module importing only the port (agentic_tool_spec) and Layer-3 adapters (cursor_io, slash_command_io). No use-case/entity (inward) imports it; no Layer-4 import."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/cursor.py",
+      "lines": 123,
+      "function_count": 4,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/cursor.py",
+      "line": 36,
+      "function_or_class": "build_cursor_spec.secret_policy / parse_mcp_server / render_mcp_server",
+      "anti_pattern": "DRY / SRP",
+      "variant": "Duplicated logic — bespoke wrappers parallel a shared factory",
+      "severity": "MINOR",
+      "metrics": {"duplicated_closures": 3, "shared_helper_available": "_mcp_server_factory.build_mcp_server_io"},
+      "evidence": "def secret_policy() -> str:\n    if config is None:\n        return \"secrets_refused\"\n    return str(\n        config.get(\"secret_policy\")\n        or config.get(\"mcp_server_secret_policy\")\n        or \"secrets_refused\"\n    )\n... def parse_mcp_server(...): return parse_cursor_mcp_server_json(..., secret_policy=secret_policy())",
+      "evidence_lines": "36-68",
+      "problem": "The secret_policy() resolution closure (lines 36-43) is a byte-for-byte duplicate of the one in src/agents_sync/tool_specs/_mcp_server_factory.py:32-44, and the parse_mcp_server / render_mcp_server wrappers (45-68) re-implement what build_mcp_server_io already provides generically. Sibling factory gemini_cli.py reuses build_mcp_server_io; cursor.py does not. Cursor's deviation is partly justified — cursor_io.parse_cursor_mcp_server_json applies a cursor-specific transport default (_slot_text_with_cursor_transport_default) that the generic factory does not expose — but the secret_policy resolution itself has no such excuse and should not be re-derived per factory. A future change to the policy-key fallback (e.g. retiring the deprecated mcp_server_secret_policy key) must now be edited in every factory that copied it (latent Shotgun Surgery). Maintainability concern only; behaviour is correct.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/cursor.py",
+      "line": 16,
+      "function_or_class": "build_cursor_spec",
+      "anti_pattern": "M2",
+      "variant": "Long Function (over project 40-line limit)",
+      "severity": "MINOR",
+      "metrics": {"lines": 107, "cyclomatic_complexity": 2, "project_limit": 40},
+      "evidence": "def build_cursor_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:  # body spans lines 16-122",
+      "evidence_lines": "16-122",
+      "problem": "build_cursor_spec spans ~107 non-blank lines, exceeding the project's explicit <=40-line function guideline (AGENTS.md §3). Cyclomatic complexity is trivial (2, one if in secret_policy) and the bulk is a flat declarative AgenticToolSpec/io dict literal, so cognitive load is low and this is a soft violation. The nested closures (secret_policy, parse_mcp_server, render_mcp_server, lines 36-68) account for the only real logic and are the part that would justify extraction (see CQ-01). Sibling factories that delegate MCP wiring to build_mcp_server_io are materially shorter.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/tool_specs/cursor.py",
+      "line": 79,
+      "function_or_class": "build_cursor_spec (io dict)",
+      "anti_pattern": "I4",
+      "variant": "Magic strings — storage / file_suffix literals",
+      "severity": "SMELL",
+      "metrics": {"literals": ["single_file", "directory_skill", ".md", ".mdc", "mcpServers"]},
+      "evidence": "storage=\"single_file\", file_suffix=\".md\" ... storage=\"directory_skill\", file_suffix=\"\" ... map_key_path=(\"mcpServers\",)",
+      "evidence_lines": "84-118",
+      "problem": "Storage-mode strings (\"single_file\", \"directory_skill\"), file suffixes (\".md\", \".mdc\"), and the JSON map key (\"mcpServers\") are inline literals rather than named constants/enums. These same magic strings recur verbatim across every tool_specs factory (claude, codex, gemini_cli, copilot, opencode), so they are an implicit shared vocabulary with no single definition. Low severity — they are descriptor data, not logic — but they fit the project's no-inline-magic-strings guideline (AGENTS.md §9) and would be safer as module-level constants or a StorageMode enum on agentic_tool_spec.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "user_story",
+        "reference": "US-10 AC-3",
+        "file": "src/agents_sync/tool_specs/cursor.py",
+        "line": 79,
+        "description": "US-10 AC-3 states the supported-customization-type example explicitly: 'cursor supports {rules, slash_command, mcp_server} only ... rules over {claude, codex, gemini_cli, cursor}'. The scoped factory instead declares io and config_dir_keys cells for FIVE types: agent (lines 73,80), skill (74,87), rules, slash_command, and mcp_server. Because AgenticToolSpec.supported_customization_types reads io.keys(), this declares cursor as participating in 'agent' and 'skill' customization_artifacts (FR-05 agent matrix, FR-06 skill matrix), directly contradicting AC-3's 'only' clause and its worked example (skill flows over {claude, codex, antigravity}; agent over {claude, codex, gemini_cli} — cursor is absent from both). This is either a code defect (two extra cells that should be removed) or a stale acceptance criterion that the governance docs failed to update when Cursor's surface expanded. Either way the code and the spec disagree; flagging per the audit's deviation mandate. Verify against docs/agentic_tool_integration_protocol.md and project_description glossary before treating as a code bug."
+      }
+    ],
+    "conforming_points": [
+      "Goal 5 / NFR-11 / US-10 AC-1, AC-2: cursor is a single tool_specs/<name>.py module exposing build_cursor_spec(config) -> AgenticToolSpec; no sync-engine code is referenced or edited. Conforms.",
+      "Goal 5 'sync engine never references a concrete tool name': this module IS the adapter/wiring layer where the literal 'cursor' is permitted (architecture §1, §4); no inward use-case module is touched. Conforms.",
+      "US-10 AC-6: config_dir_keys (lines 72-78) and io (79-120) declare identical type sets {agent, skill, rules, slash_command, mcp_server}, so the AgenticToolSpec.__post_init__ drift check passes. Conforms.",
+      "NFR-15 / Goal 6: secret_policy is resolved at call time inside the parse/render closures (invoked at lines 57 and 67), so it is evaluated at every egress boundary rather than captured once; the cursor MCP parse/render forward secret_policy and agentic_tool_name='cursor' into the policy engine (cursor_io.py:347-378), enabling the NFR-13 structured error to name the tool. Conforms.",
+      "Architecture §3 Dependency Rule: imports only the port (agentic_tool_spec) and Layer-3 adapters (cursor_io, slash_command_io), via lazy in-factory imports; no Layer-4 / use-case / entity inward import. Conforms.",
+      "No hardcoded secrets (C1), no injection (C2), no silent error swallowing (C3), no mutable default args (C4 — config default is None), no no-op implementations (C5)."
+    ]
+  },
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0},
+    "DRY_duplicated_logic": {"minor": 1, "total": 1}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Code is clean and secure (code_score 0.75, zero CRITICAL/MAJOR); the only material issue is a SPEC deviation — cursor declares agent+skill cells, contradicting US-10 AC-3's 'cursor supports {rules, slash_command, mcp_server} only'."
+}

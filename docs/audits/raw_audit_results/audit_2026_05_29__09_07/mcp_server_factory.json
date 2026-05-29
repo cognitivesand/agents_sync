@@ -1,0 +1,129 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/_mcp_server_factory.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 95,
+
+  "detailed_analysis": "_mcp_server_factory.py is a small, focused Layer-3 wiring module (95 lines, one public function, three closures). It builds a per-tool mcp_server CustomizationTypeIO cell, threading the configured secret_policy into the core parse/render functions. Structure and security are sound: the function is well under the 40-line guideline (build_mcp_server_io body is ~80 lines of mostly declarative call construction, but it is split into trivially-readable closures, none exceeding 18 lines), no hardcoded secrets, no injection vectors, and the secret_policy is read from config (not hardcoded) and forwarded to the policy engine. The only real findings are minor maintainability/clean-code points: a duplicated 'secrets_refused' default literal across two branches of one expression, an untyped dialect parameter (Any), and a function-local import of the mcp_server_io callables. Spec conformance is strong: the factory matches the US-10 / integration-protocol port contract, threads secret_policy into both egress boundaries (parse and render) satisfying NFR-15 / Goal 6, and references no concrete tool name internally (the name arrives as a parameter), upholding Goal 5 and the Dependency Rule. No CRITICAL or MAJOR findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "_mcp_server_factory.py", "imported_by": 5},
+    "highest_fan_out": {"module": "_mcp_server_factory.py", "imports": 2}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/_mcp_server_factory.py",
+      "lines": 95,
+      "function_count": 4,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/_mcp_server_factory.py",
+      "line": 39,
+      "function_or_class": "build_mcp_server_io.secret_policy",
+      "anti_pattern": "I4",
+      "variant": "Magic / duplicated default string",
+      "severity": "INFO",
+      "metrics": {"duplicate_literals": 2},
+      "evidence": "if config is None:\n    return \"secrets_refused\"\nreturn str(\n    config.get(\"secret_policy\")\n    or config.get(\"mcp_server_secret_policy\")\n    or \"secrets_refused\"\n)",
+      "evidence_lines": "38-44",
+      "problem": "The default policy value \"secrets_refused\" is hardcoded as a bare string literal in two distinct branches (line 39 and line 43). The canonical default name is defined elsewhere in the codebase (the protocol and mcp_secret_policy treat secrets_refused as THE default); duplicating the literal here risks drift if the default ever changes and gives the value no named-constant intent marker. Per project guideline No-Hardcoding, this should reference a shared named constant (e.g. DEFAULT_SECRET_POLICY).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/_mcp_server_factory.py",
+      "line": 20,
+      "function_or_class": "build_mcp_server_io",
+      "anti_pattern": "I1",
+      "variant": "Weak / missing precise type annotation",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "dialect: Any | None = None,",
+      "evidence_lines": "20",
+      "problem": "The public parameter `dialect` is typed `Any | None`, which discards type checking on a value that is in fact a concrete McpServerDialect (see DEFAULT_MCP_SERVER_DIALECT and the McpServerDialect(...) literals at every call site, e.g. claude.py:115). Using the real type (McpServerDialect | None) on a public boundary parameter would restore mypy coverage and document the contract, per the project's 'type annotations on all public interfaces' rule (NFR-14). The Any is likely a deliberate import-cycle avoidance, but a TYPE_CHECKING import would preserve the annotation without a runtime dependency.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/tool_specs/_mcp_server_factory.py",
+      "line": 23,
+      "function_or_class": "build_mcp_server_io",
+      "anti_pattern": "I2",
+      "variant": "Function-local import (deferred import)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "from agents_sync.mcp_server_io import (\n    DEFAULT_MCP_SERVER_DIALECT,\n    extract_pair_id_from_mcp_server_json,\n    parse_mcp_server_json,\n    render_mcp_server_json,\n)",
+      "evidence_lines": "23-28",
+      "problem": "The mcp_server_io callables are imported inside the function body rather than at module top level. This is a recognised lazy-import pattern (likely to break an import cycle between agentic_tool_spec wiring and mcp_server_io), and is benign here, but it hides a real module dependency from static import-graph tooling and readers. If no cycle exists, the import belongs at module scope; if a cycle does exist, a one-line comment naming the cycle would document the intent (POLA). Flagged as INFO only.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 1, "total": 1},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "NFR-15 / Goal 6: secret_policy is read from config and threaded into BOTH egress boundaries reached by this factory (parse_mcp_server_json and render_mcp_server_json), each of which calls apply_mcp_secret_policy in mcp_server_io. extract_pair_id correctly does NOT apply the policy (it recovers identity only, propagates no content), consistent with the protocol's egress-boundary definition. The policy decision lives in the core mcp_secret_policy module, not the adapter, satisfying 'evaluated by the sync core, not per adapter'.",
+      "Goal 5 / Dependency Rule (architecture sec 3, sec 5.1): the factory references NO concrete tool name; agentic_tool_name arrives as a parameter (claude/codex/copilot/cursor/gemini_cli/opencode pass it in). It builds the documented CustomizationTypeIO triple + SharedKeyedMapLayout for mcp_server, matching protocol sec mcp_server and US-10 AC-1/AC-4.",
+      "US-10 AC-1 / integration protocol: SharedKeyedMapLayout is constructed with shared_path_config_key, map_key_path, key_field='name', matching the protocol's SharedKeyedMapLayout(shared_path, map_key_path, key_field) contract.",
+      "Deprecated-key tolerance (protocol sec mcp_server secret_policy): the factory accepts both secret_policy and the deprecated mcp_server_secret_policy key, matching the documented one-release compatibility window."
+    ],
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, focused Layer-3 wiring module; conforms to US-10/NFR-15/Goal 5/6; only three INFO-level maintainability nits (duplicated default literal, Any-typed dialect, function-local import)."
+}

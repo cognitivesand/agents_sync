@@ -18,14 +18,13 @@ from agents_sync.canonical import (
     new_pair_id,
 )
 from agents_sync.codex_io import _normalize_toml_text
-from agents_sync.state import target_slug
 from agents_sync.markdown_yaml_metadata_block import (
     as_string_list,
     extract_pair_id_from_md,
     render_markdown_with_metadata_block,
     split_frontmatter,
 )
-
+from agents_sync.state import target_slug
 
 PAIR_ID_TOML_RE = re.compile(r'^pair_id\s*=\s*"([^"]+)"', re.MULTILINE)
 

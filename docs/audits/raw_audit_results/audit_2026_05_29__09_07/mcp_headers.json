@@ -1,0 +1,132 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/mcp_server_io/headers.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 136,
+
+  "detailed_analysis": "headers.py is a small, cohesive adapter-layer helper (136 lines, 4 functions, 0 classes) that translates HTTP-header carriers between the canonical MCP-server document shape and the per-dialect on-disk JSON spelling. It is well within the project's size limits (functions <=40 lines, module <=300 lines) and reads cleanly: the two private extractors are documented with intent-revealing docstrings, names are two-word/role-based, and the module imports its env-reference and dialect collaborators rather than re-implementing them (good DRY/SRP). No security smells of the C1-C5 class: there are no hardcoded secrets, no injection vectors, no silent except-swallowing, no mutable default arguments, and no no-op bodies. The secret policy (NFR-15) is correctly applied one layer out in parse.py (line 75) and render.py (line 60) at the artifact-egress boundary, so this helper operating on already-policy-screened data is consistent with goal 6 ('evaluated by the sync core at every egress boundary ... not per adapter'). The few findings are MINOR/SMELL: a primitive-obsession-adjacent reliance on untyped dict[str,Any] carriers, repeated magic string literals ('canonical', 'Authorization', 'Bearer'), no fail-fast assertion on the dialect/obj invariants at entry, and a borderline parameter count on render_http_headers. None of these cap an axis below 0.75. The module conforms to the architecture: it is an Interface-Adapter-layer (Layer 3) helper that imports only inward (mcp_secret_policy, _helpers, dialect) and never references a concrete tool name, upholding the Dependency Rule and Goal 5's stable-abstraction rule.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "headers.py", "imported_by": 2},
+    "highest_fan_out": {"module": "headers.py", "imports": 3}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/mcp_server_io/headers.py",
+      "lines": 136,
+      "function_count": 4,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/mcp_server_io/headers.py",
+      "line": 44,
+      "function_or_class": "module-wide",
+      "anti_pattern": "I4",
+      "variant": "Magic Strings",
+      "severity": "MINOR",
+      "metrics": {"occurrences": 5},
+      "evidence": "format_env_reference(str(env_name), style=\"canonical\")\n...\nf\"Bearer {format_env_reference(env_name, style='canonical')}\"\n...\nheaders[\"Authorization\"] = ...\nauthorization = headers.get(\"Authorization\")\nheaders.pop(\"Authorization\", None)",
+      "evidence_lines": "44,50-52,94,105",
+      "problem": "The literals \"canonical\" (lines 44, 52), \"Authorization\" (lines 51, 94, 105), and the \"Bearer \" prefix (line 52) are repeated string constants embedded inline rather than named constants with intent. \"Authorization\" in particular is the same protocol header name written three times across two functions; a typo in any one drifts silently. AGENTS.md s9 calls for naming such values as constants. (The \"canonical\" style token is a protocol-defined enum value of format_env_reference, so it is the least severe.)",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/mcp_server_io/headers.py",
+      "line": 57,
+      "function_or_class": "render_http_headers",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters (borderline)",
+      "severity": "SMELL",
+      "metrics": {"parameter_count": 5},
+      "evidence": "def render_http_headers(\n    canonical: dict[str, Any],\n    obj: dict[str, Any],\n    dialect: McpServerDialect,\n    tool_only: dict[str, Any],\n    prior_obj: dict[str, Any],\n) -> None:",
+      "evidence_lines": "57-63",
+      "problem": "render_http_headers takes 5 positional dict/dialect parameters (canonical, obj, dialect, tool_only, prior_obj). This sits exactly at Fowler's threshold (>5 is the flag) so it is not a violation, but four of the five are untyped dict[str, Any] bags that travel together as a render-context clump (also passed in pairs to the two private extractors). A render-context dataclass would clarify intent and reduce the data-clump shape. Reported as a SMELL, not a defect.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/mcp_server_io/headers.py",
+      "line": 29,
+      "function_or_class": "headers_from_slot / render_http_headers",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession",
+      "severity": "SMELL",
+      "metrics": {"dict_any_params": 5},
+      "evidence": "def headers_from_slot(obj: dict[str, Any], dialect: McpServerDialect) -> dict[str, Any]:\n    headers: dict[str, Any] = {}\n    headers_field = first_present(obj, dialect.headers_fields)\n    if headers_field is not None:\n        headers.update(as_mapping(obj[headers_field], headers_field))",
+      "evidence_lines": "29-36",
+      "problem": "Both public functions accept and return raw dict[str, Any] carriers with an implicit schema (header-name -> value, env-header maps, the slot object) and immediately index dialect-named keys out of them. This is the documented house style for the mcp_server_io slot pipeline and the values are str-keyed by construction, so it is a SMELL rather than a MAJOR -- but the untyped bags mean the header schema is enforced only by str() coercion (lines 43, 50, 104, 128, 135), not by a typed boundary.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/mcp_server_io/headers.py",
+      "line": 29,
+      "function_or_class": "headers_from_slot",
+      "anti_pattern": "I-fail-fast",
+      "variant": "Missing boundary assertion",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "def headers_from_slot(\n    obj: dict[str, Any],\n    dialect: McpServerDialect,\n) -> dict[str, Any]:\n    headers: dict[str, Any] = {}\n    headers_field = first_present(obj, dialect.headers_fields)",
+      "evidence_lines": "29-34",
+      "problem": "Neither public function asserts its entry invariants (AGENTS.md s8 'validate at boundaries'). headers_from_slot indexes obj[headers_field] trusting first_present, and relies on the delegated as_mapping helper to raise on a non-dict carrier; render_http_headers guards raw_headers with an isinstance check (line 65, good) but does not assert obj/tool_only/prior_obj are dicts. This is mild because malformed input surfaces a ValueError from as_mapping rather than a silent wrong result -- so it fails loud enough -- but the boundary is implicit, not explicit. SMELL.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 1},
+    "I4_magic_numbers": {"info": 0, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, cohesive Layer-3 header-translation helper; only MINOR/SMELL maintainability nits (magic strings, untyped dict carriers); conforms to NFR-15, FR-09, and the Dependency Rule."
+}

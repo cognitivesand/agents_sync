@@ -27,7 +27,6 @@ from agents_sync.config import (
 )
 from agents_sync.sync import Syncer
 
-
 # ---------- per-OS defaults ----------
 
 def test_linux_defaults_include_antigravity_skills_dir():
@@ -186,7 +185,9 @@ def _minimal_args(**overrides: object) -> argparse.Namespace:
     return argparse.Namespace(**base)
 
 
-def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[str, str | float | bool]:
+def _test_config(
+    tmp_path: Path, *, antigravity_enabled: bool = True
+) -> dict[str, str | float | bool]:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     for sub in (
@@ -424,7 +425,8 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
     )
 
     syncer = Syncer(config)
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
     assert changed == 0
     # No projection landed on claude_skills_dir; antigravity bytes intact.
     assert list(syncer.tool_root("claude", "skill").iterdir()) == []

@@ -43,7 +43,7 @@ from typing import Any, Literal
 
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import AgenticToolSpec, SharedKeyedMapLayout
-from agents_sync.canonical import canonical_path, load_canonical, save_canonical
+from agents_sync.canonical import canonical_path, load_canonical
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.mcp_secret_policy import (
@@ -60,7 +60,6 @@ from agents_sync.state import (
 )
 from agents_sync.sync_types import RenderResult
 from agents_sync.tool_status import ToolStatusTracker
-
 
 PORTABLE_ARCHIVE_SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -106,7 +105,7 @@ def _build_manifest(
 ) -> dict[str, Any]:
     return {
         "schema_version": PORTABLE_ARCHIVE_SCHEMA_VERSION,
-        "exported_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
+        "exported_at": _dt.datetime.now(tz=_dt.UTC).isoformat(),
         "source_host": socket.gethostname(),
         "source_platform": platform.system(),
         "agents_sync_version": _agents_sync_version(),
@@ -683,7 +682,9 @@ def import_from_zip(
                 )
                 if local_canonical.exists():
                     retry_fs(
-                        lambda p=local_canonical: p.unlink(),
+                        # mypy cannot infer the return type of a default-arg lambda
+                        # passed to a generic callable; the body returns None.
+                        lambda p=local_canonical: p.unlink(),  # type: ignore[misc]
                         operation=f"unlink {local_canonical}",
                     )
 

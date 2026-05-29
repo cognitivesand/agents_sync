@@ -46,10 +46,9 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, TypeVar
-
 
 HOME = Path.home()
 STATE_DIR = HOME / ".local/state/agents-sync"
@@ -272,7 +271,7 @@ class MigrationFileLock:
         self.path = path
         self.fd: int | None = None
 
-    def __enter__(self) -> "MigrationFileLock":
+    def __enter__(self) -> MigrationFileLock:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self.fd = os.open(
@@ -317,10 +316,7 @@ class MigrationRollbackError(MigrationError):
         self.original = original
 
 
-T = TypeVar("T")
-
-
-def _run_phase(phase_name: str, fn: Callable[[], T]) -> T:
+def _run_phase[T](phase_name: str, fn: Callable[[], T]) -> T:
     """Execute `fn`, wrapping any failure in a MigrationError that names the phase."""
     try:
         return fn()
@@ -482,7 +478,7 @@ def _run_main_under_lock(args: argparse.Namespace) -> int:
         print("agents-sync v0.4 migration: nothing to migrate.")
         return 0
 
-    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    timestamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     backup_dir = STATE_DIR / "backups" / f"v0.4-migration-{timestamp}"
 
     _print_plan_banner(backup_dir)

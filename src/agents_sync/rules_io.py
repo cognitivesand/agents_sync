@@ -18,7 +18,6 @@ from agents_sync.markdown_yaml_metadata_block import (
     split_frontmatter,
 )
 
-
 KNOWN_RULE_FIELDS = frozenset({
     "pair_id",
     "name",

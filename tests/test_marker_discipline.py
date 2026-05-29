@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 _INTEGRATION_MODULES: frozenset[str] = frozenset({
     "test_e2e_sync.py",
     "test_first_boot_reconciliation.py",

@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 PAIR_ID_FIELD = "pair_id"
 CANONICAL_TRANSPORTS = frozenset({"stdio", "http", "sse", "streamable-http"})
 

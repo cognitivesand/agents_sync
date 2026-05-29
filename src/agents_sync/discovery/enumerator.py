@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agents_sync.agentic_tool_spec import (
     CustomizationTypeIO,
@@ -34,8 +35,15 @@ from agents_sync.sync_types import (
     CustomizationArtifactInfo,
 )
 
+if TYPE_CHECKING:
+    from agents_sync.discovery._host import _WalkerHost
 
-class EnumeratorMixin:
+    _WalkerHostBase = _WalkerHost
+else:
+    _WalkerHostBase = object
+
+
+class EnumeratorMixin(_WalkerHostBase):
     """Discovery walker mixin: enumerate on-disk artifacts.
 
     Relies on ``self.config``, ``self.agentic_tools``, and
@@ -145,10 +153,12 @@ class EnumeratorMixin:
         """
         layout = io.file_layout
         if isinstance(layout, SingleFileLayout):
-            if layout.fixed_file_name is not None:
-                fixed_path = root / layout.fixed_file_name
-                if fixed_path.is_file() and not fixed_path.name.startswith("."):
-                    return [fixed_path]
+            candidate_names = io.detection_file_names
+            if candidate_names:
+                for candidate_name in candidate_names:
+                    candidate_path = root / candidate_name
+                    if candidate_path.is_file() and not candidate_path.name.startswith("."):
+                        return [candidate_path]
                 return []
             walker = root.rglob if io.recursive else root.glob
             return sorted(

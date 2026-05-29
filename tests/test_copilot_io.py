@@ -16,7 +16,6 @@ from agents_sync.copilot_io import (
     render_copilot_skill_md,
 )
 
-
 PAIR_ID = "11111111-2222-4333-8444-555555555555"
 
 

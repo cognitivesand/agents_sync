@@ -1,0 +1,130 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/antigravity_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 148,
+
+  "detailed_analysis": "antigravity_io.py is a small (148-line), well-structured Layer-3 interface adapter implementing the CustomizationTypeIO parse/render contract for Antigravity SKILL.md skills. It is tool-agnostic in spirit: it delegates all YAML/frontmatter primitives to markdown_yaml_metadata_block, holds no hardcoded secrets or paths, and respects the Dependency Rule (imports only inward: canonical, markdown_yaml_metadata_block). Both public functions are under the 40-line limit (parse: 44 source lines incl. docstring, ~30 code lines; render: ~21 code lines) and cyclomatic complexity is low. The code is largely clean. The notable defects are correctness/robustness fail-fast gaps in render(), which reaches into canonical['name'] and canonical['pair_id'] with direct subscription (KeyError on a malformed canonical) while treating 'description' defensively with .get() — an inconsistency that contradicts the project's 'validate at boundaries, fail loud with a descriptive message' rule (NFR-14, AGENTS.md §8). There is also an asymmetry between parse and render: parse only writes canonical['name']/['description'] when present in the input frontmatter, but render unconditionally requires canonical['name'] — a canonical produced by a sibling tool's projection that omits 'name' would crash render with a bare KeyError rather than a structured error. No security smells, no global mutable state, no injection vectors. Spec conformance is strong: the file matches architecture §4 (Layer-3 adapter, ~varies lines), §3 Dependency Rule, §7 port shape, US-10 AC-1/AC-4. NFR-15 (secret_policy) is not applicable here because Antigravity supports only the 'skill' customization_type, which carries no env/headers/auth.* fields; the egress secret check lives in the mcp_server_io layer.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "antigravity_io.py", "imported_by": "tool_specs/antigravity.py (registry wiring only)"},
+    "highest_fan_out": {"module": "antigravity_io.py", "imports": 2, "imported_modules": ["agents_sync.canonical", "agents_sync.markdown_yaml_metadata_block"]}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/antigravity_io.py",
+      "lines": 148,
+      "function_count": 2,
+      "class_count": 0,
+      "correctness": 0.75,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 0.75,
+      "weakest_axis": "correctness",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/antigravity_io.py",
+      "line": 120,
+      "function_or_class": "render_antigravity_skill_md",
+      "anti_pattern": "C-adjacent / fail-fast gap",
+      "variant": "Inconsistent boundary validation (missing fail-fast)",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "frontmatter[\"pair_id\"] = canonical[\"pair_id\"]\nfrontmatter[\"name\"] = canonical[\"name\"]\nif canonical.get(\"description\"):\n    frontmatter[\"description\"] = canonical[\"description\"]",
+      "evidence_lines": "120-123",
+      "problem": "render() subscripts canonical[\"pair_id\"] (line 120) and canonical[\"name\"] (line 121) directly while treating description defensively with .get() (line 122). A canonical dict missing 'name' or 'pair_id' raises a bare, contextless KeyError at the egress boundary rather than the descriptive structured error AGENTS.md §8 / NFR-14 require. There is no assertion or boundary check that the canonical satisfies the renderer's required-field invariant (pair_id + name). The asymmetry (defensive on description, fail-hard on name/pair_id) is also a POLA/consistency smell.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/antigravity_io.py",
+      "line": 70,
+      "function_or_class": "parse_antigravity_skill_md / render_antigravity_skill_md",
+      "anti_pattern": "M2-adjacent / round-trip asymmetry",
+      "variant": "Parse/render contract asymmetry",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "parse: if \"name\" in frontmatter_data: canonical[\"name\"] = str(...)   # only set when present\nrender: frontmatter[\"name\"] = canonical[\"name\"]                     # unconditionally required",
+      "evidence_lines": "70-73, 121",
+      "problem": "parse() only writes canonical['name'] when the source frontmatter contains it (line 70-71), so a parsed Antigravity skill that omits the required 'name' field yields a canonical with no 'name' key. render() then unconditionally requires canonical['name'] (line 121). The two halves disagree on whether 'name' is mandatory: SKILL.md spec lists name+description as Required (module docstring lines 4-5), but parse does not enforce that requirement at the ingest boundary, deferring a hard failure to render time on a different artifact. This weakens round-trip-stability guarantees (US-10 AC contract item 1) for malformed-but-parseable input and contradicts fail-fast-at-boundary (NFR-14).",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/antigravity_io.py",
+      "line": 125,
+      "function_or_class": "render_antigravity_skill_md",
+      "anti_pattern": "W2",
+      "variant": "Message chain / nested .get() chaining",
+      "severity": "SMELL",
+      "metrics": {"chain_depth": 2},
+      "evidence": "antigravity_only = canonical.get(\"per_agentic_tool_only\", {}).get(\"antigravity\", {})\n...\nextras = canonical.get(\"per_agentic_tool_extra\", {}).get(\"antigravity\", {})",
+      "evidence_lines": "125, 130",
+      "problem": "Chained .get(...).get(...) navigation of the nested passthrough bags. Depth is only 2 (below the >3 Demeter threshold) so this is a stylistic SMELL, not a violation: it silently substitutes {} for a structurally-absent bag. Given the file otherwise validates nothing about canonical shape, the silent default masks the case where canonical['per_agentic_tool_only'] exists but is not a dict — a malformed canonical would not fail loud here either. Low severity; flagged for consistency with the fail-fast finding above.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 0.75,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 1},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": "NFR-15 (secret_policy at egress) is not applicable: Antigravity supports only the 'skill' customization_type, which has no env/headers/auth.* fields; the secret check is correctly located in mcp_server_io. Architecture §3 Dependency Rule honoured (imports only canonical + markdown_yaml_metadata_block). §7 port shape honoured. US-10 AC-1 (parse/render/extract triple) and AC-4 (tool name 'antigravity' verbatim in per_agentic_tool_only/extra bags) honoured. US-10 AC contract item 4 (unknown fields preserved in per_agentic_tool_extra) honoured (lines 83-89, 130-132). The only spec-adjacent weaknesses are the fail-fast gaps under NFR-14, recorded as deviations below.",
+    "deviations": [
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "description": "render_antigravity_skill_md (lines 120-121) does not validate that the canonical carries its required 'name' and 'pair_id' fields before subscripting them; a malformed canonical produces a bare KeyError, not the explicit boundary failure Clean Code / fail-fast (AGENTS.md §8) prescribes. parse (lines 70-73) likewise omits enforcing that the SKILL.md required fields name+description are present on ingest, despite the module docstring (lines 4-5) declaring them Required."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-isolated Layer-3 adapter; only minor fail-fast/boundary-validation gaps in render() and a parse/render required-field asymmetry. No CRITICAL/MAJOR findings."
+}

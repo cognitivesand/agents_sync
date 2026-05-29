@@ -21,6 +21,17 @@ from agents_sync.markdown_yaml_metadata_block import (
     yaml_dump,
 )
 
+# ``FRONTMATTER_RE`` and ``extract_pair_id_from_md`` are re-exported here because
+# ``tool_specs.claude`` and the copilot test import them from ``claude_io`` rather
+# than the underlying primitive module. Listed in ``__all__`` so the re-export is
+# explicit (and mypy-strict treats it as a valid re-export).
+__all__ = [
+    "FRONTMATTER_RE",
+    "KNOWN_CLAUDE_FIELDS",
+    "extract_pair_id_from_md",
+    "parse_claude_md",
+    "render_claude_md",
+]
 
 # Frontmatter keys the canonical maps explicitly. Anything else is preserved
 # in canonical["per_agentic_tool_extra"]["claude"] so user-set fields we don't

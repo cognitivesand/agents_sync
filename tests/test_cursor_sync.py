@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import tomllib
-from pathlib import Path
 
 from agents_sync.cursor_io import (
     extract_pair_id_from_cursor_agent_md,

@@ -13,7 +13,6 @@ from agents_sync.antigravity_io import (
 )
 from agents_sync.canonical import empty_canonical
 
-
 # ---------- parse ----------
 
 def test_parse_required_fields_only():

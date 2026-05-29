@@ -8,7 +8,6 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
-
 #: New, type-agnostic spellings — the only values the internal pipeline sees
 #: after :func:`normalize_secret_policy` runs at the config boundary. The
 #: ``redact`` mode that lived in earlier v0.5 drafts is intentionally gone —

@@ -1,0 +1,152 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/filesystem_lock.py, file:src/agents_sync/filesystem_windows_retry.py",
+  "date": "2026-05-29",
+  "files_analyzed": 2,
+  "total_lines": 186,
+
+  "detailed_analysis": "Both scoped files are small, focused Layer-4 infrastructure shims well within the project's size limits (filesystem_lock.py 135 lines, filesystem_windows_retry.py 51 lines; all functions under 40 lines). filesystem_lock.py exposes a single public context manager lock_file() that dispatches to a POSIX (fcntl.flock) or Windows (msvcrt.locking) implementation; this is the primitive backing the cross-process TOCTOU fix in shared_keyed_map_io.apply_slot, which underpins NFR-03 atomic visibility. filesystem_windows_retry.py exposes is_transient_fs_error() and retry_fs() to absorb transient Windows sharing/lock violations during os.replace-based writes. No CRITICAL findings: no hardcoded secrets, no injection vectors, no unsafe deserialization, and no silent error swallowing (the two except blocks that swallow are release-path unlock failures that are logged via logging.exception, and retry_fs re-raises non-transient and exhausted errors rather than discarding them). The structural observations are minor: (1) DRY duplication of the acquire/retry/release scaffolding between _posix_lock and _windows_lock, and (2) a broad `except Exception` in retry_fs that re-raises after a transience check (acceptable but wider than necessary). The dominant concern is spec/architecture conformance, not code quality: filesystem_lock.py is entirely absent from architecture.md §4 module map, §8 invariants, and §9 traceability despite being a real concurrency primitive; and architecture §3 invariant #3 (\"No layer imports from layer 4 ... except other framework modules\") is contradicted by Layer-3 modules (state.py, archive.py, rendering.py) importing retry_fs from the Layer-4 filesystem_windows_retry.py.",
+
+  "dependency_graph_summary": {
+    "total_modules": 2,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "filesystem_windows_retry.py", "imported_by": 4},
+    "highest_fan_out": {"module": "filesystem_lock.py", "imports": 0}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/filesystem_lock.py",
+      "lines": 135,
+      "function_count": 3,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 1
+    },
+    {
+      "file": "src/agents_sync/filesystem_windows_retry.py",
+      "lines": 51,
+      "function_count": 2,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 2
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/filesystem_lock.py",
+      "line": 68,
+      "function_or_class": "_posix_lock / _windows_lock",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated retry/acquire/release scaffolding",
+      "severity": "MINOR",
+      "metrics": {"duplicated_block_lines": "73-94 vs 112-134"},
+      "evidence": "deadline = time.monotonic() + timeout_seconds\\ntry:\\n    while True:\\n        try:\\n            <lock-call>\\n            break\\n        except OSError:\\n            if time.monotonic() >= deadline:\\n                raise LockTimeoutError(...)\\n            time.sleep(_RETRY_INTERVAL_SECONDS)",
+      "evidence_lines": "73-94, 112-134",
+      "problem": "The deadline computation, non-blocking acquire/retry loop, LockTimeoutError construction, yield-in-try/finally, and release-with-logged-OSError pattern are duplicated verbatim between _posix_lock and _windows_lock, differing only in the lock/unlock primitive calls. The LockTimeoutError message string is also duplicated (lines 81-84 and 120-123). Per NFR-14 (minimal duplication) the shared acquire/release scaffolding could be factored to a single helper parameterised by acquire/release callables. Low blast radius given both copies are short and currently consistent.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/filesystem_windows_retry.py",
+      "line": 42,
+      "function_or_class": "retry_fs",
+      "anti_pattern": "W1",
+      "variant": "Overly broad exception catch",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "except Exception as exc:\\n    if attempt >= attempts or not is_transient_fs_error(exc):\\n        raise",
+      "evidence_lines": "42-44",
+      "problem": "retry_fs catches `Exception` broadly, then immediately re-raises anything that is not a transient FS error (is_transient_fs_error checks for OSError/PermissionError/known winerrors). This is NOT silent swallowing (C3 does not apply: non-transient and final-attempt errors are re-raised, satisfying fail-loud). The catch could be narrowed to OSError to match the intent precisely; as written it momentarily intercepts unrelated exception types (e.g. a bug in `op`) before re-raising. Cosmetic; behaviour is correct.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/filesystem_windows_retry.py",
+      "line": 33,
+      "function_or_class": "retry_fs",
+      "anti_pattern": "I4",
+      "variant": "Magic numbers in backoff / jitter",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "delay = min(max_delay_seconds, base_delay_seconds * (2 ** (attempt - 1)))\\njitter = random.uniform(0.7, 1.3)",
+      "evidence_lines": "32-47",
+      "problem": "The default attempts=6, base_delay_seconds=0.02, max_delay_seconds=0.30, the exponential base 2, and the jitter band (0.7, 1.3) are inline literals without named constants documenting unit/intent (cf. AGENTS.md §9, NFR-14). The defaults are at least exposed as keyword parameters, which mitigates this; the jitter band and exponential base are hardcoded in the loop body. Minor maintainability hint, not a correctness or security issue.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 1, "total": 1},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0},
+    "DRY_duplication": {"minor": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (module map) / §9 (traceability)",
+        "file": "src/agents_sync/filesystem_lock.py",
+        "line": 1,
+        "description": "filesystem_lock.py is entirely absent from the architecture document. It is not listed in the §4 module map (which claims '19 modules, 2 852 lines' as the complete inventory), not in the §9 traceability table, and not in §8 invariants — despite being a real cross-process locking primitive (fcntl.flock / msvcrt.locking on a sidecar .lock file) that backs shared_keyed_map_io.apply_slot. §9 asserts 'Every requirement ... has at least one module carrying it' and that a requirement with no carrying module is a defect; the architecture has no row mapping this module to NFR-03/NFR-01, leaving the concurrency primitive untraced."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §3 invariant #3 (Dependency Rule, layer-4 isolation)",
+        "file": "src/agents_sync/filesystem_windows_retry.py",
+        "line": 28,
+        "description": "§3 invariant #3 states 'No layer imports from layer 4. Nothing under src/agents_sync/ imports from cli, daemon, __main__, config, or filesystem_windows_retry except other framework modules.' filesystem_windows_retry.py is classified Layer 4 in §4. But retry_fs is imported by Layer-3 modules state.py:14, archive.py:19, rendering.py:25, and portable_archive.py:47 (confirmed by grep). Those are interface adapters, not framework modules, so a Layer-3 module depends outward on a Layer-4 module, violating the stated Dependency Rule. The architecture acknowledges the state.py->retry_fs edge in the §4 table but does not record it as a tracked deviation in §11, and the archive.py / rendering.py / portable_archive.py edges are inward-pointing violations not reconciled anywhere. (Either the module is misclassified as Layer 4, or the imports violate the rule — the document is internally inconsistent.)"
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, focused infra shims with zero CRITICAL/MAJOR code findings (code_score 0.75); the real issues are two architecture-doc conformance gaps — filesystem_lock.py is untraced in §4/§9, and the Layer-4 retry shim is imported by Layer-3 modules in violation of §3 invariant #3."
+}

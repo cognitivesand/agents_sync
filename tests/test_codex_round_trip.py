@@ -103,7 +103,8 @@ def test_codex_agent_parse_strips_legacy_review_metadata():
         'pair_id = "abc"\n'
         'name = "x"\n'
         'description = "y"\n'
-        'developer_instructions = "real body\\n\\n---\\nConverted Claude-specific metadata for manual review:\\n{}"\n'
+        'developer_instructions = "real body\\n\\n---\\n'
+        'Converted Claude-specific metadata for manual review:\\n{}"\n'
     )
     c = parse_codex_agent_toml(text)
     assert c["body"] == "real body"
@@ -117,7 +118,8 @@ def test_codex_agent_parse_preserves_marker_when_prior_canonical_is_modern():
         'pair_id = "abc"\n'
         'name = "x"\n'
         'description = "y"\n'
-        'developer_instructions = "real body\\n\\n---\\nConverted Claude-specific metadata for manual review:\\n{}"\n'
+        'developer_instructions = "real body\\n\\n---\\n'
+        'Converted Claude-specific metadata for manual review:\\n{}"\n'
     )
     prior = {"pair_id": "abc", "kind": "agent", "schema_version": 4}
     c = parse_codex_agent_toml(text, prior_canonical=prior)

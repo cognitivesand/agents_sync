@@ -1,0 +1,149 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/opencode_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 319,
+
+  "detailed_analysis": "opencode_io.py is a Layer-3 interface adapter implementing the CustomizationTypeIO contract (parse/render) for opencode `agent` .md and `SKILL.md` documents. It is clean, cohesive, and well-decomposed: all five private/public helpers and the four parse/render entry points stay under the 40-line function limit, names follow the two-word/role-domain convention, there are no hardcoded secrets, no injection vectors, no global mutable state, no bare-except swallowing, and no mutable default arguments. The module correctly delegates name-resolution policy to a shared helper (resolve_artifact_name) and metadata-block handling to markdown_yaml_metadata_block, keeping the adapter thin. The single structural smell is module length: at 319 lines the file exceeds the project's 300-line module guideline (NFR-14 / AGENTS.md §3). The dominant maintainability concern is heavy duplication between the agent and skill parse/render pairs and a clutch of module-level frozenset/tuple field-list constants that read as primitive-obsession passthrough configuration. No secret-bearing fields (env/headers/auth) are rendered here — those belong to the mcp_server factory — so NFR-15 egress enforcement is out of scope for this adapter and correctly absent. The adapter satisfies the Dependency Rule: it imports only inward (canonical, artifact_names, markdown_yaml_metadata_block) and references the concrete tool name only as the literal string key \"opencode\" inside its own per-tool bags, which is permitted for adapter modules per architecture §1. Round-trip stability (US-10 AC-1, NFR-06) holds for the model provider split/join and the metadata passthrough; the skill renderer re-slugs `name` via opencode_skill_slug while the parser reads `name` verbatim, which is the declared slugify_name behaviour rather than a defect.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "opencode_io.py", "imported_by": 1},
+    "highest_fan_out": {"module": "opencode_io.py", "imports": 5},
+    "internal_imports": ["agents_sync.artifact_names", "agents_sync.canonical", "agents_sync.markdown_yaml_metadata_block"],
+    "dependency_rule": "respected: imports point inward only; no use-case or framework imports; concrete tool name appears only as the adapter's own bag key \"opencode\""
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/opencode_io.py",
+      "lines": 319,
+      "function_count": 9,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/opencode_io.py",
+      "line": 1,
+      "function_or_class": "<module>",
+      "anti_pattern": "M1",
+      "variant": "Module length over limit",
+      "severity": "MINOR",
+      "metrics": {"module_lines": 319, "threshold": 300},
+      "evidence": "File spans 319 physical lines (module ends at __all__, line 309-318).",
+      "evidence_lines": "1-319",
+      "problem": "Module is 319 lines, exceeding the project's explicit 300-line file/module limit (AGENTS.md §3, NFR-14). It is not a God Module — cohesion is high and responsibilities are narrow (parse/render of two opencode customization_types) — but the field-list constants (lines 26-96) and the near-duplicate agent/skill pairs push it over the bar. Derogation is plausible but undocumented.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/opencode_io.py",
+      "line": 143,
+      "function_or_class": "parse_opencode_agent_md / parse_opencode_skill_md",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated parse/render scaffolding",
+      "severity": "MINOR",
+      "metrics": {"duplicated_blocks": 2},
+      "evidence": "per_only = dict(canonical.get(\"per_agentic_tool_only\") or {})\nper_only[\"opencode\"] = opencode_only\ncanonical[\"per_agentic_tool_only\"] = per_only\nper_extra = dict(canonical.get(\"per_agentic_tool_extra\") or {})\nper_extra[\"opencode\"] = unknown_metadata_fields(...)\ncanonical[\"per_agentic_tool_extra\"] = per_extra\nif \"pair_id\" in frontmatter_data: ... elif prior_canonical is None: canonical[\"pair_id\"] = new_pair_id()",
+      "evidence_lines": "190-205, 262-277",
+      "problem": "The per_agentic_tool_only / per_agentic_tool_extra bag wiring and the pair_id fallback block are repeated verbatim between parse_opencode_agent_md (190-205) and parse_opencode_skill_md (262-277). The same shape recurs in the two render functions' trailing extra-field loops (236-238, 302-304). Three-plus repetitions cross the Rule-of-Three threshold (AGENTS.md §3) and invite drift between the agent and skill code paths.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/opencode_io.py",
+      "line": 143,
+      "function_or_class": "parse_opencode_agent_md",
+      "anti_pattern": "M2",
+      "variant": "Function approaching length limit",
+      "severity": "SMELL",
+      "metrics": {"code_lines_excluding_docstring": "~40", "cyclomatic_complexity": 8},
+      "evidence": "def parse_opencode_agent_md(text, prior_canonical=None, *, artifact_path=None):\n    ... name resolution, description, metadata_subset, maxSteps/permission/tools deprecation handling, model split, two bag writes, pair_id fallback ...",
+      "evidence_lines": "143-207",
+      "problem": "parse_opencode_agent_md packs several distinct concerns — name precedence resolution, deprecated `tools`->`permission` migration (179-182), maxSteps->steps aliasing (177-178), model/provider splitting, and bag assembly. Body code (excluding the 6-line docstring) is right at the 40-line ceiling with ~8 branch points. Still readable, but the deprecated-field migration logic is a candidate to extract into a named helper alongside _normalise_deprecated_tools.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/opencode_io.py",
+      "line": 138,
+      "function_or_class": "opencode_skill_slug",
+      "anti_pattern": "I4",
+      "variant": "Magic number",
+      "severity": "SMELL",
+      "metrics": {"literal": 64},
+      "evidence": "    return slug[:64].rstrip(\"-\") or \"converted\"",
+      "evidence_lines": "138",
+      "problem": "The slug truncation length 64 is an inline magic number with no named constant or comment stating it is opencode's skill-name length cap (AGENTS.md §9: name magic numbers as constants with unit and intent). The fallback string \"converted\" is repeated at lines 137 and 138; a named constant would document intent and avoid drift.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 1},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0},
+    "DRY_duplication": {"minor": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "US-10 AC-1/AC-4: adapter exposes pure parse/render and writes per_agentic_tool_only[\"opencode\"] and per_agentic_tool_extra[\"opencode\"] verbatim (lines 190-205, 262-277) — conforms.",
+      "Protocol §parse purity / unknown-field passthrough: unknown fields preserved via unknown_metadata_fields (195-199, 267-271) — conforms (US-10 AC; protocol line 152).",
+      "extract_pair_id never raises: adapter re-exports markdown_yaml_metadata_block.extract_pair_id_from_md (line 312); the helper handles malformed input — contract satisfied (protocol line 148).",
+      "NFR-06 round-trip stability: model provider split (108-114) and join (117-124) are inverse over the supported cases; metadata passthrough is verbatim.",
+      "NFR-15 / goal 6 secret policy: opencode_io renders only agent/skill frontmatter (no env/headers/auth fields); secret-policy egress enforcement belongs to the mcp_server factory and sync core, correctly absent here.",
+      "architecture §1 'sync engine never references a concrete tool name': the literal \"opencode\" appears only as this adapter's own per-tool bag key and frontmatter selector — permitted for adapter modules, not a use-case leak.",
+      "Dependency Rule (§3): imports are inward only (artifact_names, canonical, markdown_yaml_metadata_block); no Layer-2/Layer-4 imports."
+    ],
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, contract-conformant Layer-3 opencode adapter; only minor structure/maintainability smells (319-line module over the 300 limit, agent/skill duplication, a magic 64). No CRITICAL or MAJOR findings; code_score 0.75."
+}

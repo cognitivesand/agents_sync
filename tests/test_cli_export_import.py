@@ -1,4 +1,5 @@
 """CLI smoke tests for the export/import subcommands (US-12 AC-8 + wiring)."""
+
 from __future__ import annotations
 
 import zipfile
@@ -67,12 +68,29 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
     state_dir = root / "state"
     state_dir.mkdir(parents=True)
     for sub in (
-        "ca", "cc", "cs", "cr",
-        "xa", "xp", "xs", "xr",
-        "cura", "curc", "curs", "curr",
+        "ca",
+        "cc",
+        "cs",
+        "cr",
+        "xa",
+        "xp",
+        "xs",
+        "xr",
+        "cura",
+        "curc",
+        "curs",
+        "curr",
         "as",
-        "ga", "gc", "gs", "gr",
-        "oa", "oc", "os", "or",
+        "ga",
+        "gc",
+        "gs",
+        "gr",
+        "oa",
+        "oc",
+        "os",
+        "or",
+        "copa",
+        "cops",
     ):
         (root / sub).mkdir(parents=True)
     cfg = {
@@ -108,6 +126,9 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "opencode_rules_dir": str(root / "or"),
         "opencode_config_file": str(root / "opencode.json"),
         "opencode_enabled": True,
+        "copilot_cli_agents_dir": str(root / "copa"),
+        "copilot_cli_skills_dir": str(root / "cops"),
+        "copilot_cli_mcp_config_file": str(root / "copilot-mcp.json"),
         "import_collision_strategy": "mtime_wins",
     }
     cfg_path = tmp_path / f"{label}.toml"
@@ -134,9 +155,7 @@ def test_cli_export_then_import_roundtrip(syncer: Syncer, tmp_path: Path):
         assert (target_root / sub / "foo" / "SKILL.md").exists()
 
 
-def test_cli_import_collision_strategy_flag_overrides_config(
-    syncer: Syncer, tmp_path: Path
-):
+def test_cli_import_collision_strategy_flag_overrides_config(syncer: Syncer, tmp_path: Path):
     """CLI --collision-strategy must take precedence over config (AC-8)."""
     skill_dir = syncer.tool_root("claude", "skill") / "foo"
     skill_dir.mkdir()
@@ -173,9 +192,7 @@ def test_cli_import_collision_strategy_flag_overrides_config(
     assert canonical_after == canonical_before  # skip → local untouched
 
 
-def test_cli_import_requires_force_when_mtime_wins_would_overwrite(
-    syncer: Syncer, tmp_path: Path
-):
+def test_cli_import_requires_force_when_mtime_wins_would_overwrite(syncer: Syncer, tmp_path: Path):
     """Audit slice 08 · CQ-07: silent-overwrite gate.
 
     When mtime_wins would displace a local pair, the import refuses to
@@ -202,9 +219,12 @@ def test_cli_import_requires_force_when_mtime_wins_would_overwrite(
     # No --force → refuse with exit 2.
     exit_code = main(
         [
-            "--config", str(cfg_path),
-            "import", str(out_zip),
-            "--collision-strategy", "mtime_wins",
+            "--config",
+            str(cfg_path),
+            "import",
+            str(out_zip),
+            "--collision-strategy",
+            "mtime_wins",
         ]
     )
     assert exit_code == 2
@@ -212,18 +232,19 @@ def test_cli_import_requires_force_when_mtime_wins_would_overwrite(
     # With --force → proceeds and overwrites.
     exit_code = main(
         [
-            "--config", str(cfg_path),
-            "import", str(out_zip),
-            "--collision-strategy", "mtime_wins",
+            "--config",
+            str(cfg_path),
+            "import",
+            str(out_zip),
+            "--collision-strategy",
+            "mtime_wins",
             "--force",
         ]
     )
     assert exit_code == 0
 
 
-def test_cli_import_returns_nonzero_on_malformed_archive(
-    syncer: Syncer, tmp_path: Path
-):
+def test_cli_import_returns_nonzero_on_malformed_archive(syncer: Syncer, tmp_path: Path):
     cfg_path = _write_config(syncer, tmp_path)
     bad = tmp_path / "bad.zip"
     with zipfile.ZipFile(bad, "w") as zf:
@@ -251,9 +272,7 @@ def test_cli_no_subcommand_still_invokes_daemon(monkeypatch):
     monkeypatch.setattr(cli_module, "_check_legacy_install", lambda: None)
     monkeypatch.setattr(cli_module, "Syncer", lambda config: object())
     monkeypatch.setattr(cli_module, "validate_config", lambda config: None)
-    monkeypatch.setattr(
-        cli_module, "merged_config", lambda args: {"poll_interval_seconds": 0.0}
-    )
+    monkeypatch.setattr(cli_module, "merged_config", lambda args: {"poll_interval_seconds": 0.0})
 
     rc = cli_module.main([])
 

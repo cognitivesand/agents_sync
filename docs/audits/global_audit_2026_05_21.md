@@ -2,20 +2,20 @@
 
 **Branch:** `feat/v0.5-mcp-server` (HEAD `ba17ac0`)
 **Scope:** 10 parallel `code-quality-auditor` subagents over the full Python codebase + tests.
-**Per-slice JSON reports:** [`docs/audit/`](./audit/)
+**Per-slice JSON reports:** [`docs/audits/raw_audit_results/audit_2026_05_22__00_49/`](./raw_audit_results/audit_2026_05_22__00_49/)
 
 | # | Slice | Verdict | CRITICAL |
 |---|---|---|---|
-| 01 | [MCP server I/O](./audit/01-mcp-server-io.json) | AUDIT_WEAK | 0 |
-| 02 | [MCP secret policy + real adapters](./audit/02-mcp-secret-policy.json) | AUDIT_WEAK | 0 (weakest_axis: **security**) |
-| 03 | [MCP server sync tests](./audit/03-mcp-server-sync-tests.json) | AUDIT_WEAK | 0 |
-| 04 | [Shared keyed-map module](./audit/04-shared-keyed-map.json) | AUDIT_WEAK | **1** |
-| 05 | [`agentic_tool_spec` + `tool_status`](./audit/05-agentic-tool-spec.json) | AUDIT_WEAK | 0 |
-| 06 | [Discovery / state / sync core](./audit/06-discovery-sync-core.json) | AUDIT_WEAK | 0 |
-| 07 | [Per-tool I/O adapters](./audit/07-per-tool-adapters.json) | AUDIT_WEAK | 0 |
-| 08 | [CLI / config / rendering / adoption](./audit/08-cli-config-rendering-adoption.json) | AUDIT_WEAK | 0 |
-| 09 | [Daemon / archive / filesystem / rules](./audit/09-daemon-archive-filesystem.json) | AUDIT_WEAK | **1** |
-| 10 | [E2E + integration + platform tests](./audit/10-e2e-integration-tests.json) | AUDIT_WEAK | 0 |
+| 01 | [MCP server I/O](./raw_audit_results/audit_2026_05_22__00_49/01-mcp-server-io.json) | AUDIT_WEAK | 0 |
+| 02 | [MCP secret policy + real adapters](./raw_audit_results/audit_2026_05_22__00_49/02-mcp-secret-policy.json) | AUDIT_WEAK | 0 (weakest_axis: **security**) |
+| 03 | [MCP server sync tests](./raw_audit_results/audit_2026_05_22__00_49/03-mcp-server-sync-tests.json) | AUDIT_WEAK | 0 |
+| 04 | [Shared keyed-map module](./raw_audit_results/audit_2026_05_22__00_49/04-shared-keyed-map.json) | AUDIT_WEAK | **1** |
+| 05 | [`agentic_tool_spec` + `tool_status`](./raw_audit_results/audit_2026_05_22__00_49/05-agentic-tool-spec.json) | AUDIT_WEAK | 0 |
+| 06 | [Discovery / state / sync core](./raw_audit_results/audit_2026_05_22__00_49/06-discovery-sync-core.json) | AUDIT_WEAK | 0 |
+| 07 | [Per-tool I/O adapters](./raw_audit_results/audit_2026_05_22__00_49/07-per-tool-adapters.json) | AUDIT_WEAK | 0 |
+| 08 | [CLI / config / rendering / adoption](./raw_audit_results/audit_2026_05_22__00_49/08-cli-config-rendering-adoption.json) | AUDIT_WEAK | 0 |
+| 09 | [Daemon / archive / filesystem / rules](./raw_audit_results/audit_2026_05_22__00_49/09-daemon-archive-filesystem.json) | AUDIT_WEAK | **1** |
+| 10 | [E2E + integration + platform tests](./raw_audit_results/audit_2026_05_22__00_49/10-e2e-integration-tests.json) | AUDIT_WEAK | 0 |
 
 Every slice landed at `AUDIT_WEAK`. No slice landed at `AUDIT_PASS`. No security-critical injection/secret-leak defects, but two **CRITICAL** correctness defects and several cross-cutting structural patterns surfaced repeatedly.
 
@@ -202,4 +202,4 @@ A regression flipping claude's map path to `mcp_servers` would pass the entire t
 
 ---
 
-*This report aggregates output from 10 parallel `code-quality-auditor` subagents. Each slice's full structured JSON is in `docs/audit/`. The auditor catalog is from Fowler, Martin, Suryanarayana, Lacerda, Zhang (code smells), van Deursen, Meszaros, Spadini, Peruma, Khorikov (test smells), and OWASP (security smells).*
+*This report aggregates output from 10 parallel `code-quality-auditor` subagents. Each slice's full structured JSON is in `docs/audits/raw_audit_results/audit_2026_05_22__00_49/`. The auditor catalog is from Fowler, Martin, Suryanarayana, Lacerda, Zhang (code smells), van Deursen, Meszaros, Spadini, Peruma, Khorikov (test smells), and OWASP (security smells).*

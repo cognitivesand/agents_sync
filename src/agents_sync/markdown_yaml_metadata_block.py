@@ -33,11 +33,10 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
-
 
 FRONTMATTER_RE = re.compile(
     r"\A(?:﻿)?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)(.*)\Z",
@@ -263,7 +262,7 @@ def extract_pair_id_from_md(text: str) -> str | None:
         return None
     loaded = yaml_load(match.group(1))
     if isinstance(loaded, dict) and isinstance(loaded.get("pair_id"), str):
-        return loaded["pair_id"]
+        return cast("str", loaded["pair_id"])
     return None
 
 

@@ -17,7 +17,6 @@ from agents_sync.slash_command_io import (
     slash_command_slug,
 )
 
-
 PAIR_ID = "00000000-0000-4000-8000-000000000101"
 
 

@@ -15,10 +15,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from agents_sync.state import _quarantine_corrupt, atomic_write_text
 from agents_sync.identity import validate_pair_id
 from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded
-
+from agents_sync.state import _quarantine_corrupt, atomic_write_text
 
 SCHEMA_VERSION = 2
 

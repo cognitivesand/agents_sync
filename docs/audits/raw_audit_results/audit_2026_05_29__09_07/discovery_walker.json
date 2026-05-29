@@ -1,0 +1,156 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/discovery/walker.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 119,
+
+  "detailed_analysis": "walker.py is the public orchestrator of the discovery package: it owns DiscoveryWalker, exposing discover() (the per-poll walk) and state_owner_for_path() (a state-lookup helper), while delegating per-cell enumeration, adoption planning, and collision blocking to three mixins (EnumeratorMixin, AdoptionPlannerMixin, CollisionBlockerMixin). The file is small (119 lines, well under the 300-line module limit), tool-agnostic (no concrete tool name appears anywhere — Goal 5 / architecture stable-abstractions rule upheld), and correctly gates participation on tool availability (US-11 AC-4) and supported_customization_types (US-10 AC-3). The dominant structural concern is cooperative multiple inheritance: DiscoveryWalker mixes in three mixins that read self.config / self.agentic_tools / self.tool_status (declared only here) and call state_owner_for_path (declared only here), an implicit, unenforced contract spread across four files. No CRITICAL findings: no hardcoded secrets, no injection, no silent exception swallowing in this file (the broad excepts live in the mixins, not in scope), no mutable defaults, no no-op bodies. The discover() method is borderline on length (~40 effective lines) but stays under the cyclomatic and nesting thresholds. Remaining issues are MINOR/SMELL: config typed dict[str, Any] (primitive obsession, project-wide and documented at architecture 5.5), an untyped tuple return, and the mixin coupling. NFR-15 secret_policy is not evaluated in this file, but discovery is a read/parse boundary whose secret handling is delegated to the IO adapter parse functions; no propagation/egress occurs here, so this is not a walker.py deviation.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "discovery/walker.py", "imported_by_in_scope": "discovery/__init__.py"},
+    "highest_fan_out": {"module": "discovery/walker.py", "imports": 8},
+    "imports": [
+      "agentic_tool_spec (AgenticToolSpec, SharedKeyedMapLayout)",
+      "config.expand_path",
+      "discovery.adoption_planner.AdoptionPlannerMixin",
+      "discovery.collision_blocker.CollisionBlockerMixin",
+      "discovery.enumerator.EnumeratorMixin",
+      "rendering.slot_aware_collision_key",
+      "state.CustomizationArtifactState",
+      "sync_types.CustomizationArtifactInfo",
+      "tool_status.ToolStatusTracker"
+    ],
+    "note": "Layer-2 use case importing only inward (agentic_tool_spec port, rendering/state gateways, sync_types entities, tool_status sibling use case, config.expand_path utility per documented deviation D-2). Dependency Rule upheld."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/discovery/walker.py",
+      "lines": 119,
+      "function_count": 3,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/discovery/walker.py",
+      "line": 29,
+      "function_or_class": "DiscoveryWalker",
+      "anti_pattern": "W3",
+      "variant": "Cooperative-inheritance implicit contract / inappropriate intimacy across mixins",
+      "severity": "SMELL",
+      "metrics": {"mixins": 3, "shared_undeclared_members": 4},
+      "evidence": "class DiscoveryWalker(\n    EnumeratorMixin,\n    AdoptionPlannerMixin,\n    CollisionBlockerMixin,\n):\n    def __init__(self, config, agentic_tools, tool_status) -> None:\n        self.config = config\n        self.agentic_tools = agentic_tools\n        self.tool_status = tool_status",
+      "evidence_lines": "29-44",
+      "problem": "The three mixins read self.config, self.agentic_tools, self.tool_status (defined only in this __init__) and call self.state_owner_for_path / self._planned_adoption_targets / the _block_* helpers, but none of these collaboration points is declared as an abstract interface or Protocol. The contract that binds the four files is implicit and unenforced: a mixin could reference a renamed attribute and only fail at runtime. mypy cannot see the cross-mixin calls. This is fragile cooperative inheritance — composition with an explicit collaborator interface would make the seam checkable.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/discovery/walker.py",
+      "line": 46,
+      "function_or_class": "DiscoveryWalker.discover",
+      "anti_pattern": "M2",
+      "variant": "Long Function (borderline)",
+      "severity": "MINOR",
+      "metrics": {"lines": 40, "cyclomatic_complexity": 7, "max_nesting": 3},
+      "evidence": "for tool_name, spec in self.agentic_tools.items():\n    if not self.tool_status.is_available(tool_name):\n        continue\n    for customization_type in sorted(spec.supported_customization_types):\n        if not self.tool_status.is_kind_available(tool_name, customization_type):\n            continue\n        io = spec.io[customization_type]\n        if isinstance(io.file_layout, SharedKeyedMapLayout):\n            ...",
+      "evidence_lines": "58-94",
+      "problem": "discover() is ~40 effective lines, right at the project's 40-line limit, with a two-level loop plus the post-walk eviction pass (lines 92-93) folded into the same method. Complexity (7) and nesting (3) are within thresholds, so this is a borderline MINOR rather than a true Long Function. The trailing late-block eviction loop is a second distinct responsibility (cleanup of partial inserts) that could be its own helper.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/discovery/walker.py",
+      "line": 38,
+      "function_or_class": "DiscoveryWalker.__init__",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession (config: dict[str, Any])",
+      "severity": "SMELL",
+      "metrics": {"untyped_dict_params": 1},
+      "evidence": "def __init__(\n    self,\n    config: dict[str, Any],\n    agentic_tools: dict[str, AgenticToolSpec],\n    tool_status: ToolStatusTracker,\n) -> None:",
+      "evidence_lines": "36-44",
+      "problem": "config is a dict[str, Any] with an implicit schema accessed by string keys (e.g. self.config[spec.config_dir_keys[customization_type]] at line 74, and again across the mixins). A typed config object would localise the schema and let mypy catch key/shape drift. This is a project-wide pattern, documented as the use-case<->config seam (architecture 5.5), so it is reported as a SMELL, not a defect.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/discovery/walker.py",
+      "line": 46,
+      "function_or_class": "DiscoveryWalker.discover",
+      "anti_pattern": "W8",
+      "variant": "Untyped multi-value tuple return",
+      "severity": "SMELL",
+      "metrics": {"tuple_return_arity": 2},
+      "evidence": "def discover(\n    self, state: dict[str, CustomizationArtifactState]\n) -> tuple[dict[str, CustomizationArtifactInfo], set[str]]:\n    ...\n    return pairs, blocked_pair_ids",
+      "evidence_lines": "46-94",
+      "problem": "discover() returns a positional 2-tuple (pairs, blocked_pair_ids). The relationship between the two is load-bearing (blocked ids have already been popped from pairs, per the docstring), and callers must remember which element is which. A small named result (NamedTuple/dataclass) would make the contract self-documenting. Minor; the docstring mitigates it.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 1},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 2},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "Goal 5 / architecture 1 stable-abstractions rule: no concrete tool name (claude/codex/...) appears in walker.py; iteration is over self.agentic_tools.items(). Upheld.",
+      "US-11 AC-4 / FR-04: tools whose status is not available are skipped at lines 62 and 65, so an unavailable tool never appears as a removal signal. Upheld.",
+      "US-10 AC-3: participation is restricted via sorted(spec.supported_customization_types) and spec.io[customization_type]. Upheld.",
+      "Dependency Rule (architecture 3): imports are inward-only (port + gateways + entities + sibling use case + expand_path utility per D-2). Upheld.",
+      "NFR-15 / Goal 6: walker.py performs no render/export/import egress; the only parse occurs indirectly via the adoption planner mixin and the IO adapter parse functions. No secret literal is propagated from this file, so the secret_policy egress boundary is not this file's responsibility. Not a deviation.",
+      "I-3 archive-before-write (architecture 8): walker.py performs no destructive writes (no write_text/rename/unlink/rmtree). Not applicable. Upheld vacuously."
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, tool-agnostic Layer-2 orchestrator; no CRITICAL/MAJOR findings. Main smell is unenforced cooperative-mixin coupling. code_score 0.75."
+}

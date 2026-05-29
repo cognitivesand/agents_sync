@@ -38,7 +38,6 @@ from agents_sync.state import (
 )
 from agents_sync.sync_types import RenderResult
 
-
 # ---------- path identity ----------
 
 def path_collision_key(path: Path) -> str:
@@ -80,7 +79,9 @@ def _clear_stale_paths(*paths: Path) -> None:
     for path in paths:
         if path.exists():
             retry_fs(
-                lambda p=path: shutil.rmtree(p),
+                # mypy cannot infer the return type of a default-arg lambda passed
+                # to a generic callable; the body returns None as retry_fs expects.
+                lambda p=path: shutil.rmtree(p),  # type: ignore[misc]
                 operation=f"rmtree {path}",
             )
 

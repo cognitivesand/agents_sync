@@ -8,14 +8,13 @@ field rather than inline.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from agents_sync.mcp_secret_policy import (
     bearer_env_reference_name,
     env_reference_name,
     format_env_reference,
 )
-
 from agents_sync.mcp_server_io._helpers import (
     as_mapping,
     canonicalize_env_refs,
@@ -51,7 +50,7 @@ def headers_from_slot(
         headers["Authorization"] = (
             f"Bearer {format_env_reference(env_name, style='canonical')}"
         )
-    return canonicalize_env_refs(headers)
+    return cast("dict[str, Any]", canonicalize_env_refs(headers))
 
 
 def render_http_headers(

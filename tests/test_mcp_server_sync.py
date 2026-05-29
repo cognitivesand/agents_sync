@@ -341,7 +341,8 @@ def test_mcp_secret_policy_refuse_blocks_adoption(
     })
 
     with caplog.at_level("ERROR"):
-        result = syncer.sync_once(); changed = result.changed
+        result = syncer.sync_once()
+        changed = result.changed
 
     refusal_records = [
         record for record in caplog.records
@@ -552,7 +553,8 @@ def test_mcp_two_adapters_same_shared_file_different_slots_no_collision(tmp_path
         },
     })
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 2
     state = load_state(syncer.state_dir)
@@ -581,7 +583,8 @@ def test_mcp_two_adapters_same_shared_file_same_slot_collide(
     original_text = shared_file.read_text(encoding="utf-8")
 
     with caplog.at_level("ERROR"):
-        result = syncer.sync_once(); changed = result.changed
+        result = syncer.sync_once()
+        changed = result.changed
 
     collision_records = [
         record for record in caplog.records
@@ -622,7 +625,8 @@ def test_mcp_occupied_slot_with_different_pair_id_blocks_adoption(
     beta_before = beta_file.read_text(encoding="utf-8")
 
     with caplog.at_level("ERROR"):
-        result = syncer.sync_once(); changed = result.changed
+        result = syncer.sync_once()
+        changed = result.changed
 
     collision_records = [
         record for record in caplog.records

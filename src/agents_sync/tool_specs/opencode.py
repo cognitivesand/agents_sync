@@ -126,7 +126,7 @@ def build_opencode_spec(config: Mapping[str, Any] | None = None) -> AgenticToolS
                     "scout",
                 }),
             ),
-            "rules": build_global_rules_io("opencode", "AGENTS.md"),
+            "rules": build_global_rules_io("opencode", ("AGENTS.md",)),
             "mcp_server": build_mcp_server_io(
                 "opencode",
                 "opencode_config_file",

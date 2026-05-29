@@ -6,7 +6,6 @@ from ruamel.yaml.error import YAMLError
 from agents_sync.markdown_yaml_metadata_block import frontmatter_for_render
 from agents_sync.rules_io import parse_rules_md, render_rules_md
 
-
 PAIR_ID = "11111111-2222-4333-8444-555555555555"
 MALFORMED_FRONTMATTER = "---\nname: [unclosed\n---\nbody\n"
 

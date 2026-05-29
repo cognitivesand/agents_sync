@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any
 
 from agents_sync.mcp_secret_policy import convert_env_references
-
 from agents_sync.mcp_server_io.dialect import McpServerDialect
 
 

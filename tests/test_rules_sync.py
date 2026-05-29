@@ -123,7 +123,8 @@ def test_rules_adopt_between_synthetic_adapters(tmp_path: Path):
         )
     )
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 1
     state = _read_state(syncer)
@@ -172,7 +173,8 @@ def test_private_rules_are_excluded_end_to_end(tmp_path: Path):
     )
     source.write_text(original)
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 0
     assert source.read_text() == original
@@ -206,7 +208,8 @@ def test_private_existing_rule_is_not_overwritten_as_projection_target(tmp_path:
     os.utime(private_rule, (1000.0, 1000.0))
     os.utime(public_rule, (2000.0, 2000.0))
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 1
     assert private_rule.read_text() == private_text

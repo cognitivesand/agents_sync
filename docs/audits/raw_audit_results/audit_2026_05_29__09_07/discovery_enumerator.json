@@ -1,0 +1,152 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/discovery/enumerator.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 274,
+
+  "detailed_analysis": "enumerator.py is the EnumeratorMixin half of the DiscoveryWalker use case (Layer 2). It is well-scoped to a single responsibility (per-cell on-disk artifact enumeration and registration into the pairs dict), stays under the 300-line module limit (274 lines), and every function is under the 40-line limit. It correctly upholds the Dependency Rule: it imports only inward (entities, ports, gateways) and references no concrete tool name; tool_name flows in as a parameter (goal 5 / NFR-11). Fault isolation (FR-02) is honoured: every read/parse failure is caught, logged via structured logging.exception/logging.error (NFR-13), and the affected pair is blocked rather than crashing the loop. The dominant code-quality issue is DRY: the pair_id extract -> None-mint -> validate -> block flow is duplicated almost verbatim between _add_keyed_map_slot_artifact (lines 98-131) and _add_agentic_tool_artifact (lines 171-206), differing only in the block helper and the digest function. Secondary issues are long parameter lists (up to 10 params) carrying a recurring (pairs, blocked_pair_ids, state) data clump, and a magic-number fallback mtime=0.0. No security smells, no hardcoded secrets, no global mutable state. No CRITICAL findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "enumerator.py (mixin into walker.py)", "imported_by": 1},
+    "highest_fan_out": {"module": "enumerator.py", "imports": 9}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "lines": 274,
+      "function_count": 7,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 98,
+      "function_or_class": "EnumeratorMixin._add_keyed_map_slot_artifact / _add_agentic_tool_artifact",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated logic",
+      "severity": "MAJOR",
+      "metrics": {"duplicated_blocks": 2, "duplicated_lines_each": 30},
+      "evidence": "_add_keyed_map_slot_artifact L98-131:\n    try:\n        pair_id = io.extract_pair_id(slot_text)\n    except Exception: ... self._block_state_owner_slot(...)\n    present = pair_id is not None\n    if pair_id is None: pair_id = new_pair_id()\n    else:\n        try: validate_pair_id(pair_id)\n        except InvalidPairId: ... return\n    digest = sha256_text(slot_text)\n    info = AgenticToolInfo(...); self._insert_agentic_tool(...)\n\n_add_agentic_tool_artifact L171-206: byte-for-byte the same extract->mint->validate->block->insert flow, differing only in block helper (_block_state_owner vs _block_state_owner_slot), the read source, and the digest call.",
+      "evidence_lines": "98-131, 171-206",
+      "problem": "The pair_id extract / None-mint / validate / block-on-failure / construct-info / insert pipeline is implemented twice. Any change to the identity-handling or blocking policy (a real concern for I-1 and US-03 AC-8/AC-10) must be edited in two places and kept in lock-step (Shotgun Surgery risk). The two paths already diverge subtly: the per-file path logs the read failure separately (L171-179) while the slot path has no read step, and validation failure logging strings differ ('slot=%s' vs path only), which is exactly the drift DRY exists to prevent.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 84,
+      "function_or_class": "EnumeratorMixin._add_keyed_map_slot_artifact",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"parameter_count": 10},
+      "evidence": "def _add_keyed_map_slot_artifact(self, tool_name, customization_type, io, shared_path, slot_key, slot_text, mtime, pairs, blocked_pair_ids, state) -> None:",
+      "evidence_lines": "84-96",
+      "problem": "10 parameters (excluding self) far exceeds the >5 threshold. _discover_shared_keyed_map (7), _add_agentic_tool_artifact (7), and _insert_agentic_tool (6) also exceed it. The signatures thread the whole enumeration context positionally, which is error-prone (argument-order mistakes) and signals a missing parameter object for the per-poll accumulator triple.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 48,
+      "function_or_class": "EnumeratorMixin (multiple methods)",
+      "anti_pattern": "W4",
+      "variant": "Data Clumps",
+      "severity": "WARNING",
+      "metrics": {"co_occurring_params": 3, "signatures": 5},
+      "evidence": "The triple (pairs: dict[str, CustomizationArtifactInfo], blocked_pair_ids: set[str], state: dict[str, CustomizationArtifactState]) co-occurs in _discover_shared_keyed_map (L48-50), _add_keyed_map_slot_artifact (L93-95), _add_agentic_tool_artifact (L166-168); the pair (pairs, blocked_pair_ids) recurs in _insert_agentic_tool (L213-215); (state, blocked_pair_ids) recurs in the three _block_state_owner* helpers (L243-244, L253-255, L264-265).",
+      "evidence_lines": "48-50, 93-95, 166-168, 213-215",
+      "problem": "The same group of accumulator parameters travels together through every method. This is the canonical Data Clump smell: it should be a single per-poll DiscoveryAccumulator object (pairs + blocked_pair_ids + state), which would also collapse the long parameter lists flagged in CQ-02.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 76,
+      "function_or_class": "EnumeratorMixin._discover_shared_keyed_map",
+      "anti_pattern": "I4",
+      "variant": "Magic Numbers",
+      "severity": "INFO",
+      "metrics": {"literals": 1},
+      "evidence": "try:\n    mtime = shared_path.stat().st_mtime\nexcept OSError:\n    mtime = 0.0",
+      "evidence_lines": "73-76",
+      "problem": "0.0 is an unnamed sentinel for 'mtime unavailable'. Its intent (epoch-zero / oldest-possible timestamp, which feeds conflict resolution by mtime per US-03 AC-3 / US-06) is not self-evident. A named constant (e.g. MISSING_MTIME = 0.0) would document that a failed stat deliberately makes the slot the conflict loser. Compare with L203 where path.stat().st_mtime is used with no fallback at all, an inconsistency between the two paths.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/discovery/enumerator.py",
+      "line": 99,
+      "function_or_class": "EnumeratorMixin._add_keyed_map_slot_artifact / _add_agentic_tool_artifact",
+      "anti_pattern": "C3",
+      "variant": "Broad except masking a no-raise contract",
+      "severity": "INFO",
+      "metrics": {"broad_except_sites": 3},
+      "evidence": "try:\n    pair_id = io.extract_pair_id(slot_text)\nexcept Exception:\n    logging.exception(...)\n    self._block_state_owner_slot(...)\n    return   # (also L100-108, L181-188)",
+      "evidence_lines": "99-108, 181-188",
+      "problem": "Per the port contract (architecture S5.1 rule 3 / US-10), extract_pair_id MUST NOT raise on malformed input - it returns None. Catching Exception around it is defensive belt-and-braces that is not silent (it logs structured context and blocks the pair, satisfying FR-02/NFR-13), so it is NOT a true C3 silent-swallow. It is flagged INFO only because a broad except around a documented no-raise boundary hides any genuine contract violation behind a generic 'cannot extract pair_id' message rather than surfacing it as the distinct bug it would be. Acceptable as fault isolation, noted for completeness.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 1},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "DRY_duplication": {"major": 1, "total": 1},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 1, "total": 1},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": "No spec or architecture deviations found. The file upholds the Dependency Rule (Layer-2 use case importing only inward), references no concrete tool name (goal 5 / NFR-11 / architecture S1), isolates faults per pair (FR-02), logs structured failures naming tool/type/path (NFR-13), validates pair_id at the boundary (I-1, fail-fast S8), and is on the read/discovery path only so the destructive-write archive invariant (I-3 / NFR-01) and the secret_policy egress boundary (NFR-15, goal 6) do not apply here. US-10 AC-3 kind-restricted participation is enforced upstream in walker.py, not in this file."
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-layered discovery mixin; only structural debt is DRY duplication of the pair_id pipeline plus long-parameter-list / data-clump noise. No CRITICAL findings; spec-conformant."
+}

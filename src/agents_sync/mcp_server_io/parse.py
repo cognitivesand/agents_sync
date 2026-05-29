@@ -6,7 +6,6 @@ from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.mcp_secret_policy import apply_mcp_secret_policy
-
 from agents_sync.mcp_server_io._helpers import (
     as_mapping,
     as_string_list,

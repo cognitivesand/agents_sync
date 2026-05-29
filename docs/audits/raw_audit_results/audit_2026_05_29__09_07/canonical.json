@@ -1,0 +1,117 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/canonical.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 239,
+
+  "detailed_analysis": "src/agents_sync/canonical.py is the Layer-1 entity module: the canonical-document schema, the empty-document factory, the normalisation/equality functions, the on-disk JSON gateway (load/save with quarantine of corrupt files), and the per-tool partition helper extracted to kill DRY duplication across rules_io/slash_command_io. The file is healthy: 239 lines (under the 300-line limit), every function under the 40-line code limit, full type annotations on all public interfaces, intention-revealing names with the two-word minimum honoured throughout, no hardcoded secrets, no injection vectors (json.loads is safe, no eval/pickle/yaml.unsafe), no mutable default arguments, no global mutable state, and a single named schema constant (SCHEMA_VERSION). The only code-quality blemishes are minor: a function-local `import copy` inside canonicalize (line 94) rather than at module top, and an asymmetric error-handling pattern in load_canonical where the read-failure branches emit a structured logging.exception (lines 163, 167) but the JSON-parse-error and non-dict-root branches (lines 173, 176) quarantine silently with no log call, weakening NFR-13/I-4 structured-failure reporting for those two corruption modes. The save_canonical path correctly routes through state.atomic_write_text for atomic visibility (NFR-03). The most notable issue is not in the code but in the governance artifact: architecture.md §4 records this module as 72 lines, which is stale by 167 lines — the apply_per_tool_partition extraction and the canonicalize/normalise machinery grew it well past the documented size, and the module-map total of 2852 lines is correspondingly understated.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "canonical.py", "imported_by": "rules_io, slash_command_io, sync, discovery, adoption, all *_io adapters"},
+    "highest_fan_out": {"module": "canonical.py", "imports": 3, "internal": ["state", "identity", "parser_bounds"]}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/canonical.py",
+      "lines": 239,
+      "function_count": 10,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 2
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/canonical.py",
+      "line": 170,
+      "function_or_class": "load_canonical",
+      "anti_pattern": "C3",
+      "variant": "Catch-and-quarantine without structured log",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "    try:\n        data = json.loads(text)\n    except json.JSONDecodeError:\n        _quarantine_corrupt(state_dir, path, reason=\"JSON parse error\")\n        return None\n    if not isinstance(data, dict):\n        _quarantine_corrupt(state_dir, path, reason=\"root is not a JSON object\")\n        return None",
+      "evidence_lines": "170-177",
+      "problem": "The JSON-parse-error branch (line 172-174) and the non-dict-root branch (line 175-177) quarantine the corrupt file and return None but emit no logging call, whereas the sibling read-failure branches at lines 163 and 167 emit logging.exception(...). The corruption reason is recorded only in the quarantine sidecar, not the application log. NFR-13 / architecture I-4 require every reported failure to be a structured log entry; these two corruption modes are observable only by inspecting the quarantine directory. Not a true silent swallow (the bytes are preserved and a reason string is passed), hence MINOR, but the logging is inconsistent with the two branches above it.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/canonical.py",
+      "line": 94,
+      "function_or_class": "canonicalize",
+      "anti_pattern": "I2",
+      "variant": "Function-local stdlib import",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "    import copy\n\n    normalised = copy.deepcopy(canonical)",
+      "evidence_lines": "94-96",
+      "problem": "`import copy` is placed inside the function body rather than at module top with the other imports (lines 12-20). `copy` is a zero-cost stdlib import with no circular-dependency risk here, so the local placement buys nothing and breaks the convention used by the rest of the file. Cosmetic; no functional impact.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 1},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map)",
+        "file": "src/agents_sync/canonical.py",
+        "line": 1,
+        "description": "The Module-map table records canonical.py as 72 lines (row: '`canonical.py` | 72 | 1 / 3'). The actual file is 239 lines — stale by 167 lines following the apply_per_tool_partition extraction and the canonicalize/_normalise_body normalisation machinery. The table's stated total of '19 modules, 2 852 lines' and the entities/frameworks subtotal of 501 are correspondingly understated. The governance artifact must be left true or amended (architecture.md preamble)."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean Layer-1 entity module; code_score 0.75 capped only by a missing structured log on two corruption branches and a function-local import. One stale architecture §4 line-count entry."
+}
