@@ -5,9 +5,7 @@
 <h1 align="center">agents_sync</h1>
 
 <p align="center">
-  <img alt="Linux available" src="https://img.shields.io/badge/Linux-available-f9ab00">
-  <img alt="macOS available" src="https://img.shields.io/badge/macOS-available-1f883d">
-  <img alt="Windows available" src="https://img.shields.io/badge/Windows-available-8250df">
+  <img alt="Plateform : Linux, Windows, macOS" src="https://img.shields.io/badge/Plateform-Linux%2C%20Windows%2C%20macOS-2ea44f">
   <img alt="sync" src="https://img.shields.io/badge/sync-bidirectional-2ea44f">
   <img alt="daemon" src="https://img.shields.io/badge/daemon-background-0969da">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
