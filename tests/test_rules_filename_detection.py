@@ -112,7 +112,7 @@ def test_agents_md_wins_over_claude_md_and_pointer_untouched(tmp_path: Path):
     assert (claude_root / "CLAUDE.md").read_text() == _POINTER
     # The detected source is AGENTS.md.
     pair_id, entry = next(iter(_state(syncer)["customization_artifacts"].items()))
-    assert entry["agentic_tools"]["claudelike"]["path"].endswith("/AGENTS.md")
+    assert Path(entry["agentic_tools"]["claudelike"]["path"]).name == "AGENTS.md"
     # Content (not the pointer) propagated to codexlike's AGENTS.md.
     target = syncer.tool_root("codexlike", "rules") / "AGENTS.md"
     assert "Use small functions." in target.read_text()
@@ -148,7 +148,7 @@ def test_falls_back_to_claude_md_when_no_agents_md(tmp_path: Path):
 
     assert result.changed == 1
     entry = next(iter(_state(syncer)["customization_artifacts"].values()))
-    assert entry["agentic_tools"]["claudelike"]["path"].endswith("/CLAUDE.md")
+    assert Path(entry["agentic_tools"]["claudelike"]["path"]).name == "CLAUDE.md"
     assert (
         "Use small functions." in (syncer.tool_root("codexlike", "rules") / "AGENTS.md").read_text()
     )
