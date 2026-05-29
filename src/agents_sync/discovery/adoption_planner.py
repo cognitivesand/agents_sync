@@ -4,6 +4,7 @@ Mixin consumed by :class:`DiscoveryWalker`. Given a discovered pair's
 ``CustomizationArtifactInfo``, produces the ``PlannedTarget`` list that
 adoption would write on tools that don't yet hold the artifact.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -31,9 +32,7 @@ class AdoptionPlannerMixin:
     """Plan adoption targets. Relies on ``self.config``, ``self.agentic_tools``,
     ``self.tool_status`` from :class:`DiscoveryWalker`."""
 
-    def _planned_adoption_targets(
-        self, info: CustomizationArtifactInfo
-    ) -> list[PlannedTarget]:
+    def _planned_adoption_targets(self, info: CustomizationArtifactInfo) -> list[PlannedTarget]:
         """Return targets adoption would write on tools that don't yet hold
         the artifact.
 
@@ -52,24 +51,18 @@ class AdoptionPlannerMixin:
             return []
         return self._targets_for_missing(info.kind, missing, canonical)
 
-    def _read_source_canonical(
-        self, info: CustomizationArtifactInfo
-    ) -> dict[str, Any]:
+    def _read_source_canonical(self, info: CustomizationArtifactInfo) -> dict[str, Any]:
         """Parse the canonical from the lexicographically-first existing tool."""
         source_tool = sorted(info.agentic_tools.keys())[0]
         source_info = info.agentic_tools[source_tool]
         source_spec = self.agentic_tools[source_tool]
         source_io = source_spec.io[info.kind]
         if isinstance(source_io.file_layout, SharedKeyedMapLayout):
-            source_root = expand_path(
-                self.config[source_io.file_layout.shared_path_config_key]
-            )
+            source_root = expand_path(self.config[source_io.file_layout.shared_path_config_key])
             slots, _ = read_slots(source_info.path, source_io.file_layout)
             text = slots.get(source_info.slot or "", "")
         else:
-            source_root = expand_path(
-                self.config[source_spec.config_dir_keys[info.kind]]
-            )
+            source_root = expand_path(self.config[source_spec.config_dir_keys[info.kind]])
             text = read_artifact_text(source_io, source_info.path)
         return source_io.parse(
             text,
@@ -104,9 +97,10 @@ class AdoptionPlannerMixin:
     ) -> PlannedTarget | None:
         if isinstance(io.file_layout, SharedKeyedMapLayout):
             layout = io.file_layout
-            shared_path = expand_path(
-                self.config[layout.shared_path_config_key]
-            )
+            raw_shared = self.config.get(layout.shared_path_config_key)
+            if raw_shared is None:
+                return None  # shared file not configured on this tool — skip
+            shared_path = expand_path(raw_shared)
             slot_key = str(canonical.get(layout.key_field, ""))
             if not slot_key:
                 return None
@@ -115,7 +109,10 @@ class AdoptionPlannerMixin:
                 slot=slot_key,
                 file_layout=layout,
             )
-        root = expand_path(self.config[spec.config_dir_keys[kind]])
+        raw_root = self.config.get(spec.config_dir_keys[kind])
+        if raw_root is None:
+            return None  # target root not configured on this tool — skip it
+        root = expand_path(raw_root)
         slugger = io.slugify_name or target_slug
         slug = slugger(canonical["name"])
         if io.storage == "single_file":
@@ -124,9 +121,9 @@ class AdoptionPlannerMixin:
 
     def _available_participating_tools(self, kind: str) -> list[str]:
         return [
-            name for name, spec in self.agentic_tools.items()
-            if kind in spec.supported_customization_types
-            and self.tool_status.is_available(name)
+            name
+            for name, spec in self.agentic_tools.items()
+            if kind in spec.supported_customization_types and self.tool_status.is_available(name)
         ]
 
     def _is_reserved_target_name(

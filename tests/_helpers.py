@@ -22,6 +22,7 @@ Public API:
 - :func:`skill_with_macos_metadata` — materialise a SKILL.md plus the
   Finder/AppleDouble sidecars that adapters must ignore.
 """
+
 from __future__ import annotations
 
 import json
@@ -56,6 +57,11 @@ CONFIG_DIRS: dict[str, str] = {
     "opencode_commands_dir": "oc",
     "opencode_skills_dir": "os",
     "opencode_rules_dir": "or",
+    # Copilot CLI roots default to the real ~/.copilot; sandboxing them here
+    # keeps tests from writing to (and the daemon from propagating) real home.
+    # The VS Code user-profile dirs default to None (skipped) and need no key.
+    "copilot_cli_agents_dir": "copa",
+    "copilot_cli_skills_dir": "cops",
 }
 
 
@@ -66,6 +72,7 @@ def make_config(
     gemini_cli_enabled: bool = False,
     opencode_enabled: bool = True,
     cursor_enabled: bool = True,
+    copilot_enabled: bool = False,
     **overrides: Any,
 ) -> dict[str, Any]:
     """Return a Syncer-ready config dict over ``tmp_path``.
@@ -86,11 +93,13 @@ def make_config(
         "gemini_cli_enabled": gemini_cli_enabled,
         "opencode_enabled": opencode_enabled,
         "cursor_enabled": cursor_enabled,
+        "copilot_enabled": copilot_enabled,
         "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_config_file": str(tmp_path / "codex-config.toml"),
         "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
         "gemini_cli_settings_file": str(tmp_path / "gemini-settings.json"),
         "opencode_config_file": str(tmp_path / "opencode.json"),
+        "copilot_cli_mcp_config_file": str(tmp_path / "copilot-mcp.json"),
     }
     for config_key, dir_name in CONFIG_DIRS.items():
         config[config_key] = str(tmp_path / dir_name)
@@ -105,6 +114,7 @@ def make_syncer(
     gemini_cli_enabled: bool = False,
     opencode_enabled: bool = True,
     cursor_enabled: bool = True,
+    copilot_enabled: bool = False,
     **overrides: Any,
 ) -> Syncer:
     """Instantiate a Syncer from a tmp_path-rooted config."""
@@ -115,14 +125,18 @@ def make_syncer(
             gemini_cli_enabled=gemini_cli_enabled,
             opencode_enabled=opencode_enabled,
             cursor_enabled=cursor_enabled,
+            copilot_enabled=copilot_enabled,
             **overrides,
         )
     )
 
 
 def skill_md(
-    name: str, description: str = "x", body: str = "body",
-    *, pair_id: str | None = None,
+    name: str,
+    description: str = "x",
+    body: str = "body",
+    *,
+    pair_id: str | None = None,
 ) -> str:
     """Return a minimal SKILL.md / agent .md document."""
     pair_id_line = f"pair_id: {pair_id}\n" if pair_id else ""
@@ -158,10 +172,12 @@ def skill_with_macos_metadata(skill_dir: Path) -> Path:
     adoption / archive paths must ignore. Returns the skill directory."""
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        "---\nname: demo\n---\nbody\n", encoding="utf-8",
+        "---\nname: demo\n---\nbody\n",
+        encoding="utf-8",
     )
     (skill_dir / ".DS_Store").write_text("finder metadata", encoding="utf-8")
     (skill_dir / "._asset.png").write_text(
-        "appledouble metadata", encoding="utf-8",
+        "appledouble metadata",
+        encoding="utf-8",
     )
     return skill_dir

@@ -7,6 +7,7 @@ participating tool. Subsequent polls with exactly one changed tool
 run ``_sync_from_agentic_tool``, which re-parses the changed tool's
 bytes against the prior canonical and projects to the rest.
 """
+
 from __future__ import annotations
 
 import logging
@@ -76,10 +77,15 @@ class AdopterMixin:
 
         if not source_info.pair_id_present:
             self._archive_source_before_write(
-                pair_id, source_tool, source_io, source_info, text,
+                pair_id,
+                source_tool,
+                source_io,
+                source_info,
+                text,
             )
             write_artifact_inplace(
-                source_io, source_info.path,
+                source_io,
+                source_info.path,
                 source_io.render(canonical, text),
                 slot=source_info.slot,
             )
@@ -100,7 +106,8 @@ class AdopterMixin:
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info(
             "Adopted from %s: pair_id=%s paths=%s",
-            source_tool, pair_id,
+            source_tool,
+            pair_id,
             {k: str(v.path) for k, v in results.items()},
         )
         return True
@@ -120,14 +127,19 @@ class AdopterMixin:
         only the slot we are about to overwrite)."""
         if isinstance(source_io.file_layout, SharedKeyedMapLayout):
             archive.archive_text(
-                self.state_dir, pair_id, source_tool,
+                self.state_dir,
+                pair_id,
+                source_tool,
                 slot_name=str(source_info.slot),
                 extension=source_io.file_layout.file_suffix,
                 content=prior_text,
             )
             return
         archive.archive_copy(
-            self.state_dir, pair_id, source_tool, source_info.path,
+            self.state_dir,
+            pair_id,
+            source_tool,
+            source_info.path,
         )
 
     def _sync_from_agentic_tool(
@@ -184,7 +196,8 @@ class AdopterMixin:
         source_info = info.agentic_tools[source_tool]
         results: dict[str, RenderResult] = {
             source_tool: RenderResult(
-                path=source_info.path, slot=source_info.slot,
+                path=source_info.path,
+                slot=source_info.slot,
             )
         }
         for tool_name in self._available_participating_tools(info.kind):
@@ -192,6 +205,8 @@ class AdopterMixin:
                 continue
             target_info = info.agentic_tools.get(tool_name)
             target_spec = self.agentic_tools[tool_name]
+            if self.config.get(target_spec.config_dir_keys[info.kind]) is None:
+                continue  # this kind's root is not configured on the target — skip
             prior_text = self._read_target_prior_text(
                 pair_id=pair_id,
                 tool_name=tool_name,
@@ -249,14 +264,19 @@ class AdopterMixin:
         target_io = target_spec.io[kind]
         try:
             return read_artifact_text(
-                target_io, target_info.path, slot=target_info.slot,
+                target_io,
+                target_info.path,
+                slot=target_info.slot,
             )
         except (OSError, UnicodeDecodeError) as exc:
             logging.warning(
                 "Could not read prior text at %s for pair_id=%s; "
                 "rendered output will not preserve existing frontmatter "
                 "formatting (%s: %s)",
-                target_info.path, pair_id, type(exc).__name__, exc,
+                target_info.path,
+                pair_id,
+                type(exc).__name__,
+                exc,
                 extra={"event": "prior_text_unreadable"},
             )
             return None
@@ -278,15 +298,15 @@ class AdopterMixin:
                 else result.path.suffix
             )
             archive.archive_text(
-                self.state_dir, pair_id, tool,
+                self.state_dir,
+                pair_id,
+                tool,
                 slot_name=str(result.slot),
                 extension=extension or ".json",
                 content=result.prior_slot_text,
             )
 
-    def _pick_winner(
-        self, tools: Iterable[str], info: CustomizationArtifactInfo
-    ) -> str:
+    def _pick_winner(self, tools: Iterable[str], info: CustomizationArtifactInfo) -> str:
         """argmax(mtime) over ``tools``, alphabetical tiebreak (e.g. claude < codex)."""
         return sorted(
             tools,
