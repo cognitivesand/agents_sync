@@ -23,6 +23,10 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 Built by [CognitiveSand](https://cognitivesand.ai/en/).
 
+<p>
+  <img src="./assets/readme-banners/cognitivesand-logo-dark.avif" alt="CognitiveSand logo" height="56">
+</p>
+
 ---
 
 ## 🗂️ Table Of Contents
