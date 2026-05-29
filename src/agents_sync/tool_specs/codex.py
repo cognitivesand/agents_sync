@@ -111,7 +111,7 @@ def build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),
-            "rules": build_global_rules_io("codex", "AGENTS.md"),
+            "rules": build_global_rules_io("codex", ("AGENTS.md",)),
             "mcp_server": build_mcp_server_io(
                 "codex",
                 "codex_config_file",

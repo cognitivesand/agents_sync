@@ -105,7 +105,7 @@ def build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
                 slugify_name=slash_command_slug,
                 recursive=True,
             ),
-            "rules": build_global_rules_io("claude", "CLAUDE.md"),
+            "rules": build_global_rules_io("claude", ("AGENTS.md", "CLAUDE.md")),
             "mcp_server": build_mcp_server_io(
                 "claude",
                 "claude_mcp_servers_file",

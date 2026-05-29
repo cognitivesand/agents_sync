@@ -67,6 +67,13 @@ class FileLayout(Protocol):
     def fixed_file_name(self) -> str | None:
         ...
 
+    @property
+    def detection_file_names(self) -> tuple[str, ...]:
+        """Ordered filenames to look for when discovering this artifact on disk
+        (highest precedence first). Empty means "match by suffix glob, not by
+        a fixed name". See US-14 / FR-10."""
+        ...
+
     def probe_check_path(self, resolved: Path) -> Path:
         ...
 
@@ -96,6 +103,10 @@ class SingleFileLayout:
     def file_suffix(self) -> str:
         return self.extension
 
+    @property
+    def detection_file_names(self) -> tuple[str, ...]:
+        return (self.fixed_file_name,) if self.fixed_file_name is not None else ()
+
     def probe_check_path(self, resolved: Path) -> Path:
         return resolved
 
@@ -105,7 +116,28 @@ class SingleFileLayout:
 
 @dataclass(frozen=True)
 class RulesFileLayout(SingleFileLayout):
-    """Layout for v0.5 `rules` artifacts."""
+    """Layout for v0.5 `rules` artifacts.
+
+    ``fixed_file_name`` is the *create-name* — the filename used when rendering
+    a fresh rules file on a tool that has none. ``candidate_file_names`` is the
+    ordered detection precedence (highest first); the daemon adopts the first
+    one present on disk. It defaults to ``(fixed_file_name,)`` so a
+    single-name tool is unchanged. See US-14 / FR-10.
+    """
+
+    candidate_file_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        for name in self.candidate_file_names:
+            if not name.endswith(self.extension):
+                raise ValueError("candidate_file_names must end with extension")
+
+    @property
+    def detection_file_names(self) -> tuple[str, ...]:
+        if self.candidate_file_names:
+            return self.candidate_file_names
+        return super().detection_file_names
 
 
 @dataclass(frozen=True)
@@ -125,6 +157,10 @@ class DirectorySkillLayout:
     @property
     def fixed_file_name(self) -> str | None:
         return None
+
+    @property
+    def detection_file_names(self) -> tuple[str, ...]:
+        return ()
 
     def probe_check_path(self, resolved: Path) -> Path:
         return resolved
@@ -168,6 +204,10 @@ class SharedKeyedMapLayout:
     @property
     def fixed_file_name(self) -> str | None:
         return None
+
+    @property
+    def detection_file_names(self) -> tuple[str, ...]:
+        return ()
 
     def probe_check_path(self, resolved: Path) -> Path:
         # The shared file itself may not exist yet — a fresh install starts
@@ -220,6 +260,12 @@ class CustomizationTypeIO:
         if self.file_layout is None:
             return None
         return self.file_layout.fixed_file_name
+
+    @property
+    def detection_file_names(self) -> tuple[str, ...]:
+        if self.file_layout is None:
+            return ()
+        return self.file_layout.detection_file_names
 
 
 @dataclass(frozen=True)

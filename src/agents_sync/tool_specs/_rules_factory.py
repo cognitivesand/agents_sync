@@ -12,8 +12,20 @@ from agents_sync.agentic_tool_spec import (
 
 def build_global_rules_io(
     agentic_tool_name: str,
-    fixed_file_name: str,
+    candidate_file_names: tuple[str, ...],
+    create_file_name: str | None = None,
 ) -> CustomizationTypeIO:
+    """Build the global-rules IO cell.
+
+    ``candidate_file_names`` is the ordered detection precedence (highest
+    first); the daemon adopts the first present on disk (FR-10). When the
+    daemon must create a rules file from scratch it uses ``create_file_name``,
+    defaulting to the lowest-precedence (legacy) candidate — the name the tool
+    natively loads (US-14 AC-5).
+    """
+    create_name = (
+        create_file_name if create_file_name is not None else candidate_file_names[-1]
+    )
     from agents_sync.rules_io import (
         GLOBAL_RULE_NAME,
         extract_pair_id_from_rules_md,
@@ -49,6 +61,7 @@ def build_global_rules_io(
         extract_pair_id=extract_pair_id_from_rules_md,
         file_layout=RulesFileLayout(
             extension=".md",
-            fixed_file_name=fixed_file_name,
+            fixed_file_name=create_name,
+            candidate_file_names=candidate_file_names,
         ),
     )

@@ -140,10 +140,12 @@ class EnumeratorMixin:
         ``*/SKILL.md`` so callers get the artifact path (not the metadata file).
         """
         if io.storage == "single_file":
-            if io.fixed_file_name is not None:
-                fixed_path = root / io.fixed_file_name
-                if fixed_path.is_file() and not fixed_path.name.startswith("."):
-                    return [fixed_path]
+            candidate_names = io.detection_file_names
+            if candidate_names:
+                for candidate_name in candidate_names:
+                    candidate_path = root / candidate_name
+                    if candidate_path.is_file() and not candidate_path.name.startswith("."):
+                        return [candidate_path]
                 return []
             walker = root.rglob if io.recursive else root.glob
             return sorted(

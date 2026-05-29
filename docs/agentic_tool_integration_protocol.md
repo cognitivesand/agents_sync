@@ -109,7 +109,7 @@ Two declarations:
 
   - `AgentFileLayout(extension: str)` — `agent` artifacts are single files whose basename is `<target_slug>.<extension>`.
   - `SkillFileLayout(skill_md_name: str)` — `skill` artifacts are folders. Inside each folder, the agentic_tool-rendered file has the name given by `skill_md_name` (today always `"SKILL.md"`, but future open-spec evolutions may diverge per tool).
-  - `RulesFileLayout(extension: str)` *(v0.5)* — `rules` artifacts are single files whose basename is `<target_slug>.<extension>`. Cursor declares `extension=".mdc"`; every other agentic_tool declares `extension=".md"`.
+  - `RulesFileLayout(extension: str, fixed_file_name: str | None = None, candidate_file_names: tuple[str, ...] = ())` *(v0.5; `candidate_file_names` added v0.5.x)* — `rules` artifacts are single files. Cursor declares `extension=".mdc"` with no fixed name (per-rule files named `<target_slug>.mdc`); every other agentic_tool declares `extension=".md"`. For the **global-rules family** (claude, codex, opencode) the file is a single fixed document: `candidate_file_names` is the ordered detection precedence (the daemon adopts the first present on disk, preferring `AGENTS.md`) and `fixed_file_name` is the *create-name* used when rendering a fresh file. Claude declares `candidate_file_names=("AGENTS.md", "CLAUDE.md")` with create-name `CLAUDE.md`; codex and opencode declare `("AGENTS.md",)`. See US-14 / FR-10.
   - `SlashCommandFileLayout(extension: str)` *(v0.5)* — `slash_command` artifacts are single files whose basename is `<target_slug>.<extension>`. Gemini CLI declares `extension=".toml"`; every other agentic_tool declares `extension=".md"`.
   - `SharedKeyedMapLayout(shared_path: str, map_key_path: tuple[str, ...], key_field: str = "name")` *(v0.5)* — the artifact is one slot inside a shared keyed-map file. `shared_path` is the config key naming the file (e.g. `mcp_servers_file`); `map_key_path` is the JSON/TOML path to the map inside (e.g. `("mcpServers",)`); `key_field` is the field name the canonical uses for the slot's identity (`"name"`). Used by `mcp_server` artifacts in v0.5. See §SharedKeyedMapLayout semantics for read/write/archive behaviour.
 
@@ -227,9 +227,9 @@ v0.5 adds three customization_types: `rules`, `slash_command`, and `mcp_server`.
 
 A `rules` artifact is a single Markdown file (`.md` or `.mdc`) optionally carrying YAML frontmatter, providing always-on or conditionally-injected instructions to the agentic_tool's agent loop.
 
-- **`file_layout`**: `RulesFileLayout(extension: str)`. Cursor declares `".mdc"`; every other agentic_tool declares `".md"`.
+- **`file_layout`**: `RulesFileLayout(extension, fixed_file_name=None, candidate_file_names=())`. Cursor declares `".mdc"` (per-rule files); the global-rules family declares fixed/candidate filenames (see the layout description above and US-14 / FR-10).
 - **`config_roots`**: single key naming the directory where rule files live. By convention `rules_dir` for `.md`-using tools and `cursor_rules_dir` for Cursor; the key name is the adapter's choice.
-- **Identity**: the filename stem (slug). When a `customization_artifact_id` is present in frontmatter, the adapter MUST inject and recover it via `extract_customization_artifact_id` per US-04.
+- **Identity**: the filename stem (slug) for per-rule layouts; the fixed canonical name `global` for the whole-file global-rules family. When a `customization_artifact_id` is present in frontmatter, the adapter MUST inject and recover it via `extract_customization_artifact_id` per US-04.
 - **Canonical document fields** (in addition to those defined by the agentic_tool):
   - `name` (string, required) — the slug.
   - `description` (string, optional) — natural-language summary.
