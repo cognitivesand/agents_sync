@@ -4,6 +4,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 
+CANONICAL_NAME_FIELD = "x-agents-sync-name"
+
+
 def resolve_artifact_name(
     *,
     frontmatter_name: object = None,
@@ -39,4 +42,4 @@ def resolve_artifact_name(
     return None
 
 
-__all__ = ["resolve_artifact_name"]
+__all__ = ["CANONICAL_NAME_FIELD", "resolve_artifact_name"]

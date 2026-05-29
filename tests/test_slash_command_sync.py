@@ -9,7 +9,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec, CustomizationTypeIO
+from agents_sync.agentic_tool_spec import (
+    AgenticToolSpec,
+    CustomizationTypeIO,
+    SingleFileLayout,
+)
 from agents_sync.canonical import load_canonical
 from agents_sync.slash_command_io import (
     extract_pair_id_from_slash_command_markdown,
@@ -86,8 +90,7 @@ def _markdown_tool(
                 parse=parse,
                 render=render,
                 extract_pair_id=extract_pair_id_from_slash_command_markdown,
-                storage="single_file",
-                file_suffix=".md",
+                file_layout=SingleFileLayout(extension=".md"),
                 slugify_name=slash_command_slug,
                 recursive=True,
                 reserved_names=reserved_names,
@@ -127,8 +130,7 @@ def _toml_tool(name: str, config_key: str) -> AgenticToolSpec:
                 parse=parse,
                 render=render,
                 extract_pair_id=extract_pair_id_from_slash_command_toml,
-                storage="single_file",
-                file_suffix=".toml",
+                file_layout=SingleFileLayout(extension=".toml"),
                 slugify_name=slash_command_slug,
                 recursive=True,
             )

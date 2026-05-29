@@ -69,6 +69,14 @@ class AdoptionEngine(
         if not present:
             return False
 
+        missing_pair_id_tools = [
+            t for t in present
+            if t in ps.agentic_tools and not info.agentic_tools[t].pair_id_present
+        ]
+        if missing_pair_id_tools:
+            source = self._pick_winner(missing_pair_id_tools, info)
+            return self._sync_from_agentic_tool(pair_id, source, info, state)
+
         changed = [
             t for t in present
             if info.agentic_tools[t].digest

@@ -184,41 +184,31 @@ class SharedKeyedMapLayout:
 class CustomizationTypeIO:
     """Parse / render / extract bundle for one (agentic_tool, customization_type) cell.
 
-    `storage` is either "single_file" (the artifact is one file with
-    `file_suffix`) or "directory_skill" (the artifact is a directory whose
-    metadata file is `SKILL.md`).
+    ``file_layout`` is the single source of truth for the artifact's storage
+    shape. The legacy ``storage`` / ``file_suffix`` attributes are calculated
+    properties so existing call sites can migrate without carrying a second
+    stored representation.
     """
 
     parse: ParseFn
     render: RenderFn
     extract_pair_id: ExtractPairIdFn
-    storage: str = ""
-    file_suffix: str = ""
-    file_layout: FileLayout | None = None
+    file_layout: FileLayout
     slugify_name: SlugifyFn | None = None
     recursive: bool = False
     reserved_names: frozenset[str] = frozenset()
     accepted_file_suffixes: tuple[str, ...] = ()
 
-    def __post_init__(self) -> None:
-        if self.file_layout is None:
-            if not self.storage:
-                raise ValueError("CustomizationTypeIO requires storage or file_layout")
-            return
+    @property
+    def storage(self) -> str:
+        return self.file_layout.storage
 
-        layout_storage = self.file_layout.storage
-        layout_suffix = self.file_layout.file_suffix
-        if self.storage and self.storage != layout_storage:
-            raise ValueError("storage conflicts with file_layout")
-        if self.file_suffix and self.file_suffix != layout_suffix:
-            raise ValueError("file_suffix conflicts with file_layout")
-        object.__setattr__(self, "storage", layout_storage)
-        object.__setattr__(self, "file_suffix", layout_suffix)
+    @property
+    def file_suffix(self) -> str:
+        return self.file_layout.file_suffix
 
     @property
     def fixed_file_name(self) -> str | None:
-        if self.file_layout is None:
-            return None
         return self.file_layout.fixed_file_name
 
 

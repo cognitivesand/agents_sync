@@ -11,7 +11,9 @@ from pathlib import Path
 
 from agents_sync.agentic_tool_spec import (
     CustomizationTypeIO,
+    DirectorySkillLayout,
     SharedKeyedMapLayout,
+    SingleFileLayout,
 )
 from agents_sync.canonical import new_pair_id
 from agents_sync.config import expand_path
@@ -108,7 +110,9 @@ class EnumeratorMixin:
             return
         present = pair_id is not None
         if pair_id is None:
-            pair_id = new_pair_id()
+            pair_id = self.state_owner_for_path(shared_path, state, slot=slot_key)
+            if pair_id is None:
+                pair_id = new_pair_id()
         else:
             try:
                 validate_pair_id(pair_id)
@@ -135,27 +139,28 @@ class EnumeratorMixin:
     ) -> list[Path]:
         """Return the on-disk artifact paths under ``root`` for this IO cell.
 
-        For single_file storage, returns the matching files. For
-        directory_skill storage, returns the parent directory of each
+        For single-file layouts, returns the matching files. For
+        directory-skill layouts, returns the parent directory of each
         ``*/SKILL.md`` so callers get the artifact path (not the metadata file).
         """
-        if io.storage == "single_file":
-            if io.fixed_file_name is not None:
-                fixed_path = root / io.fixed_file_name
+        layout = io.file_layout
+        if isinstance(layout, SingleFileLayout):
+            if layout.fixed_file_name is not None:
+                fixed_path = root / layout.fixed_file_name
                 if fixed_path.is_file() and not fixed_path.name.startswith("."):
                     return [fixed_path]
                 return []
             walker = root.rglob if io.recursive else root.glob
             return sorted(
-                p for p in walker(f"*{io.file_suffix}")
+                p for p in walker(f"*{layout.file_suffix}")
                 if p.is_file() and not p.name.startswith(".")
             )
-        if io.storage == "directory_skill":
+        if isinstance(layout, DirectorySkillLayout):
             return sorted(
                 p.parent for p in root.glob("*/SKILL.md")
                 if not p.parent.name.startswith(".")
             )
-        raise ValueError(f"Unknown storage shape: {io.storage}")
+        raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
     def _add_agentic_tool_artifact(
         self,
@@ -188,7 +193,9 @@ class EnumeratorMixin:
             return
         present = pair_id is not None
         if pair_id is None:
-            pair_id = new_pair_id()
+            pair_id = self.state_owner_for_path(path, state)
+            if pair_id is None:
+                pair_id = new_pair_id()
         else:
             try:
                 validate_pair_id(pair_id)
@@ -199,7 +206,13 @@ class EnumeratorMixin:
                 )
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
-        digest = sha256_file(path) if io.storage == "single_file" else sha256_tree(path)
+        layout = io.file_layout
+        if isinstance(layout, SingleFileLayout):
+            digest = sha256_file(path)
+        elif isinstance(layout, DirectorySkillLayout):
+            digest = sha256_tree(path)
+        else:
+            raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         info = AgenticToolInfo(path, digest, path.stat().st_mtime, present)
         self._insert_agentic_tool(
             pair_id, customization_type, tool_name, info, pairs, blocked_pair_ids

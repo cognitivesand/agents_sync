@@ -16,6 +16,7 @@ from typing import Any, Iterable
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
+    DirectorySkillLayout,
     SharedKeyedMapLayout,
 )
 from agents_sync.canonical import load_canonical, save_canonical
@@ -27,6 +28,7 @@ from agents_sync.rendering import (
     write_artifact_inplace,
 )
 from agents_sync.state import CustomizationArtifactState
+from agents_sync.state import save_state
 from agents_sync.sync_types import (
     AgenticToolInfo,
     CustomizationArtifactInfo,
@@ -73,6 +75,18 @@ class AdopterMixin:
             return False
         canonical["pair_id"] = pair_id
 
+        source_result = RenderResult(path=source_info.path, slot=source_info.slot)
+        save_canonical(self.state_dir, pair_id, canonical)
+        update_state_n_way(
+            state,
+            pair_id,
+            info.kind,
+            {source_tool: source_result},
+            self.agentic_tools,
+            bump=False,
+        )
+        save_state(self.state_dir, state)
+
         if not source_info.pair_id_present:
             self._archive_source_before_write(
                 pair_id, source_tool, source_io, source_info, text,
@@ -82,10 +96,21 @@ class AdopterMixin:
                 source_io.render(canonical, text),
                 slot=source_info.slot,
             )
+            update_state_n_way(
+                state,
+                pair_id,
+                info.kind,
+                {source_tool: source_result},
+                self.agentic_tools,
+                bump=False,
+            )
+            save_state(self.state_dir, state)
 
-        save_canonical(self.state_dir, pair_id, canonical)
-
-        source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        source_dir = (
+            source_info.path
+            if isinstance(source_io.file_layout, DirectorySkillLayout)
+            else None
+        )
         results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,
@@ -97,6 +122,7 @@ class AdopterMixin:
         self._archive_prior_slot_results(pair_id, info.kind, results)
 
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
+        save_state(self.state_dir, state)
         logging.info(
             "Adopted from %s: pair_id=%s paths=%s",
             source_tool, pair_id,
@@ -153,8 +179,21 @@ class AdopterMixin:
             return False
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
+        if not source_info.pair_id_present:
+            self._archive_source_before_write(
+                pair_id, source_tool, source_io, source_info, text,
+            )
+            write_artifact_inplace(
+                source_io, source_info.path,
+                source_io.render(canonical, text),
+                slot=source_info.slot,
+            )
 
-        source_dir = source_info.path if source_io.storage == "directory_skill" else None
+        source_dir = (
+            source_info.path
+            if isinstance(source_io.file_layout, DirectorySkillLayout)
+            else None
+        )
         results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,

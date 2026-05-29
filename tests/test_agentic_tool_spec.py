@@ -8,6 +8,7 @@ import pytest
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
     CustomizationTypeIO,
+    SingleFileLayout,
     default_agentic_tools,
 )
 from agents_sync.canonical import empty_canonical
@@ -19,8 +20,7 @@ def test_agentic_tool_spec_rejects_drift_between_config_keys_and_io():
         parse=lambda *a, **k: {},
         render=lambda *a, **k: "",
         extract_pair_id=lambda *a, **k: None,
-        storage="single_file",
-        file_suffix=".md",
+        file_layout=SingleFileLayout(extension=".md"),
     )
     with pytest.raises(ValueError, match="capability matrix drift"):
         AgenticToolSpec(
@@ -35,6 +35,23 @@ def test_agentic_tool_spec_rejects_drift_between_config_keys_and_io():
             config_dir_keys={"agent": "example_agents_dir", "skill": "example_skills_dir"},
             io={"agent": io},  # skill listed in config but not io
         )
+
+
+def test_customization_type_io_uses_file_layout_as_single_source():
+    layout = SingleFileLayout(extension=".md", fixed_file_name="AGENTS.md")
+    io = CustomizationTypeIO(
+        parse=lambda *a, **k: {},
+        render=lambda *a, **k: "",
+        extract_pair_id=lambda *a, **k: None,
+        file_layout=layout,
+    )
+
+    assert "storage" not in CustomizationTypeIO.__dataclass_fields__
+    assert "file_suffix" not in CustomizationTypeIO.__dataclass_fields__
+    assert io.file_layout is layout
+    assert io.storage == "single_file"
+    assert io.file_suffix == ".md"
+    assert io.fixed_file_name == "AGENTS.md"
 
 
 def test_default_registry_has_all_supported_tools():

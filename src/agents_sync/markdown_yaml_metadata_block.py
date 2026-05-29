@@ -36,6 +36,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 
 FRONTMATTER_RE = re.compile(
@@ -241,7 +242,10 @@ def frontmatter_for_render(prior_text: str | None) -> Any:
     if prior_match is None:
         return yml.load("{}\n")
     raw, _ = prior_match.groups()
-    loaded = yaml_load(raw)
+    try:
+        loaded = yaml_load(raw)
+    except YAMLError:
+        return yml.load("{}\n")
     if isinstance(loaded, dict):
         return loaded
     return yml.load("{}\n")
