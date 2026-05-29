@@ -56,10 +56,13 @@ def test_windows_defaults_prefer_appdata_and_localappdata():
     }
     defaults = platform_defaults(os_name="nt", env=env, home=Path(r"C:\Users\tester"))
 
-    assert _portable_path(defaults["state_path"]) == "C:/Users/tester/AppData/Local/agents-sync/state/state.json"
-    assert _portable_path(default_config_path(os_name="nt", env=env, home=Path(r"C:\Users\tester"))) == (
-        "C:/Users/tester/AppData/Roaming/agents-sync/config.toml"
+    assert (
+        _portable_path(defaults["state_path"])
+        == "C:/Users/tester/AppData/Local/agents-sync/state/state.json"
     )
+    assert _portable_path(
+        default_config_path(os_name="nt", env=env, home=Path(r"C:\Users\tester"))
+    ) == ("C:/Users/tester/AppData/Roaming/agents-sync/config.toml")
     assert _portable_path(defaults["opencode_agents_dir"]) == (
         "C:/Users/tester/AppData/Roaming/opencode/agents"
     )

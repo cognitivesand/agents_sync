@@ -329,7 +329,8 @@ def test_mcp_server_round_trip_per_tool(tool_name: str):
     spec = default_agentic_tools()[tool_name]
     io = spec.io["mcp_server"]
     canonical = empty_canonical("mcp_server")
-    canonical["pair_id"] = f"00000000-0000-4000-8000-00000000000{ {'claude':1,'codex':2,'gemini_cli':3,'opencode':4}[tool_name] }"
+    _tool_digit = {"claude": 1, "codex": 2, "gemini_cli": 3, "opencode": 4}[tool_name]
+    canonical["pair_id"] = f"00000000-0000-4000-8000-00000000000{_tool_digit}"
     canonical["name"] = "filesystem"
     canonical["transport"] = "stdio"
     canonical["command"] = "fs-mcp"

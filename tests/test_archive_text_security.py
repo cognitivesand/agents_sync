@@ -12,8 +12,6 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-import pytest
-
 from agents_sync import archive
 
 

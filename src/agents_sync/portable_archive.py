@@ -43,7 +43,7 @@ from typing import Any, Literal
 
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import AgenticToolSpec, SharedKeyedMapLayout
-from agents_sync.canonical import canonical_path, load_canonical, save_canonical
+from agents_sync.canonical import canonical_path, load_canonical
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.mcp_secret_policy import (
@@ -682,7 +682,9 @@ def import_from_zip(
                 )
                 if local_canonical.exists():
                     retry_fs(
-                        lambda p=local_canonical: p.unlink(),
+                        # mypy cannot infer the return type of a default-arg lambda
+                        # passed to a generic callable; the body returns None.
+                        lambda p=local_canonical: p.unlink(),  # type: ignore[misc]
                         operation=f"unlink {local_canonical}",
                     )
 

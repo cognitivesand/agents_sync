@@ -25,7 +25,6 @@ import pytest
 
 pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
-from agents_sync import archive as archive_module
 from agents_sync.sync import Syncer
 
 # ---------- helpers ----------
@@ -88,7 +87,8 @@ def _archive_files(syncer: Syncer, pair_id: str, tool_name: str) -> list[Path]:
 def test_three_way_noop_poll(syncer: Syncer):
     _write_skill(syncer.tool_root("claude", "skill"), "demo")
     syncer.sync_once()
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
     assert changed == 0
 
 
@@ -427,7 +427,7 @@ def test_mixed_first_boot_library_ABCD(syncer: Syncer):
                 break
 
     assert set(by_name.keys()) == {"A", "B", "C", "D"}
-    for name, entry in by_name.items():
+    for _name, entry in by_name.items():
         assert set(entry["agentic_tools"].keys()) == {
             "claude",
             "codex",

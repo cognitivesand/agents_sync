@@ -30,7 +30,9 @@ def test_to_dict_serialises_last_modified():
     ps = CustomizationArtifactState(
         kind="skill",
         last_modified=1234567890.5,
-        agentic_tools={"claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d")},
+        agentic_tools={
+            "claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d")
+        },
     )
 
     encoded = ps.to_dict()
@@ -185,7 +187,9 @@ def test_update_state_n_way_advances_last_modified_on_subsequent_edit(syncer):
     md.write_text("---\nname: foo\ndescription: x\n---\ninitial\n")
     syncer.sync_once()
     first = next(iter(
-        json.loads((syncer.state_dir / "state.json").read_text())["customization_artifacts"].values()
+        json.loads((syncer.state_dir / "state.json").read_text())[
+            "customization_artifacts"
+        ].values()
     ))["last_modified"]
 
     # Edit and re-sync. Wall clock must move forward enough to observe.
@@ -194,7 +198,9 @@ def test_update_state_n_way_advances_last_modified_on_subsequent_edit(syncer):
     syncer.sync_once()
 
     second = next(iter(
-        json.loads((syncer.state_dir / "state.json").read_text())["customization_artifacts"].values()
+        json.loads((syncer.state_dir / "state.json").read_text())[
+            "customization_artifacts"
+        ].values()
     ))["last_modified"]
     assert second > first
 

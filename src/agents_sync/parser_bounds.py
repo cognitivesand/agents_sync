@@ -129,9 +129,9 @@ def make_bounded_composer_class() -> Any:
     ``ruamel.yaml`` import at module load time (relevant for callers
     that never touch YAML).
     """
-    from ruamel.yaml.composer import Composer  # type: ignore[import-not-found]
+    from ruamel.yaml.composer import Composer
 
-    class BoundedComposer(Composer):  # type: ignore[misc, valid-type]
+    class BoundedComposer(Composer):
         """Counts node compositions; raises after the configured cap."""
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:

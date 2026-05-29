@@ -138,7 +138,8 @@ def test_adoption_projects_slot_and_preserves_siblings(tmp_path: Path):
         "theme": "dark",
     }))
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 2  # two pairs adopted
 
@@ -189,7 +190,7 @@ def test_state_carries_slot_field(tmp_path: Path):
     pair_id, entry = next(iter(state.items()))
     assert entry.kind == "mcp_server"
     assert set(entry.agentic_tools) == {"alpha", "beta"}
-    for tool_name, tool_state in entry.agentic_tools.items():
+    for _tool_name, tool_state in entry.agentic_tools.items():
         assert tool_state.slot == "github"
 
     canonical = load_canonical(syncer.state_dir, pair_id)

@@ -91,8 +91,12 @@ def test_codex_agent_adopts_to_claude_and_opencode(syncer: Syncer):
     assert f'pair_id = "{pair_id}"' in codex_text
     assert "nickname_candidates" in codex_text
     assert "[mcp_servers.docs]" in codex_text
-    assert "name: pr_reviewer" in (syncer.tool_root("claude", "agent") / "pr_reviewer.md").read_text()
-    assert "name: pr_reviewer" in (syncer.tool_root("cursor", "agent") / "pr_reviewer.md").read_text()
+    assert "name: pr_reviewer" in (
+        syncer.tool_root("claude", "agent") / "pr_reviewer.md"
+    ).read_text()
+    assert "name: pr_reviewer" in (
+        syncer.tool_root("cursor", "agent") / "pr_reviewer.md"
+    ).read_text()
     opencode_text = (syncer.tool_root("opencode", "agent") / "pr_reviewer.md").read_text()
     assert "description: from codex" in opencode_text
     assert "sandbox_mode" not in opencode_text

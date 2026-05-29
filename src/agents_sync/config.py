@@ -218,7 +218,8 @@ def load_external_config(path: Path | None) -> dict[str, Any]:
     # utf-8-sig tolerates a BOM that can appear in Windows-authored TOML files.
     text = path.read_text(encoding="utf-8-sig")
     data = tomllib.loads(text)
-    return data.get("agents-sync", data)
+    result: dict[str, Any] = data.get("agents-sync", data)
+    return result
 
 
 def maybe_set(config: dict[str, Any], key: str, value: Any) -> None:

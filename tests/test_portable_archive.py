@@ -189,7 +189,6 @@ def test_import_mtime_wins_prefers_higher_generation_over_newer_clock(
 
     # Rewrite the exported zip's canonical to bump generation to 2 so the
     # imported snapshot represents "two edits later, on the same host".
-    import tempfile
 
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()

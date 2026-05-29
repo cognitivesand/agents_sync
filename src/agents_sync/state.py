@@ -197,7 +197,9 @@ def sha256_text(text: str) -> str:
 
 
 def is_ignored_tree_path(path: Path) -> bool:
-    return path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(_IGNORED_TREE_FILE_PREFIXES)
+    return path.name in _IGNORED_TREE_FILE_NAMES or path.name.startswith(
+        _IGNORED_TREE_FILE_PREFIXES
+    )
 
 
 def ignored_tree_names(names: list[str]) -> set[str]:

@@ -3,9 +3,6 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable
-from typing import TypeVar
-
-T = TypeVar("T")
 
 _WINDOWS_TRANSIENT_WINERRORS = {
     5,   # ERROR_ACCESS_DENIED (often transient during replacement)
@@ -25,7 +22,7 @@ def is_transient_fs_error(exc: BaseException) -> bool:
     return False
 
 
-def retry_fs(
+def retry_fs[T](
     op: Callable[[], T],
     *,
     operation: str,

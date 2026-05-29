@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 from collections.abc import MutableMapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
 from agents_sync.filesystem_lock import LockTimeoutError, lock_file
@@ -160,7 +160,7 @@ def _read_root_and_node(
         if before_text.strip() else {}
     )
     node = _navigate_or_create(root, layout.map_key_path)
-    return root, node
+    return cast("tuple[dict[str, Any], dict[str, Any]]", (root, node))
 
 
 def serialize_slot(value: Any, layout: SharedKeyedMapLayout) -> str:
@@ -188,7 +188,7 @@ def _navigate_or_create(
                 f"segment={key!r} path={map_key_path!r}"
             )
         node = node[key]
-    return node
+    return cast("MutableMapping[str, Any]", node)
 
 
 class SharedKeyedMapRaceError(RuntimeError):

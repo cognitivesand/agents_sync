@@ -25,8 +25,6 @@ from agents_sync.agentic_tool_spec import (
     CustomizationTypeIO,
     SharedKeyedMapLayout,
 )
-from agents_sync.canonical import new_pair_id
-from agents_sync.shared_keyed_map_io import read_slots
 from agents_sync.state import AgenticToolState, CustomizationArtifactState
 from agents_sync.sync import Syncer
 

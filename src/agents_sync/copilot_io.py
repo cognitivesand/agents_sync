@@ -158,7 +158,11 @@ def copilot_skill_slug(value: str) -> str:
     return slug[:64].rstrip("-") or "converted"
 
 
-def _set_pair_id(canonical: dict[str, Any], frontmatter: dict[str, Any], prior: dict[str, Any] | None) -> None:
+def _set_pair_id(
+    canonical: dict[str, Any],
+    frontmatter: dict[str, Any],
+    prior: dict[str, Any] | None,
+) -> None:
     if "pair_id" in frontmatter:
         canonical["pair_id"] = str(frontmatter["pair_id"])
     elif prior is None:

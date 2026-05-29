@@ -33,7 +33,9 @@ DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
 """Exit after this many consecutive polls with at least one failed pair."""
 
 
-def _register_signal_if_available(signum: int, handler: Callable) -> None:
+def _register_signal_if_available(
+    signum: int, handler: Callable[[int, object], None]
+) -> None:
     try:
         signal.signal(signum, handler)
     except (AttributeError, OSError, ValueError):
