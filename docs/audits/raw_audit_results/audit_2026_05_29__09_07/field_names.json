@@ -1,0 +1,135 @@
+{
+  "project_version": "v0.5.0",
+  "scope": "file:src/agents_sync/field_names.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 129,
+
+  "detailed_analysis": "field_names.py is a small (129-line), well-structured, security-clean constants module that replaces open-coded magic strings with named Final[str] constants across four adapter namespaces (CanonicalField, ClaudeField, CodexField, OpencodeField) plus a declarative CROSS_ADAPTER_FIELD_MAP and a lookup helper adapter_field_name. There are no security issues (no secrets, no injection surface, no I/O, no global mutable state), no God Class (every class is a flat namespace of constants with zero methods), no long functions (the single function is 11 lines, complexity 3), and no SRP violations. The code is honest in its docstring about being 'descriptive': it explicitly admits adapters still perform their own conversion and the map is documentary, not load-bearing. The chief weakness is YAGNI/dead-code: a verification grep across all of src/ shows that only CanonicalField and ClaudeField are ever imported (by claude_io.py). CodexField, OpencodeField, CROSS_ADAPTER_FIELD_MAP, and adapter_field_name() have zero production callers; the docstrings of the map (lines 76-83) and of adapter_field_name (lines 109-113) both concede they exist for hypothetical 'future' use. This is speculative infrastructure the project's own guidelines (KISS/YAGNI, Rule of Three, 'No abstractions for single-use code') discourage, though the dead-code severity is tempered by public __all__ export. The file is also not registered in architecture.md §4 module map or §9 traceability table, so its layer placement is undocumented — it is a cross-adapter (Layer-3) constants module imported by an adapter, which is consistent with the Dependency Rule but undocumented governance-wise.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "field_names.py", "imported_by": 1},
+    "highest_fan_out": {"module": "field_names.py", "imports": 1},
+    "note": "Only intra-package importer is claude_io.py (CanonicalField, ClaudeField). field_names.py imports nothing from agents_sync; only typing.Final from stdlib. No cycles."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/field_names.py",
+      "lines": 129,
+      "function_count": 1,
+      "class_count": 4,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/field_names.py",
+      "line": 108,
+      "function_or_class": "adapter_field_name",
+      "anti_pattern": "I2",
+      "variant": "Unreferenced public function (dead code)",
+      "severity": "INFO",
+      "metrics": {"production_callers": 0},
+      "evidence": "def adapter_field_name(canonical_name: str, adapter: str) -> str:\n    \"\"\"Return the adapter-native spelling for a canonical field name.\n    ... Useful in future adapter helpers that want to\n    drive the rename off the table without inlining the mapping.\"\"\"",
+      "evidence_lines": "108-118",
+      "problem": "A grep across all of src/ shows adapter_field_name() has zero production callers. Its own docstring justifies it as useful in 'future adapter helpers' — i.e. speculative. Violates the project's KISS/YAGNI guideline ('No features beyond what was explicitly asked'; 'No abstractions for single-use code'). It is exported via __all__, so it is API surface rather than a private orphan, which caps the severity at INFO.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/field_names.py",
+      "line": 84,
+      "function_or_class": "CROSS_ADAPTER_FIELD_MAP",
+      "anti_pattern": "I2",
+      "variant": "Unused module constant (dead data)",
+      "severity": "INFO",
+      "metrics": {"production_callers": 0},
+      "evidence": "# The table is\n# documentary today: each adapter still performs its own conversion in\n# its parser / renderer (the open-coded pattern is unavoidable until a\n# generic rename pass exists) ...\nCROSS_ADAPTER_FIELD_MAP: Final[tuple[tuple[str, dict[str, str]], ...]] = (",
+      "evidence_lines": "76-105",
+      "problem": "CROSS_ADAPTER_FIELD_MAP is referenced only by adapter_field_name() (itself dead, CQ-01) and is imported by no other module. The comment explicitly states the table is 'documentary today' and the open-coded conversion 'is unavoidable until a generic rename pass exists'. It is declarative documentation masquerading as executable data; the adapters do not consult it. YAGNI: the abstraction precedes its third use (Rule of Three). Capped at INFO because it is exported and self-documented.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/field_names.py",
+      "line": 58,
+      "function_or_class": "CodexField / OpencodeField",
+      "anti_pattern": "I2",
+      "variant": "Unreferenced public classes (dead code)",
+      "severity": "INFO",
+      "metrics": {"production_callers": 0},
+      "evidence": "class CodexField:\n    ... MCP_SERVERS / MODEL_REASONING_EFFORT / DEVELOPER_INSTRUCTIONS / SANDBOX_MODE / NICKNAME_CANDIDATES\nclass OpencodeField:\n    ... PERMISSION / DESCRIPTION",
+      "evidence_lines": "58-73",
+      "problem": "Verification grep across src/ shows CodexField and OpencodeField are imported by no module — codex_io.py and opencode_io.py do not consume them; only claude_io.py imports from field_names (CanonicalField, ClaudeField). The module docstring (lines 18-21) concedes 'the adapters still perform their own conversion'. Several constants (SANDBOX_MODE, NICKNAME_CANDIDATES, PERMISSION) do not even appear in CROSS_ADAPTER_FIELD_MAP, so they document names that no code in this module or elsewhere references. Exported via __all__, so INFO not WARNING.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 3, "total": 3},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "description": "NFR-14 mandates Clean Code: 'minimal duplication ... simple designs that remain easy to test and change' and the project guidelines add KISS/YAGNI ('No abstractions for single-use code', Rule of Three). CROSS_ADAPTER_FIELD_MAP (lines 84-105) and adapter_field_name() (lines 108-118) are speculative, never-called infrastructure whose own docstrings justify them by hypothetical 'future' use, and CodexField/OpencodeField (lines 58-73) are imported by no module. This is YAGNI surface that NFR-14 / the simplicity guideline discourage."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 / §9",
+        "description": "field_names.py is absent from the architecture.md §4 'Module map' table and the §9 traceability table. §9 states 'Every requirement ... has at least one module carrying it. Any future requirement that has no carrying module is a defect in either the requirement or the architecture' — the symmetric gap holds: a production module not listed in §4/§9 has undocumented layer placement and traceability. The module is a Layer-3 cross-adapter constants file imported by claude_io.py; its existence and layer should be recorded in §4."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, secure constants module (code_score 0.75); only INFO-level dead/speculative code (unused CodexField, OpencodeField, CROSS_ADAPTER_FIELD_MAP, adapter_field_name) plus an undocumented spot in architecture.md §4/§9."
+}

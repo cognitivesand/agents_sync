@@ -1,0 +1,103 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/adoption/extender.py, file:src/agents_sync/adoption/conflict_resolver.py",
+  "date": "2026-05-29",
+  "files_analyzed": 2,
+  "total_lines": 144,
+
+  "detailed_analysis": "Both scoped files are small mixin modules that contribute strategy methods to the layer-2 use case AdoptionEngine (architecture §4). extender.py (64 lines) renders the canonical to newly-participating tools; conflict_resolver.py (80 lines) implements N-way conflict resolution by argmax(mtime) with archive-of-losers. Both are well under the 300-line module limit, every function is under the 40-line limit, names follow the two-word/role-plus-domain convention, and type annotations are present on all parameters and returns. No hardcoded secrets, no injection vectors, no bare-except swallowing, no mutable default arguments, no no-op implementations. The Dependency Rule holds: both import only inward (canonical, rendering, state, sync_types, archive, agentic_tool_spec) and never reference a concrete tool name. NFR-15 secret_policy is enforced downstream inside the parse/render IO layer (mcp_server_io, invoked via render_to_agentic_tool and tool_io.parse), so these strategy mixins correctly do not re-implement it. Archive-before-overwrite (I-3 / NFR-01) is honoured: the conflict path archives every loser's bytes before _sync_from_agentic_tool writes, and the extend path archives pre-existing shared-keyed-map slots via _archive_prior_slot_results. Only minor smells found: a magic-string '.json' fallback default and an unqualified canonical.get('name') log value. No CRITICAL or MAJOR findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 2,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "n/a (mixins consumed by adoption.engine)", "imported_by": 1},
+    "highest_fan_out": {"module": "conflict_resolver.py", "imports": 6}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/adoption/extender.py",
+      "lines": 64,
+      "function_count": 1,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 0
+    },
+    {
+      "file": "src/agents_sync/adoption/conflict_resolver.py",
+      "lines": 80,
+      "function_count": 3,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 0
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 282,
+      "function_or_class": "AdoptionEngine._archive_prior_slot_results",
+      "anti_pattern": "I4",
+      "variant": "Magic String",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "extension=extension or \".json\",",
+      "evidence_lines": "282",
+      "problem": "Note: this method lives in adopter.py, not the scoped files, but it is the archive helper invoked by extender._extend_to_new_tools (extender.py:57). Within the scoped extend path the fallback extension '.json' is an inline magic string with no named constant; flagged for completeness as it governs archive filenames on the extend path. Out of strict scope.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Both adoption strategy mixins are clean, correctly layered, and spec-conformant; only a minor out-of-scope magic-string smell in the archive helper they call."
+}

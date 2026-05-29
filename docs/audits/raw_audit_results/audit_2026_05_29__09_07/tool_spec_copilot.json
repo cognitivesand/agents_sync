@@ -1,0 +1,147 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/copilot.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 99,
+
+  "detailed_analysis": "src/agents_sync/tool_specs/copilot.py is a single declarative factory function, build_copilot_spec, that constructs and returns one frozen AgenticToolSpec for GitHub Copilot. It is 99 lines, comfortably under the 300-line module limit; its one function is 85 lines but is almost entirely a flat dataclass literal (no branching, cyclomatic complexity 1), so the >40-line guideline does not signal real cognitive load here. The module correctly sits in Layer 3 (the spec/factory wiring layer per architecture §4), uses lazy intra-function imports to match the sibling factories and avoid import cycles, and delegates all mcp_server complexity (including secret_policy evaluation) to the shared build_mcp_server_io helper — a DRY improvement over the older cursor.py factory which inlines the same secret_policy closure. No secrets, no injection vectors, no mutable defaults, no silent error swallowing, no global state. All five config_dir_keys and all four disable/enable config keys it references exist in config.py, and all imported copilot_io symbols resolve. The single substantive concern is behavioural rather than structural: line 50 sets accepted_file_suffixes=('.agent.md', '.chatmode.md', '.md'), but no production code in the package reads CustomizationTypeIO.accepted_file_suffixes (it is referenced only on the port dataclass and in one test). The field therefore configures discovery behaviour — accepting .chatmode.md / .md variants for Copilot agents — that the engine does not actually honour, which is dead configuration data and a latent spec gap. The remaining notes are minor: a magic-string tuple for transport/auth field names declared inline, and the customization-type keys ('agent', 'skill', ...) repeated as bare string literals across config_dir_keys/io/kind_disable_config_keys (these are the project-wide canonical type names, consistent with all sibling factories, so this is a catalogued convention rather than a defect). Overall the file is clean and conformant.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "imports_inward": [
+      "agents_sync.agentic_tool_spec (port, Layer 3)",
+      "agents_sync.tool_specs._mcp_server_factory (shared factory helper)",
+      "agents_sync.mcp_server_io (lazy)",
+      "agents_sync.copilot_io (lazy adapter)",
+      "agents_sync.slash_command_io (lazy)"
+    ],
+    "dependency_rule": "Conformant — imports only same-layer adapter/port modules; no use-case, no Layer-4 import. No concrete tool name leaks into a use-case module from here.",
+    "highest_fan_in": {"module": "n/a (single-file scope)", "imported_by": 1},
+    "highest_fan_out": {"module": "copilot.py", "imports": 5}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/copilot.py",
+      "lines": 99,
+      "function_count": 1,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/copilot.py",
+      "line": 50,
+      "function_or_class": "build_copilot_spec",
+      "anti_pattern": "I2",
+      "variant": "Dead configuration data",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "accepted_file_suffixes=(\".agent.md\", \".chatmode.md\", \".md\"),",
+      "evidence_lines": "50",
+      "problem": "The copilot 'agent' cell sets accepted_file_suffixes=('.agent.md', '.chatmode.md', '.md'), but no production code in src/agents_sync reads CustomizationTypeIO.accepted_file_suffixes — a package-wide grep finds the attribute only here, on the port dataclass declaration (agentic_tool_spec.py:201), and in one test assertion (tests/test_agentic_tool_spec.py:209). The discovery/read path matches files by file_suffix only. The field therefore declares intent (Copilot agents may be stored as .chatmode.md or plain .md, not only .agent.md) that the sync engine does not honour, so such files would not be discovered. This is dead configuration data and a behaviour/spec gap, not merely cosmetic. The unused field lives on the shared port, so the root is one layer out; but this file is the sole production caller that sets a non-empty value.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/copilot.py",
+      "line": 83,
+      "function_or_class": "build_copilot_spec",
+      "anti_pattern": "I4",
+      "variant": "Magic strings (inline protocol field names)",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "transport_fields=(\"type\", \"transport\", \"transportType\"),\nauth_fields=(\"oauth\", \"auth\"),\nauth_render_field=\"oauth\",",
+      "evidence_lines": "83-85",
+      "problem": "The Copilot MCP dialect's transport and auth field-name literals are embedded inline as bare string tuples. These are protocol-defined keys whose meaning is not self-evident from context (e.g. why three transport spellings, why 'oauth' is both an accepted auth_field and the render field) and are duplicated conceptually across tool factories. Per the project no-hardcoding guideline they would be clearer as named constants on McpServerDialect or in a copilot dialect constant. Low severity: the dialect dataclass is the named home for these and the values are local to one cell.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/tool_specs/copilot.py",
+      "line": 15,
+      "function_or_class": "build_copilot_spec",
+      "anti_pattern": "M2",
+      "variant": "Long Function (mitigated)",
+      "severity": "SMELL",
+      "metrics": {"lines": 85, "cyclomatic_complexity": 1},
+      "evidence": "def build_copilot_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:\n    ... 85-line single return of a nested dataclass literal ...",
+      "evidence_lines": "15-98",
+      "problem": "build_copilot_spec spans 85 lines, exceeding the project's ~40-line function guideline. However the body is a single straight-line return of a declarative, branch-free AgenticToolSpec literal (cyclomatic complexity 1, nesting depth within the literal only). This is the same declarative shape as every sibling factory (cursor.py, claude.py, etc.); splitting it would add indirection without reducing cognitive load. Reported as a SMELL for the line-count breach, not as a structural defect. No remediation recommended beyond awareness.",
+      "affected_axis": "structure"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "US-10 AC-1: SATISFIED — single module at src/agents_sync/tool_specs/copilot.py exposing build_copilot_spec(config) returning an AgenticToolSpec with unique name 'copilot', supported_customization_types, a CustomizationTypeIO per type, config_dir_keys, and a file_layout/storage descriptor per type.",
+      "US-10 AC-2 / Goal 5 / NFR-11: SATISFIED — the factory adds Copilot purely via the registry/factory layer; no use-case branch on the name 'copilot' is introduced here. 'copilot' appears only in adapter/config-key context (architecture §1 stable-abstractions rule upheld).",
+      "US-10 AC-6: SATISFIED — config_dir_keys and io declare the identical type set {agent, skill, rules, slash_command, mcp_server}; the AgenticToolSpec.__post_init__ drift check will not fire.",
+      "US-10 AC-7 / US-11: SATISFIED — disable_config_key='copilot_enabled' plus partial_availability=True and per-kind kind_disable_config_keys are all read by tool_status.py.",
+      "Goal 6 / NFR-15: SATISFIED — secret_policy is evaluated inside the shared build_mcp_server_io helper at the mcp_server egress boundary; this factory does not bypass it.",
+      "architecture §4 / §3 Dependency Rule: CONFORMANT — Layer-3 factory importing only same-layer adapters and the port; no inward-rule violation."
+    ],
+    "deviations": [
+      {
+        "artifact": "user_story",
+        "reference": "US-10 AC-1",
+        "file": "src/agents_sync/tool_specs/copilot.py",
+        "line": 50,
+        "description": "AC-1 requires the AgenticToolSpec to declare an accurate file-layout descriptor per customization_type so the engine knows how each type is stored/discovered. The 'agent' cell declares accepted_file_suffixes=('.agent.md', '.chatmode.md', '.md') to broaden discovery beyond '.agent.md', but no production code reads accepted_file_suffixes (consumers exist only on the port dataclass and a test). The declared multi-suffix acceptance is therefore not actually honoured by discovery, so Copilot agent files stored as '.chatmode.md' or '.md' would not be discovered. This is a latent gap between the declared layout intent and engine behaviour; the missing consumer lives outside this file but the unused declaration is set here."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean declarative factory, fully spec-conformant; one latent gap — accepted_file_suffixes is declared but read by no production code (dead config / discovery gap)."
+}

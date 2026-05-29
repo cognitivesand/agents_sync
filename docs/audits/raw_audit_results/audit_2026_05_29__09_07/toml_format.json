@@ -1,0 +1,123 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/formats/toml_format.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 91,
+
+  "detailed_analysis": "src/agents_sync/formats/toml_format.py is a small (91-line), single-responsibility TOML codec for the SharedKeyedMapLayout slot model: deserialize() reads a TOML table into a mapping, serialize() emits a mapping back to TOML. It is well below the project's 300-line module cap and every function is far under the 40-line limit (longest, _emit_table, is 25 lines). The code is structurally clean: clear helper decomposition (_toml_string, _toml_key, _toml_scalar, _toml_inline_table, _toml_section_name, _emit_table), fail-fast on unsupported types (line 52) and on non-table roots (line 21), input-size bound enforced at the parse boundary (line 15), and BOM tolerance (line 16). No God class, no deep nesting (max ~3 in _emit_table), no global mutable state, no security smells (no eval/exec, no shell, no untrusted deserialization beyond tomllib which is safe by design, no hardcoded secrets/paths). The findings are minor: a custom serializer that re-implements TOML string escaping via json.dumps (a correctness subtlety where JSON and TOML basic-string escape sets diverge for some control characters), a float serialization via str() that does not handle TOML special-float spelling, and public callable names deserialize/serialize that are single-word but are dictated by the SharedKeyedMapFormat port contract and mirror the sibling json_format module. The module also performs hand-rolled serialization rather than using a TOML writer, which is the documented D-4 tradeoff (no comment/order preservation); for a from-scratch keyed-map slot this is acceptable, but it is the source of the escaping/float edge cases.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "toml_format.py", "imported_by": 1},
+    "highest_fan_out": {"module": "toml_format.py", "imports": 2}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/formats/toml_format.py",
+      "lines": 91,
+      "function_count": 7,
+      "class_count": 0,
+      "correctness": 0.75,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 0.75,
+      "weakest_axis": "correctness",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/formats/toml_format.py",
+      "line": 31,
+      "function_or_class": "_toml_string",
+      "anti_pattern": "C-correctness",
+      "variant": "Cross-format escaping reuse",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "def _toml_string(value: str) -> str:\n    return json.dumps(value, ensure_ascii=False)",
+      "evidence_lines": "31-32",
+      "problem": "TOML basic strings are emitted by delegating to json.dumps. JSON and TOML basic-string escape rules overlap but are not identical (e.g. TOML requires escaping of certain control characters and treats some escape sequences differently from JSON). For ASCII-printable MCP-config values this round-trips correctly, but a value containing raw control characters could produce TOML that tomllib re-parses to a different string, violating the deserialize(serialize(x)) == x round-trip the SharedKeyedMapFormat contract implies. Confidence is moderate: in practice keyed-map slot values are simple strings.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/formats/toml_format.py",
+      "line": 46,
+      "function_or_class": "_toml_scalar",
+      "anti_pattern": "C-correctness",
+      "variant": "Float serialization via str()",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "    if isinstance(value, (int, float)) and not isinstance(value, bool):\n        return str(value)",
+      "evidence_lines": "46-47",
+      "problem": "Floats are serialized with str(), which produces 'inf', '-inf', and 'nan' for non-finite values. TOML spells these 'inf', '-inf', 'nan' for inf/nan but Python's str(float('inf')) is 'inf' (ok) while edge spellings and very large/precise floats may not round-trip identically through str() -> tomllib. Plain finite decimals round-trip fine; only non-finite or precision-edge floats are at risk. Keyed-map MCP slots rarely carry floats, so blast radius is small.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/formats/toml_format.py",
+      "line": 14,
+      "function_or_class": "deserialize / serialize",
+      "anti_pattern": "I5",
+      "variant": "Single-word public names",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "def deserialize(text: str) -> MutableMapping[str, Any]:\n...\ndef serialize(obj: Mapping[str, Any]) -> str:",
+      "evidence_lines": "14, 25",
+      "problem": "AGENTS.md §4 requires two-word minimum names. The public callables deserialize/serialize are single-word. However they are dictated by the SharedKeyedMapFormat port contract (Callable fields named deserialize/serialize in shared_keyed_map_formats.py) and mirror the sibling json_format.py module exactly, so renaming here without renaming the contract would break consistency. Reported as a low-priority naming smell, not a defect to fix in isolation.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 0.75,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, small, single-responsibility TOML slot codec; only minor correctness edge cases in custom string/float serialization. No CRITICAL/MAJOR findings, no spec violations."
+}

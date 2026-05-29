@@ -1,0 +1,152 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_status.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 224,
+
+  "detailed_analysis": "ToolStatusTracker is a Layer-2 use case (architecture §4) that owns per-tool available/unavailable/disabled state and logs transitions (US-11, NFR-12). It honours the Dependency Rule: it imports only agentic_tool_spec (a Layer-3 port) and config.expand_path (the documented D-2 escape hatch), references no concrete tool name, and reads config generically via dict keys. Structurally the file is sound at the class level (224 lines, 1 class, 9 methods — well under the God-Class thresholds). The one real structural defect is _probe_tool_roots (lines 139-196): ~50-line body with cyclomatic complexity well above 10 and a 4-fold-repeated unavailable/partial-availability return block — a Long Function (M2) carrying a DRY violation. The most consequential issue is a spec deviation: US-11 AC-6 mandates an ERROR-level log line when a root exists but is unreadable (permission denied / OSError), distinct from the WARN used for a merely-missing root; _log_status_transition (lines 198-223) emits only logging.info / logging.warning and never logging.error, so the unreadable-root case is logged at the wrong severity. Security surface is clean: no secrets, no injection, no unsafe deserialization. Note that NFR-15 secret-policy is not this module's concern (egress boundaries are parse/render/export/import), so its absence here is not a deviation.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "tool_status.py", "imported_by": "discovery.py, adoption.py, sync.py (per architecture §4)"},
+    "highest_fan_out": {"module": "tool_status.py", "imports": 2}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_status.py",
+      "lines": 224,
+      "function_count": 9,
+      "class_count": 1,
+      "correctness": 0.5,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.5,
+      "weakest_axis": "correctness/structure",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_status.py",
+      "line": 139,
+      "function_or_class": "ToolStatusTracker._probe_tool_roots",
+      "anti_pattern": "M2",
+      "variant": "Long Function / high cyclomatic complexity",
+      "severity": "MAJOR",
+      "metrics": {"lines": 50, "cyclomatic_complexity_estimate": 17, "max_nesting": 3},
+      "evidence": "def _probe_tool_roots(self, spec: AgenticToolSpec) -> tuple[str, tuple[str, str] | None, set[str]]:\n    ...\n    for kind, config_key in spec.config_dir_keys.items():\n        if not self._is_kind_enabled(spec, kind): continue\n        ...\n        if config_key not in self.config: ...\n        if raw_root is None: ...\n        if not probe_path.exists(): ...\n        try: next(probe_path.iterdir(), None)\n        except OSError as exc: ...",
+      "evidence_lines": "139-196",
+      "problem": "Function body is ~50 non-blank lines (project limit 40, AGENTS.md §3) and its branch count (for + ~16 if/except/return guards) puts cyclomatic complexity around 17, well past the >10 threshold (Zhang 2023, McCabe). It conflates four concerns: kind-enablement filtering, config-key presence, on-disk reachability probing, and partial-availability status aggregation.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_status.py",
+      "line": 154,
+      "function_or_class": "ToolStatusTracker._probe_tool_roots",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated logic block",
+      "severity": "MINOR",
+      "metrics": {"repetitions": 4},
+      "evidence": "reason = (config_key, \"...\")\nif not spec.partial_availability:\n    return \"unavailable\", reason, set()\nif first_reason is None:\n    first_reason = reason\ncontinue",
+      "evidence_lines": "154-159, 162-167, 174-179, 182-188",
+      "problem": "The identical 'build reason -> short-circuit unavailable when not partial -> else remember first_reason -> continue' block is hand-copied four times within _probe_tool_roots (config-key-missing, path-not-configured, path-missing, OSError branches). Each copy is a place a future edit can drift; this duplication is the proximate cause of CQ-01's length and complexity.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/tool_status.py",
+      "line": 27,
+      "function_or_class": "ToolStatusTracker.__init__ / get / refresh",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession (untyped config dict + stringly-typed status)",
+      "severity": "WARNING",
+      "metrics": {"status_string_literals": 3},
+      "evidence": "self.config: dict[str, Any]\n...\nnew_status[tool_name] = \"disabled\"\n...\nreturn self._status.get(tool_name) == \"available\"",
+      "evidence_lines": "27, 41, 99, 192-196, 205-211",
+      "problem": "The three statuses 'available' / 'unavailable' / 'disabled' — a closed, domain-defined set (US-11, glossary) — are passed around as bare string literals across get(), is_available(), refresh(), _probe_tool_roots(), and _log_status_transition() instead of an enum, and config is a raw dict[str, Any] indexed by stringly-typed keys. A typo in any literal (e.g. 'unavaliable') would fail silently rather than at type-check time. This is a maintainability/fail-fast smell, not a correctness defect today.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/tool_status.py",
+      "line": 37,
+      "function_or_class": "ToolStatusTracker.__init__",
+      "anti_pattern": "fail-fast",
+      "variant": "Missing boundary validation / assertions",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "def __init__(self, config: dict[str, Any], agentic_tools: dict[str, AgenticToolSpec]) -> None:\n    self.config = config\n    self.agentic_tools = agentic_tools",
+      "evidence_lines": "25-33",
+      "problem": "The constructor is a use-case entry boundary (AGENTS.md §8: validate at boundaries) but stores config and agentic_tools without any invariant check (e.g. non-None, expected key shape). A None or malformed config surfaces later as an AttributeError deep inside refresh()/_probe_tool_roots rather than as an explicit, traceable error at the boundary. Low blast radius because callers (Syncer) construct it from a validated config, hence MINOR.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.5,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.5,
+    "weakest_axis": "correctness/structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 1, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "user_story",
+        "reference": "US-11 AC-6",
+        "file": "src/agents_sync/tool_status.py",
+        "line": 198,
+        "description": "AC-6 requires that when a root exists but is UNREADABLE (permission denied / OSError), the transition is logged at ERROR level, distinct from the WARN used for a merely-missing root (story table line 50: 'ERROR if unreadable'). The unreadable case is detected at lines 180-188 (the iterdir() OSError branch) and folded into the same reason tuple as path-missing, but _log_status_transition (lines 198-223) only ever calls logging.info (when prev is None) or logging.warning (when prev is set) for the 'unavailable' status — it never calls logging.error. An unreadable root therefore logs at WARN/INFO, not ERROR, contradicting AC-6."
+      },
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "file": "src/agents_sync/tool_status.py",
+        "line": 139,
+        "description": "NFR-14 mandates Clean Code: 'small cohesive functions'. _probe_tool_roots (lines 139-196, ~50 lines, cyclomatic complexity ~17, with a 4-fold duplicated branch block) exceeds the project's 40-line limit and the >10 complexity threshold, so the module does not fully meet the small-cohesive-functions and minimal-duplication clauses of NFR-14."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "No CRITICAL or security issues, but one MAJOR Long-Function/complexity defect (_probe_tool_roots) plus a US-11 AC-6 deviation (unreadable root not logged at ERROR) cap the score at 0.5."
+}

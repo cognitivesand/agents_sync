@@ -1,0 +1,144 @@
+{
+  "project_version": "v0.5",
+  "scope": "file:src/agents_sync/mcp_server_io/_helpers.py, file:src/agents_sync/mcp_server_io/dialect.py",
+  "date": "2026-05-29",
+  "files_analyzed": 2,
+  "total_lines": 132,
+
+  "detailed_analysis": "Both scoped files are small, cohesive support modules for the v0.5 mcp_server JSON adapter. _helpers.py (62 lines) is a set of five tiny pure functions for shape coercion and recursive env-reference rewriting; dialect.py (70 lines) is a single frozen dataclass describing per-adapter spellings plus one normalization method. No CRITICAL or MAJOR anti-patterns are present: no secrets, no injection, no silent swallowing, no mutable defaults, no no-op bodies, no God Class, no Long Function (largest is canonical_transport at 7 lines), no deep nesting, no cyclic imports, no global mutable state. Fail-fast is honored well: as_string_list and as_mapping raise descriptive ValueError, and canonical_transport raises on unsupported transports. The two real code-health issues are (1) a DRY duplication between canonicalize_env_refs and render_env_refs, which are byte-for-byte the same recursive walker differing only in where the style string comes from, and (2) primitive-obsession on the env_reference_style and command_mode dataclass fields, which are bare str defaults with an implicit closed value set (canonical/claude/gemini/opencode and split/...) validated only downstream at render time rather than at the dataclass boundary. On spec conformance the code itself is clean, but the mcp_server_io package is absent from architecture.md §4 (module map) and §9 (traceability) even though it carries FR-09 (mcp_server matrix) and participates in the NFR-15 secret-policy egress path; §9 explicitly states a requirement with no carrying module documented is a defect, so this is a governance/traceability deviation.",
+
+  "dependency_graph_summary": {
+    "total_modules": 2,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "dialect.py", "imported_by": 1},
+    "highest_fan_out": {"module": "_helpers.py", "imports": 2}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/mcp_server_io/_helpers.py",
+      "lines": 62,
+      "function_count": 6,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 1
+    },
+    {
+      "file": "src/agents_sync/mcp_server_io/dialect.py",
+      "lines": 70,
+      "function_count": 1,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 2
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/mcp_server_io/_helpers.py",
+      "line": 32,
+      "function_or_class": "canonicalize_env_refs / render_env_refs",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated recursive walker",
+      "severity": "SMELL",
+      "metrics": {"duplicated_functions": 2, "duplicated_lines": 8},
+      "evidence": "def canonicalize_env_refs(value: Any) -> Any:\n    if isinstance(value, str):\n        return convert_env_references(value, style=\"canonical\")\n    if isinstance(value, dict):\n        return {str(key): canonicalize_env_refs(child) for key, child in value.items()}\n    if isinstance(value, list):\n        return [canonicalize_env_refs(child) for child in value]\n    return value\n\ndef render_env_refs(value: Any, dialect: McpServerDialect) -> Any:\n    if isinstance(value, str):\n        return convert_env_references(value, style=dialect.env_reference_style)\n    ...",
+      "evidence_lines": "32-49",
+      "problem": "canonicalize_env_refs (lines 32-39) and render_env_refs (lines 42-49) are structurally identical recursive tree walkers; the only difference is the style argument source (literal \"canonical\" vs dialect.env_reference_style). canonicalize_env_refs is render_env_refs with style fixed to \"canonical\". The duplicated traversal must be edited in two places for any change to the recursion shape (e.g. handling tuples or None).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/mcp_server_io/dialect.py",
+      "line": 47,
+      "function_or_class": "McpServerDialect.env_reference_style",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession",
+      "severity": "SMELL",
+      "metrics": {"closed_value_set_size": 4},
+      "evidence": "env_reference_style: str = \"canonical\"\n...\ncommand_mode: str = \"split\"",
+      "evidence_lines": "43-47",
+      "problem": "env_reference_style and command_mode are bare str fields whose valid values form a closed enumeration (env_reference_style: canonical/claude/gemini/opencode, enforced in mcp_secret_policy.format_env_reference; command_mode: split/...). The dataclass is frozen but performs no validation of these fields at construction, so an invalid env_reference_style is only rejected later at render time (format_env_reference raises 'unknown env reference style'), deferring the fail-fast boundary away from the configuration object. A Literal/Enum type or a __post_init__ check would validate at the boundary.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/mcp_server_io/dialect.py",
+      "line": 60,
+      "function_or_class": "McpServerDialect.canonical_transport",
+      "anti_pattern": "PERF",
+      "variant": "Per-call dict rebuild",
+      "severity": "MINOR",
+      "metrics": {"rebuilds_per_call": 1},
+      "evidence": "def canonical_transport(self, value: Any) -> str:\n    raw = str(value)\n    aliases = {alias.casefold(): canonical for alias, canonical in self.transport_aliases}\n    normalized = aliases.get(raw.casefold(), raw)",
+      "evidence_lines": "60-66",
+      "problem": "The alias lookup dict is rebuilt from the static transport_aliases tuple on every call (line 62). The dataclass is frozen, so transport_aliases never changes after construction; the mapping could be computed once. Correctness is unaffected; this is a minor avoidable allocation. Acceptable given low call frequency, noted for completeness.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0},
+    "DRY_duplication": {"smell": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 / §9",
+        "file": "src/agents_sync/mcp_server_io/dialect.py",
+        "description": "The mcp_server_io package (including dialect.py and _helpers.py) does not appear in the architecture.md §4 Module map nor in the §9 traceability table. §9 carries FR-09 (mcp_server matrix) and NFR-15 (secret handling) at the adapter layer, and explicitly states 'Any future requirement that has no carrying module is a defect in either the requirement or the architecture.' The v0.5 mcp_server JSON adapter package is the de-facto carrier of FR-09 yet is undocumented in the layer/module map. Code is correctly placed in Layer 3 (Interface Adapters) and honors the Dependency Rule; the deviation is a traceability/documentation gap, not a layering violation."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, cohesive Layer-3 support modules; zero CRITICAL/MAJOR findings, one DRY duplication and one primitive-obsession smell, plus an architecture-doc traceability gap for the mcp_server_io package."
+}

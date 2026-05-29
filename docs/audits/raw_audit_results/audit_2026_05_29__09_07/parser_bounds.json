@@ -1,0 +1,108 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/parser_bounds.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 164,
+
+  "detailed_analysis": "src/agents_sync/parser_bounds.py is a small, single-responsibility security-hardening module (Phase 3 of the v0.5 plan, SEC-C-01 / SEC-C-02) that imposes hard caps on parser input size and YAML alias-resolution count to defend the long-running daemon against DoS. It is 164 lines, well under the 300-line module limit. It exposes three named bound constants with unit-bearing names and intent docstrings (MAX_PARSE_BYTES, MAX_FRONTMATTER_BYTES, MAX_YAML_ALIAS_RESOLUTIONS — no magic numbers), one exception subclass, and four small functions, the largest of which (read_text_bounded) is ~22 lines. Every public function is fully type-annotated and carries an explanatory docstring. The module fails fast and loud: each bound raises ParserBoundsExceeded (an AdapterParseError subclass) with a descriptive, operator-actionable message naming the offending input label and the violated cap. The lazy ruamel import in make_bounded_composer_class is a deliberate, documented choice to avoid paying the YAML import for non-YAML callers. No security smells: no hardcoded secrets, no injection vectors, no path traversal (paths are caller-supplied and the module only stat()s and read_text()s them, intentionally checking size before reading so a hostile file never lands in memory), no unsafe deserialization, no silent error swallowing, no mutable defaults, no global mutable state, no no-op implementations, no dead code. The only nit is a minor naming-convention deviation against the project's two-word-minimum rule: several public functions and the bound constants use names whose head noun is implicitly scoped by the module (enforce_text_bound, read_text_bounded), which is acceptable in context. Code quality verdict: clean. The notable issue is not in the code but in spec/architecture conformance: this module is a v0.5 addition that is absent from architecture.md's module map (§4) and traceability table (§9), which the project's own governance text requires to be amended for any change, and which §9 states must carry a requirement for every module.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "parser_bounds.py", "imported_by": 0},
+    "highest_fan_out": {"module": "parser_bounds.py", "imports": 1}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/parser_bounds.py",
+      "lines": 164,
+      "function_count": 4,
+      "class_count": 2,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "maintainability",
+      "finding_count": 1
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/parser_bounds.py",
+      "line": 73,
+      "function_or_class": "enforce_text_bound / read_text_bounded / make_bounded_composer_class",
+      "anti_pattern": "I5",
+      "variant": "Inconsistent Naming (two-word-minimum convention)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "def enforce_text_bound(text: str, *, label: str, limit: int = MAX_PARSE_BYTES) -> str:\n...\ndef read_text_bounded(path: Path, *, label: str | None = None, ...) -> str:",
+      "evidence_lines": "73-87, 90-111",
+      "problem": "AGENTS.md §4 sets a two-word-minimum naming rule (role + domain). Several public function names lean on the module name to supply the domain noun (enforce_text_bound, read_text_bounded) rather than naming it explicitly (e.g. enforce_parse_text_bound). This is a minor, defensible style nit — the names are intention-revealing in context — not a defect. No cap applied.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 1.0,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map)",
+        "file": "src/agents_sync/parser_bounds.py",
+        "description": "parser_bounds.py is a v0.5 production module under src/agents_sync/ but is absent from the §4 module-map table (which lists 19 modules / 2 852 lines and does not include it). The doc header states 'any future change should leave this document either true or amended'; adding this module without a map row leaves §4 stale."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §9 (Traceability)",
+        "file": "src/agents_sync/parser_bounds.py",
+        "description": "§9 asserts 'Every requirement ... has at least one module carrying it' and lists the carrying module for each layer/concern; parser_bounds.py has no row. The DoS/resource-bound hardening it implements is naturally adjacent to NFR-08 (resource stability) and NFR-09 (scalability) but is untraced, so the requirement-to-module mapping is incomplete for this file."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, single-responsibility security-bound module; only deviation is missing architecture §4/§9 traceability for this new v0.5 file."
+}

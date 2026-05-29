@@ -1,0 +1,158 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/rendering.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 331,
+
+  "detailed_analysis": "rendering.py is the tool-agnostic projection gateway (architecture Layer 3, §5.4) translating canonical state onto a tool's on-disk artifact and recording paths/digests in sync state. The module is well-factored: each function does one thing, the public entry point render_to_agentic_tool dispatches to three private renderers by storage shape, and every dependency is passed explicitly (no instance state, no hidden globals). It is 331 lines, just over the project's 300-line module guideline (NFR-14 / §3), driven by docstrings rather than logic. The strongest correctness concern is data preservation: stage_skill_dir/_rename_with_rollback move and rmtree existing user content during an atomic-swap, and update_state_n_way overwrites slot text inside a shared keyed-map file — these are destructive operations that rely on the caller (adoption.py) having performed archive_copy/archive_move first (I-3, NFR-01); rendering.py itself encodes no archive assertion, so the invariant is enforced only by call-site discipline. No hardcoded secrets, no injection vectors, no silent exception swallowing, no mutable default arguments. Type annotations are present on every public signature. The chief structural smells are Primitive Obsession (dict[str, Any] config and canonical threaded through almost every function) and a long-ish parameter list on render_to_agentic_tool. NFR-15 secret-policy egress is handled inside the per-tool io.render handler (mcp_server_io), not in this gateway — consistent with the tool-agnostic role, so no deviation. Overall: clean, secure, structurally sound, with minor maintainability hints.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "rendering.py", "imported_by": 3, "note": "imported by discovery.py, adoption.py, sync.py per architecture §4"},
+    "highest_fan_out": {"module": "rendering.py", "imports": 7, "note": "agentic_tool_spec, config, filesystem_windows_retry, shared_keyed_map_io, state, sync_types, plus stdlib"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/rendering.py",
+      "lines": 331,
+      "function_count": 12,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/rendering.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "Module length over project limit",
+      "severity": "MINOR",
+      "metrics": {"lines": 331, "limit": 300},
+      "evidence": "Module is 331 lines; AGENTS.md §3 and NFR-14 set a 300-line module ceiling.",
+      "evidence_lines": "1-331",
+      "problem": "rendering.py is 331 lines, 31 over the project's explicit <=300-line module guideline (§3, NFR-14). The overage is largely docstrings, not tangled logic, and the module retains a single coherent responsibility (canonical -> on-disk projection + state update), so this is a soft breach rather than a God Module. No unrelated responsibility clusters: path-identity helpers, atomic staging, artifact read/write, rendering dispatch, and state update all serve the one projection concern.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/rendering.py",
+      "line": 179,
+      "function_or_class": "render_to_agentic_tool",
+      "anti_pattern": "I3",
+      "variant": "Too many parameters",
+      "severity": "MINOR",
+      "metrics": {"parameters": 9, "limit": 5},
+      "evidence": "def render_to_agentic_tool(config, spec, kind, canonical, *, existing_path, prior_text, source_dir, existing_slot=None, allow_unpaired_existing_slot=False) -> RenderResult:",
+      "evidence_lines": "179-190",
+      "problem": "render_to_agentic_tool takes 9 parameters (4 positional + 5 keyword-only), well over Fowler's >5 threshold and §3. config/spec/kind/canonical form a recurring quartet across the gateway; existing_path/prior_text/source_dir/existing_slot/allow_unpaired_existing_slot form a per-target 'how to render' clump. Either grouping would benefit from a parameter object. The keyword-only split mitigates call-site error risk but not the cognitive load.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/rendering.py",
+      "line": 179,
+      "function_or_class": "render_to_agentic_tool / _render_keyed_map_slot / _render_single_file / _render_directory_skill / update_state_n_way",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession",
+      "severity": "MINOR",
+      "metrics": {"functions_taking_raw_dict": 6},
+      "evidence": "config: dict[str, Any] and canonical: dict[str, Any] are threaded through render_to_agentic_tool, _render_keyed_map_slot, _render_single_file, _render_directory_skill; functions immediately key into them: canonical[\"name\"] (201), config[spec.config_dir_keys[kind]] (210), canonical.get(layout.key_field, slug) (235), canonical.get(\"pair_id\") (237).",
+      "evidence_lines": "180-237",
+      "problem": "The canonical document and config are passed as raw dict[str, Any] with implicit schemas, then immediately destructured by string-literal keys ('name', 'pair_id'). Architecture §1 (Layer 1) describes the canonical document as a typed entity with a fixed field set; representing it as dict[str, Any] at this gateway loses that typing and defers KeyError to runtime. This is a project-wide pattern (canonical is dict everywhere), not unique to rendering, so it is reported as a hint, not a structural defect.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/rendering.py",
+      "line": 201,
+      "function_or_class": "render_to_agentic_tool",
+      "anti_pattern": "I4",
+      "variant": "Magic string keys / missing fail-fast on canonical schema",
+      "severity": "SMELL",
+      "metrics": {"unguarded_key_accesses": 3},
+      "evidence": "slug = slugger(canonical[\"name\"])  # 201\n... config[spec.config_dir_keys[kind]] ...  # 210\npair_id = canonical.get(\"pair_id\")  # 237",
+      "evidence_lines": "201-237",
+      "problem": "String literals 'name' and 'pair_id' are used as canonical-document keys inline without named constants (§9 no-hardcoding; canonical.py defines the schema). canonical[\"name\"] at line 201 is an unguarded subscript: if 'name' is absent the function raises a bare KeyError with no artifact/tool context, weaker than the structured fail-fast §8/NFR-13 expects. Per §8 'validate at boundaries', this gateway entry point trusts the canonical shape implicitly rather than asserting it. Low severity: 'name' is an invariant field minted by canonical.py upstream.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/rendering.py",
+      "line": 86,
+      "function_or_class": "_rename_with_rollback / stage_skill_dir / update_state_n_way",
+      "anti_pattern": "C3",
+      "variant": "Destructive write gateway without local archive assertion (I-3 reliance on caller)",
+      "severity": "SMELL",
+      "metrics": {"destructive_ops": 4},
+      "evidence": "retry_fs(lambda: target.rename(backup), ...)  # 92 moves existing user dir aside\nretry_fs(lambda: shutil.rmtree(backup), ...)  # 109 deletes prior content\napply_slot(path, io.file_layout, slot, text, ...)  # 164 overwrites slot in shared file in place\nslot insert/replace returns prior_slot_text for archiving  # 238-247",
+      "evidence_lines": "86-122",
+      "problem": "stage_skill_dir/_rename_with_rollback move and rmtree pre-existing user content during the atomic swap, and write_artifact_inplace/_render_keyed_map_slot overwrite a slot inside a shared keyed-map file. These are destructive with respect to user-authored bytes (NFR-01, invariant I-3 in §8). rendering.py contains no archive_* call and no assertion that one occurred; it relies entirely on adoption.py performing archive_copy/archive_move before invoking the gateway. Architecture §8/§10/D-6 explicitly acknowledge there is no static check enforcing this and recommend adding one. This is NOT a swallowed exception (errors propagate via retry_fs and the rollback re-raises at line 106) — it is flagged as a structural smell: a destructive gateway whose data-preservation invariant is enforced only by caller discipline, exactly the gap D-6 names. Note write_artifact_inplace/_render_keyed_map_slot do return prior_slot_text so the caller CAN archive the displaced slot.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 1},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 1},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 1},
+    "I4_magic_numbers": {"info": 0, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "NFR-03 (atomic visibility): satisfied — single-file writes go through atomic_write_text; directory-skill swaps stage to .tmp then rename (stage_skill_dir/_rename_with_rollback). Matches architecture §5.4 and §9 (rendering.py carries NFR-03).",
+      "NFR-06 (round-trip stability): rendering threads prior_text into every io.render call so renderers can preserve user formatting (§5.1 rule 2). Gateway honors the contract.",
+      "NFR-15 / goal 6 (secret egress): the configured secret_policy is evaluated inside the per-tool io.render handler (mcp_server_io), not in this tool-agnostic gateway. Consistent with §1 goal-5 stable-abstraction rule (rendering.py references no concrete tool) and §5.4. No deviation.",
+      "Goal 5 / NFR-11: rendering.py branches only on generic storage shape ('single_file', 'directory_skill', SharedKeyedMapLayout) and never on a concrete tool name — upholds 'the sync engine never references a concrete tool name' (§1) and the §12 'no tool-specific edits to rendering.py' rule.",
+      "I-3 / NFR-01: rendering.py performs destructive writes but contains no archive call; the invariant is enforced by adoption.py call sites, an acknowledged gap (D-6). This is a known deviation in the architecture, not a new violation introduced by this file."
+    ],
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, secure projection gateway; minor module-length and parameter-count smells and the architecture-acknowledged caller-enforced archive invariant. code_score 0.75, zero CRITICAL."
+}

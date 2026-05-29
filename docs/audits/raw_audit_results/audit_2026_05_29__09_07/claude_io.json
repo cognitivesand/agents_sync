@@ -1,0 +1,160 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/claude_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 152,
+
+  "detailed_analysis": "claude_io.py is a small, focused Layer-3 interface adapter (152 lines, 3 functions, 0 classes) implementing the Claude half of the CustomizationTypeIO port: parse_claude_md, render_claude_md, plus a private _split_csv helper. It correctly delegates all shared Markdown/YAML metadata-block primitives to markdown_yaml_metadata_block (split_frontmatter, frontmatter_for_render, yaml_dump, extract_pair_id_from_md), so it is not a duplicate of the other adapters. It honours the Dependency Rule (imports only from canonical, field_names, and the shared metadata-block module — all same-layer or inward). No security smells: no secrets, no injection vectors, no shell/eval, no unsafe deserialization (YAML loading is delegated to the bounded round-trip loader). It correctly does NOT evaluate secret_policy itself — per architecture Goal 6 / NFR-15 that is the sync core's responsibility, and Claude MCP-server secret handling lives in a separate mcp_server_io path. The file is well under the 300-line module limit and both public functions sit at/below the 40-line function limit. The defects that exist are maintainability-grade: parse_claude_md is exactly at the 40-line boundary and mixes several field-mapping responsibilities as a flat sequence of if-blocks (a mild SRP/DRY pressure — six near-identical 'if X in frontmatter -> assign' blocks plus two near-identical list-or-csv coercions); a partial reliance on named field constants (parse_claude_md uses raw string literals 'name'/'description'/'model'/'effort'/'tools'/'pair_id' on the parse side while the symmetric render side and the disallowed/permission/hooks/mcp paths use the CanonicalField/ClaudeField constants — an internal naming inconsistency that the field_names module exists specifically to remove); and missing type precision on the dict-returning public functions (dict[str, Any] is a primitive-obsession schema-by-convention, but that is the project-wide canonical representation, not a defect local to this file). No CRITICAL or MAJOR findings. Spec/architecture conformance is clean against the adapter contract in architecture §5.1, US-10, and the Goal-6 egress invariant.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "imports": ["agents_sync.canonical (empty_canonical, new_pair_id)", "agents_sync.field_names (CanonicalField, ClaudeField)", "agents_sync.markdown_yaml_metadata_block (FRONTMATTER_RE, extract_pair_id_from_md, frontmatter_for_render, split_frontmatter, yaml_dump)"],
+    "layer": "3 (interface adapter)",
+    "dependency_rule_respected": true,
+    "imported_by": ["agents_sync.tool_specs.claude (lazy, inside build_claude_spec)"]
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/claude_io.py",
+      "lines": 152,
+      "function_count": 3,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 62,
+      "function_or_class": "parse_claude_md",
+      "anti_pattern": "I5",
+      "variant": "Inconsistent Naming / mixed field-key vocabulary",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if \"name\" in frontmatter_data:\n    canonical[\"name\"] = str(frontmatter_data[\"name\"])\nif \"description\" in frontmatter_data:\n    canonical[\"description\"] = str(frontmatter_data[\"description\"])\nif \"model\" in frontmatter_data:\n    canonical[\"model\"] = frontmatter_data[\"model\"]\n... (lines 105-106) if \"pair_id\" in frontmatter_data: canonical[\"pair_id\"] = ...",
+      "evidence_lines": "62-69, 105-106",
+      "problem": "The parse path uses raw string literals ('name', 'description', 'model', 'effort', 'tools', 'pair_id') for canonical field keys, while the render path (lines 122-136) and the disallowed/permission/hooks/mcp branches use the CanonicalField.* / ClaudeField.* constants from field_names.py. field_names.py was introduced (per its docstring, 'audit slice 07 / CQ-15') specifically to anchor these keys to named constants so a reader does not chase literals across modules. The same module mixing both conventions is the exact inconsistency that module is meant to eliminate. Not a correctness bug — the literals match the constant values — but a documented project anti-pattern (No-Hardcoding / one-concept-one-word).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 48,
+      "function_or_class": "parse_claude_md",
+      "anti_pattern": "M2",
+      "variant": "Long Function (at limit)",
+      "severity": "INFO",
+      "metrics": {"lines": 40, "cyclomatic_complexity": 11},
+      "evidence": "def parse_claude_md(text, prior_canonical=None, *, kind='agent') -> dict[str, Any]:\n    ... 40 lines, ~11 branches (one per optional frontmatter field plus two list-or-csv ternaries) ...",
+      "evidence_lines": "48-110",
+      "problem": "parse_claude_md is exactly at the project's 40-line function limit (counting body) and just over the cyclomatic-complexity threshold of 10 (one branch per optional field plus the raw_tools / raw_dis isinstance ternaries). It is a flat field-by-field translation, so cognitive load per branch is low, but it carries several distinct mapping concerns (scalar fields, list/CSV fields, the per_agentic_tool_only bag, the per_agentic_tool_extra bag, and pair_id seeding) in one body. It is the most likely function in this file to breach the limit on the next field addition. Borderline rather than a clear violation.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 71,
+      "function_or_class": "parse_claude_md",
+      "anti_pattern": "I2",
+      "variant": "Near-duplicate logic (DRY pressure)",
+      "severity": "INFO",
+      "metrics": {"duplicate_blocks": 2},
+      "evidence": "raw_tools = frontmatter_data.get(\"tools\")\nif raw_tools is not None:\n    canonical[\"tools\"] = (list(raw_tools) if isinstance(raw_tools, list) else _split_csv(raw_tools))\n... (lines 77-81) raw_dis = frontmatter_data.get(ClaudeField.DISALLOWED_TOOLS) ... same list-or-csv shape",
+      "evidence_lines": "71-81",
+      "problem": "Two structurally identical 'fetch -> if not None -> list(...) if isinstance(list) else _split_csv(...)' blocks differ only in the source key and destination key. as_string_list() in markdown_yaml_metadata_block already implements exactly this list-or-CSV coercion and is part of the shared public API the file is otherwise built on, yet this file re-derives the pattern inline with the local _split_csv helper instead. Minor duplication that the shared helper was designed to absorb.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 42,
+      "function_or_class": "_split_csv",
+      "anti_pattern": "I2",
+      "variant": "Redundant private helper (shadows shared as_string_list)",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "def _split_csv(value: Any) -> list[str]:\n    if isinstance(value, str):\n        return [item.strip() for item in value.split(\",\") if item.strip()]\n    return [str(value)]",
+      "evidence_lines": "42-45",
+      "problem": "_split_csv is a near-exact copy of the str branch of as_string_list (markdown_yaml_metadata_block lines 193-199), which the shared module exposes precisely so adapters stop hand-rolling CSV/list coercion. The local helper also has a single-letter-ish opaque name; 'split_csv' does not say 'coerce a frontmatter scalar-or-csv to a list of strings'. The module-level docstring (lines 4-8) advertises that the shared primitives exist to avoid 'four near-duplicates' — this is a fifth.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 138,
+      "function_or_class": "render_claude_md",
+      "anti_pattern": "W2",
+      "variant": "Message chain on untyped dict (.get(...).get(...))",
+      "severity": "SMELL",
+      "metrics": {"chain_depth": 2},
+      "evidence": "claude_only = canonical.get(CanonicalField.PER_AGENTIC_TOOL_ONLY, {}).get(\"claude\", {})\n... (line 144) for key, value in canonical.get(\"per_agentic_tool_extra\", {}).get(\"claude\", {}).items():",
+      "evidence_lines": "138, 144",
+      "problem": "Two chained .get() calls on a dict[str, Any] reach two levels into the canonical's nested passthrough bags with inline default {} at each hop. Because canonical is a plain dict[str, Any] (primitive-obsession schema-by-convention), these chains are unchecked and would silently degrade to empty on a malformed canonical rather than fail loud at the boundary (slight tension with the project's fail-fast guideline). Note line 144 uses the literal 'per_agentic_tool_extra' while line 138 uses CanonicalField.PER_AGENTIC_TOOL_ONLY — same mixed-vocabulary issue as CQ-01. Low severity because the canonical shape is produced internally and empty_canonical seeds these bags.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 1},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 2},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "Architecture Goal 6 / NFR-15 (secret_policy at every egress): NOT a deviation. The architecture explicitly assigns secret-policy evaluation to the sync core, not per adapter (Goal 6 row: 'evaluated by the sync core ... not per adapter'). claude_io correctly performs no secret evaluation; Claude MCP-server secret handling lives in the separate mcp_server_io path.",
+      "Architecture §5.1 rule 4 (unknown fields not dropped): SATISFIED. parse_claude_md routes any frontmatter key not in KNOWN_CLAUDE_FIELDS into per_agentic_tool_extra['claude'] (lines 97-103); render replays them (lines 144-145).",
+      "Architecture §5.1 rule 5 / NFR-06 (no foreign-tool fields leak): SATISFIED. render only emits canonical-owned fields plus Claude's own per_agentic_tool_only['claude'] and per_agentic_tool_extra['claude'] bags; no other tool's bag is read.",
+      "Dependency Rule (architecture §3): SATISFIED. Imports only canonical (Layer 1/3), field_names, and the shared metadata-block module; no use-case, daemon, cli, or config import.",
+      "Goal 5 / §1 'sync engine never references a concrete tool name': N/A to this module — it IS the concrete adapter; the literal 'claude' here is expected per §1 ('the names appear in adapter modules ... and nowhere else')."
+    ],
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-scoped Claude adapter; no CRITICAL/MAJOR findings; only maintainability smells (mixed field-key vocabulary, duplicated CSV coercion, get-chains). code_score 0.75."
+}

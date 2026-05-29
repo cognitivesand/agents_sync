@@ -1,0 +1,146 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/discovery/adoption_planner.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 141,
+
+  "detailed_analysis": "adoption_planner.py is a small (141-line), well-decomposed mixin extracted from the former 313/507-line discovery.py during the v0.5 remediation. The previously-flagged 65-line `_planned_adoption_targets` (audit CQ-07) has been split into five cohesive private methods, each under 26 lines, with the public entry point at 20 lines and cyclomatic complexity well under threshold. No God Class, no Long Function, no deep nesting, no security smells. The file holds a single coherent responsibility (adoption-target planning) and respects the project's 300-line module / 40-line function limits. Remaining issues are minor-to-warning: pervasive `Any` typing on the canonical and `io` parameters (primitive obsession, architecturally accepted but unannotated), one inconsistent fail-fast posture (`canonical['name']` raises KeyError at line 120 while sibling sites use `.get(..., '')`), magic string literals for the storage discriminator and canonical keys, and a structural-typing mixin that declares its host-attribute contract only in a docstring rather than a Protocol. The lexicographic-first source-tool selection at line 59 is a documented project-level concern (P2-15 / CQ-22) but is defensible for adoption (no conflict exists at adoption time). No CRITICAL or MAJOR findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "adoption_planner.py", "imported_by": 1},
+    "highest_fan_out": {"module": "adoption_planner.py", "imports": 7}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "lines": 141,
+      "function_count": 6,
+      "class_count": 1,
+      "correctness": 0.75,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "line": 120,
+      "function_or_class": "AdoptionPlannerMixin._target_for_tool",
+      "anti_pattern": "C3-adjacent / fail-fast inconsistency",
+      "variant": "Inconsistent boundary contract",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "slug = slugger(canonical[\"name\"])   # line 120 — raises KeyError\n...\nslot_key = str(canonical.get(layout.key_field, \"\"))  # line 110 — tolerant\nname = str(canonical.get(\"name\", \"\"))                # line 139 — tolerant",
+      "evidence_lines": "110,120,139",
+      "problem": "Within the same class the canonical dict's required fields are accessed with two opposite contracts: line 120 uses direct subscript `canonical[\"name\"]` (KeyError on a malformed canonical), while lines 110 and 139 use tolerant `.get(..., \"\")`. The per-file (`SharedKeyedMapLayout`) branch fails closed on a missing key (returns None) but the slug branch throws. The behaviour for a canonical missing `name` therefore depends on the target tool's storage shape — surprising (POLA) and an inconsistent fail-fast posture.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "line": 9,
+      "function_or_class": "module / multiple signatures",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession + Any typing",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "from typing import Any\n...\ndef _target_for_tool(self, spec: AgenticToolSpec, kind: str, io: Any, canonical: dict[str, Any]) -> PlannedTarget | None:\n...\ncanonical: dict[str, Any]",
+      "evidence_lines": "9,98-104",
+      "problem": "The canonical document flows through five methods as an untyped `dict[str, Any]` with an implicit schema (keys `name`, `private`, plus `layout.key_field`), and `io` is typed `Any` (line 102) though it is concretely a `CustomizationTypeIO`. The dict has a real schema (canonical.py) that a domain type or TypedDict would make checkable; the `Any` on `io` discards available type information and silences mypy on `io.file_layout` / `io.storage` / `io.parse` / `io.slugify_name` access. Project NFR-14 and §4 guidelines call for explicit boundaries and full annotations on interfaces.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "line": 121,
+      "function_or_class": "AdoptionPlannerMixin._target_for_tool",
+      "anti_pattern": "I4",
+      "variant": "Magic strings",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if io.storage == \"single_file\":   # line 121\nslug = slugger(canonical[\"name\"])  # line 120 — \"name\" literal\nname = str(canonical.get(\"name\", \"\"))  # line 139",
+      "evidence_lines": "120,121,139",
+      "problem": "The storage discriminator literal \"single_file\" (line 121) and the canonical key \"name\" (lines 120, 139) are inlined string literals carrying domain meaning. \"single_file\" is one of the port's enumerated `storage` values and should reference a named constant/enum shared with the port; the canonical \"name\" key is repeated and would drift silently if renamed. Per §9 (No Hardcoding) these should be named constants.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "line": 30,
+      "function_or_class": "AdoptionPlannerMixin",
+      "anti_pattern": "structural-typing contract",
+      "variant": "Undeclared host attribute dependency",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "class AdoptionPlannerMixin:\n    \"\"\"Plan adoption targets. Relies on ``self.config``, ``self.agentic_tools``,\n    ``self.tool_status`` from :class:`DiscoveryWalker`.\"\"\"",
+      "evidence_lines": "30-32",
+      "problem": "The mixin reads `self.config`, `self.agentic_tools`, `self.tool_status` and calls sibling-mixin methods (`self.state_owner_for_path` is not here but `_planned_adoption_targets` is invoked by collision_blocker) yet the host-attribute contract exists only as prose in the docstring. There is no Protocol/ABC binding these names, so mypy cannot verify the mixin's assumptions and a missing host attribute fails only at runtime. This is the standard mixin tradeoff but weakens the fail-fast and explicit-boundary guarantees (NFR-14).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/discovery/adoption_planner.py",
+      "line": 59,
+      "function_or_class": "AdoptionPlannerMixin._read_source_canonical",
+      "anti_pattern": "correctness / policy alignment",
+      "variant": "Lexicographic source selection",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "source_tool = sorted(info.agentic_tools.keys())[0]",
+      "evidence_lines": "59",
+      "problem": "When a not-yet-fully-managed pair already exists on more than one tool, the adoption source canonical is taken from the lexicographically-first tool name rather than by any content/mtime criterion. This is a documented project concern (audit P2-15 / CQ-22). For pure adoption (extending to tools that lack the artifact) any consistent source is defensible because no conflict exists; the risk is only that the chosen source may not be the freshest if the existing copies already diverge. Flagged as a deterministic-but-arbitrary selection, not a defect in this file's stated responsibility.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-decomposed adoption-target planner; no CRITICAL/MAJOR findings, code_score 0.75 held down only by Any-typing and minor fail-fast inconsistency."
+}

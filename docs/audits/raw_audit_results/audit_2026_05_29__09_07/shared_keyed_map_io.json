@@ -1,0 +1,147 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/shared_keyed_map_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 236,
+
+  "detailed_analysis": "shared_keyed_map_io.py is a small, cohesive Layer-3 IO gateway providing three public operations (read_slots, apply_slot, serialize_slot) plus three module-private helpers and two custom exception types. The module is well under the 300-line file budget (236 lines) and every public function is type-annotated and documented. Security posture is strong: input size is bounded via read_text_bounded at every read entry point (closing the prior SEC-C-02 finding), the read-modify-write in apply_slot runs inside a cross-process exclusive lock (closing the prior CQ-01 TOCTOU finding), the write goes through atomic_write_text (NFR-03), and the prior CQ-07 'silent overwrite of non-mapping node' finding is resolved — _navigate_or_create now raises ValueError on a non-mapping path segment instead of clobbering it. No hardcoded secrets, no injection vectors, no bare excepts; the one except (LockTimeoutError) logs structured context and re-raises a domain error. The remaining issues are minor: apply_slot conflates four sub-steps and is slightly above the function-line budget if the docstring is counted; _assert_slot_pair_id_matches has two structurally identical raise blocks (DRY); and node.get(slot_key) cannot distinguish an absent slot from a slot whose stored value is JSON null, making the returned prior_text ambiguous to the archiving caller. None of these rise to MAJOR. The module conforms to its architectural role: archive-before-write (I-3/NFR-01) is correctly delegated to the caller (apply_slot returns prior_slot_text precisely so rendering.py can archive it), and the module references no concrete tool name (goal 5).",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "internal_imports": [
+      "agentic_tool_spec.SharedKeyedMapLayout",
+      "filesystem_lock.LockTimeoutError",
+      "filesystem_lock.lock_file",
+      "parser_bounds.read_text_bounded",
+      "shared_keyed_map_formats.get_format",
+      "state.atomic_write_text"
+    ],
+    "imported_by": ["rendering.py", "discovery/enumerator.py (transitively)"],
+    "highest_fan_in": {"module": "shared_keyed_map_io.py", "imported_by": 1},
+    "highest_fan_out": {"module": "shared_keyed_map_io.py", "imports": 6}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "lines": 236,
+      "function_count": 6,
+      "class_count": 2,
+      "correctness": 0.75,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "correctness",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "line": 116,
+      "function_or_class": "apply_slot",
+      "anti_pattern": "W8",
+      "variant": "Ambiguous None — absent slot vs. stored JSON null",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "prior_value = node.get(slot_key)\nprior_text = (\n    format_handler.serialize(prior_value)\n    if prior_value is not None else None\n)",
+      "evidence_lines": "116-120",
+      "problem": "node.get(slot_key) returns None both when the slot is absent and when the slot exists with a stored value of JSON null. prior_text is then None in both cases, so the archiving caller (rendering.py _render_keyed_map_slot) cannot distinguish 'no prior content to archive' from 'prior content was an explicit null'. A slot legitimately holding null would not be archived before being overwritten — a narrow data-preservation edge (NFR-01). Use a sentinel or `slot_key in node` to disambiguate.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "line": 80,
+      "function_or_class": "apply_slot",
+      "anti_pattern": "M2",
+      "variant": "Long Function / mixed responsibilities (borderline)",
+      "severity": "WARNING",
+      "metrics": {"lines_with_docstring": 64, "code_lines": 30, "cyclomatic_complexity": 6},
+      "evidence": "def apply_slot(...):\n    \"\"\"...19-line docstring...\"\"\"\n    format_handler = get_format(...)\n    shared_path.parent.mkdir(...)\n    try:\n        with lock_file(shared_path):\n            root, node = _read_root_and_node(...)\n            prior_value = node.get(slot_key)\n            ... assert pair_id ... pop/assign ... atomic_write ...\n    except LockTimeoutError as exc:\n        ...",
+      "evidence_lines": "80-143",
+      "problem": "apply_slot spans 80-143 (64 lines including a 19-line docstring; ~30 executable lines) and sequences four distinct concerns inside one lock block: prior-value capture, pair_id ownership assertion, insert/replace/delete mutation, and atomic write + lock-timeout translation. Executable lines stay under the 40-line guideline so this is WARNING, not MAJOR, but the lock-timeout-to-domain-error translation and the merge-mutate steps are separable. Already noted as CQ-14 in docs/audit/04-shared-keyed-map.json.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "line": 211,
+      "function_or_class": "_assert_slot_pair_id_matches",
+      "anti_pattern": "I2",
+      "variant": "Duplicated raise block (DRY)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if not isinstance(prior_value, dict):\n    if allow_unpaired_existing:\n        return\n    raise SharedKeyedMapSlotCollisionError(... existing_pair_id=None)\nif \"pair_id\" not in prior_value:\n    if allow_unpaired_existing:\n        return\n    raise SharedKeyedMapSlotCollisionError(... existing_pair_id=None)",
+      "evidence_lines": "211-226",
+      "problem": "The two guard branches (non-dict prior_value; dict without a pair_id) execute identical logic — `if allow_unpaired_existing: return` then raise a SharedKeyedMapSlotCollisionError whose message is byte-for-byte identical (both emit `existing_pair_id=None`). The 'unpaired existing' case is one concept expressed twice; it can be collapsed to a single guard.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/shared_keyed_map_io.py",
+      "line": 219,
+      "function_or_class": "_assert_slot_pair_id_matches",
+      "anti_pattern": "I4",
+      "variant": "Magic string field name 'pair_id'",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "if \"pair_id\" not in prior_value:\n    ...\nexisting_pair_id = prior_value[\"pair_id\"]",
+      "evidence_lines": "219-227",
+      "problem": "The literal field name 'pair_id' is hardcoded twice in the collision guard. read_slots, by contrast, parameterises the key field via layout.key_field. The pair_id field name is a domain constant (canonical schema, identity.py) and should be referenced as a named constant rather than an inline string, so a schema rename cannot silently desync this guard from the rest of the codebase.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": "I-3/NFR-01 (archive-before-write) is correctly delegated to the caller: apply_slot returns prior_slot_text so rendering.py can archive before overwrite — this module is the IO primitive, not the destructive-write orchestrator. NFR-03 atomic visibility upheld via atomic_write_text. US-09/concurrency: although US-09 notes the project chose atomic-writes over locks for state.json, the shared keyed-map file is a multi-writer file (two daemons or a daemon + hand-editor target the same physical file), so a cross-process lock here is consistent with NFR-01/NFR-03 rather than a deviation. SEC input-size cap (NFR via parser_bounds) enforced through read_text_bounded. Goal 5 / 'sync engine never references a concrete tool name': no tool name appears. The CQ-01 ambiguous-null finding is a narrow correctness edge, not a spec contradiction.",
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, cohesive IO gateway: zero CRITICAL/MAJOR findings, strong security posture (bounded reads, cross-process lock, atomic write); four minor issues (ambiguous null prior, borderline-long apply_slot, duplicated raise block, magic 'pair_id' string). code_score 0.75."
+}

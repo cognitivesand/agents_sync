@@ -1,0 +1,123 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/rules_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 164,
+
+  "detailed_analysis": "rules_io.py is a Layer-3 interface adapter (architecture §4) providing generic Markdown parse/render for v0.5 `rules` artifacts. The module is small and cohesive: 164 lines, well under the 300-line module limit; two public functions plus two private coercion helpers and a thin pass-through for extract_pair_id. No God Module, no class, no deep nesting (max depth 2), no security smells (no secrets, no injection vector, no subprocess, no eval/pickle/yaml.load). The prior round-1 finding CQ-11 (Shotgun Surgery: per_agentic_tool_only/extra rebuilt by hand in three places) has been remediated — the shared canonical.apply_per_tool_partition helper is now used. The prior CQ-12 (Inappropriate Intimacy: importing 5+ underscore-prefixed helpers from claude_io/codex_io) is also resolved — all current imports are public symbols from artifact_names, canonical, and markdown_yaml_metadata_block, all inward (Layer-1/shared-helper) dependencies, so the Dependency Rule (§3) holds. Residual code-quality issues are minor: parse_rules_md takes 8 parameters (I3, standing CQ-10), and frontmatter scalar coercion via bare str(...) at lines 74 and 94 plus the permissive bool fallback in _coerce_bool (line 154) are weak-fail-fast points where a non-scalar YAML value is silently stringified rather than rejected. None of these caps a major axis. Spec/architecture conformance is good: the module carries US-01-per-tool and NFR-06 (round-trip stability), honours §5.1 adapter rules (unknown fields preserved via per_agentic_tool_extra; tool-only `trigger` partitioned so foreign fields do not leak), and correctly carries no NFR-15 secret-policy obligation (rules artifacts have no env/headers/auth.* fields, and the policy is a sync-core egress concern, not an adapter concern, per §1 and the goal-6 traceability row).",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "rules_io.py", "imported_by": "tool_specs adapters (out of scope)"},
+    "highest_fan_out": {"module": "rules_io.py", "imports": 3}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/rules_io.py",
+      "lines": 164,
+      "function_count": 5,
+      "class_count": 0,
+      "correctness": 0.75,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "correctness",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/rules_io.py",
+      "line": 43,
+      "function_or_class": "parse_rules_md",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"parameter_count": 8},
+      "evidence": "def parse_rules_md(\n    text: str,\n    prior_canonical: dict[str, Any] | None = None,\n    *,\n    agentic_tool_name: str = \"rules\",\n    artifact_path: Path | None = None,\n    canonical_name: str | None = None,\n    provenance: str = \"user\",\n    private: bool = False,\n) -> dict[str, Any]:",
+      "evidence_lines": "43-52",
+      "problem": "Eight parameters (one positional text, prior_canonical, and six keyword-only) exceed the >5 limit (Fowler I3). Three of them — artifact_path, canonical_name, and the default-name precedence — overlap in purpose (all feed name resolution). This is the standing CQ-10 finding from the round-2 audit; severity is INFO because the keyword-only block keeps call sites self-documenting and the signature must satisfy the ParseFn port contract.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/rules_io.py",
+      "line": 74,
+      "function_or_class": "parse_rules_md",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession / weak boundary coercion",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "if \"description\" in frontmatter_data:\n    canonical[\"description\"] = str(frontmatter_data[\"description\"])\n...\nif \"pair_id\" in frontmatter_data:\n    canonical[\"pair_id\"] = str(frontmatter_data[\"pair_id\"])",
+      "evidence_lines": "73-74, 93-94",
+      "problem": "Frontmatter scalar values are coerced with bare str(...) without validating they are actually scalars. A YAML mapping or list supplied for `description` or `pair_id` (e.g. description: {a: 1}) is silently stringified to the literal \"{'a': 1}\" rather than rejected at the boundary. This is a fail-fast gap (§8 of the guidelines: validate at boundaries, fail loud). pair_id additionally bypasses identity.validate_pair_id here, so a malformed pair_id is accepted as-is. This matches the standing SEC-C-parsing observation; low blast radius because rules frontmatter is author-controlled, hence MINOR.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/rules_io.py",
+      "line": 145,
+      "function_or_class": "_coerce_bool",
+      "anti_pattern": "W8",
+      "variant": "Permissive fallback / weak fail-fast",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "if isinstance(value, str):\n    normalized = value.strip().lower()\n    if normalized in {\"true\", \"yes\", \"1\"}:\n        return True\n    if normalized in {\"false\", \"no\", \"0\"}:\n        return False\nreturn bool(value)",
+      "evidence_lines": "145-154",
+      "problem": "An unrecognized string value for `private` (e.g. \"maybe\", \"off\", \"\") falls through to bool(value), where any non-empty string is truthy. \"off\" or \"no_thanks\" silently becomes private=True. Unlike _coerce_provenance directly above it (line 138-142), which raises ValueError on an unknown value, _coerce_bool fails open rather than loud. Inconsistent boundary discipline within the same module. MINOR: the affected field is a non-destructive privacy flag and inputs are author-controlled.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 2, "total": 2},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_conformance": {
+    "conforms": true,
+    "notes": "Layer-3 adapter; Dependency Rule (§3) upheld — imports only inward/shared helpers (artifact_names, canonical, markdown_yaml_metadata_block). §5.1 adapter rules satisfied: extract_pair_id_from_rules_md returns None on absence (rule 3), unknown fields preserved via apply_per_tool_partition into per_agentic_tool_extra (rule 4), tool-only `trigger` partitioned so foreign fields do not leak on render (rule 5, NFR-06). Carries US-01-per-tool and NFR-06 round-trip stability. No NFR-15/goal-6 obligation: rules artifacts have no env/headers/auth.* fields and secret_policy is a sync-core egress concern per the goal-6 traceability row, not an adapter responsibility. No I-3 archive-before-write obligation (adapter performs no destructive writes)."
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, cohesive Layer-3 adapter; prior shotgun-surgery and intimacy findings remediated; only minor weak-fail-fast boundary-coercion gaps and an 8-param signature remain."
+}

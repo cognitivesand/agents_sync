@@ -1,0 +1,129 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/claude.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 125,
+  "detailed_analysis": "src/agents_sync/tool_specs/claude.py is a thin Layer-3 (Interface Adapter / port-wiring) factory: build_claude_spec(config) closes over a set of small pure adapter functions imported lazily from claude_io / slash_command_io / mcp_server_io, then assembles one frozen AgenticToolSpec describing the five Claude customization_type cells (agent, skill, slash_command, rules, mcp_server). The module is 125 lines, well under the 300-line limit. There is exactly one function of substance, build_claude_spec, which is 108 lines (lines 17-124). It exceeds the project's 40-line function guideline, but its body is almost entirely declarative: five trivial nested closures that forward arguments verbatim, plus one large dataclass literal. There is no branching (cyclomatic complexity 1), no nesting beyond the closure definitions, no mutable state, no I/O, no secrets, no injection surface, and no destructive write path. The lazy intra-function imports (lines 18-28) are a deliberate cycle-avoidance / startup-determinism pattern consistent with the rest of tool_specs and agentic_tool_spec.default_agentic_tools; they are not import side effects. The nested closures (parse_agent, parse_skill, parse_slash_command, render, render_slash_command) are near-identical to those in sibling factories and to the *_factory helpers, hinting at mild duplication, but each tool's wiring is genuinely distinct in its arguments and the project's Rule-of-Three has been partially honoured already by extracting _rules_factory and _mcp_server_factory. Security and correctness axes are clean. The only real structural smell is the single long declarative factory function and a handful of missing parameter annotations / unused parameters in the local closures (an interface-shape concession to the ParseFn Protocol). Spec conformance is strong: the module is exactly the one-module-per-tool shape US-10 AC-1 mandates, references the tool name 'claude' only in adapter/config-key context (Goal 5 / §1), passes config through to the mcp_server cell so secret_policy is evaluated at the egress boundary (Goal 6 / NFR-15), and adds no tool-specific branching to the sync engine (AC-2).",
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "claude.py", "imported_by": 1},
+    "highest_fan_out": {"module": "claude.py", "imports": 6}
+  },
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/claude.py",
+      "lines": 125,
+      "function_count": 6,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 4
+    }
+  ],
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/claude.py",
+      "line": 17,
+      "function_or_class": "build_claude_spec",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MINOR",
+      "metrics": {"lines": 108, "cyclomatic_complexity": 1},
+      "evidence": "def build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:\n    ... 108 lines: five nested closures (lines 30-74) + one AgenticToolSpec literal (lines 76-124) ...",
+      "evidence_lines": "17-124",
+      "problem": "Function spans 108 lines, exceeding the project's 40-line guideline (AGENTS.md §3). Mitigating: cyclomatic complexity is 1 (no branches), the body is purely declarative wiring, and the shape matches every sibling factory in tool_specs/. The length is driven by the five forwarding closures plus a large dataclass literal, not by tangled logic. Downgraded to MINOR because it is structurally a configuration table, not behavioural code.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/claude.py",
+      "line": 30,
+      "function_or_class": "parse_agent / parse_skill / parse_slash_command",
+      "anti_pattern": "I2",
+      "variant": "Unused parameter (dead signature surface)",
+      "severity": "SMELL",
+      "metrics": {"unused_params_per_closure": 2},
+      "evidence": "def parse_agent(\n    text: str,\n    prior_canonical: dict[str, Any] | None,\n    *,\n    artifact_path: Path | None = None,\n    artifact_root: Path | None = None,\n) -> dict[str, Any]:\n    return parse_claude_md(text, prior_canonical=prior_canonical, kind=\"agent\")",
+      "evidence_lines": "30-46",
+      "problem": "parse_agent and parse_skill accept artifact_path and artifact_root keyword parameters that are never used in their bodies (lines 30-46). They exist only to satisfy the ParseFn Protocol signature in agentic_tool_spec.py. This is a deliberate interface-shape concession rather than a true defect, but the unused parameters are dead surface a reader must reconcile against the actual call.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/tool_specs/claude.py",
+      "line": 30,
+      "function_or_class": "parse_agent / parse_skill / parse_slash_command / render / render_slash_command",
+      "anti_pattern": "DRY",
+      "variant": "Near-duplicate closure boilerplate across tool_specs factories",
+      "severity": "SMELL",
+      "metrics": {"near_duplicate_closures": 5},
+      "evidence": "def parse_agent(text, prior_canonical, *, artifact_path=None, artifact_root=None): return parse_claude_md(text, prior_canonical=prior_canonical, kind=\"agent\")\n# vs parse_skill: identical but kind=\"skill\"",
+      "evidence_lines": "30-74",
+      "problem": "parse_agent and parse_skill differ only in the literal kind argument; the parse/render closures here closely mirror those in gemini_cli.py and the _rules_factory/_mcp_server_factory helpers. The repetition is contained and the project has already extracted the rules and mcp_server cells into shared factories (Rule of Three partially applied), so this is an observation, not a required refactor. Flagged for awareness only.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/tool_specs/claude.py",
+      "line": 48,
+      "function_or_class": "render",
+      "anti_pattern": "I5",
+      "variant": "Single-word / under-qualified name",
+      "severity": "SMELL",
+      "metrics": {"name_word_count": 1},
+      "evidence": "def render(canonical: dict[str, Any], prior_text: str | None) -> str:\n    return render_claude_md(canonical, prior_text=prior_text)",
+      "evidence_lines": "48-49",
+      "problem": "The local closure is named render (line 48), a single bare verb, while its sibling is render_slash_command (line 66). AGENTS.md §4 requires a two-word minimum (subject+mechanism). render_agent or render_claude_md_doc would disambiguate which customization_type it serves. Local scope limits blast radius, hence SMELL.",
+      "affected_axis": "maintainability"
+    }
+  ],
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 1}
+  },
+  "spec_adherence": {
+    "conforms": true,
+    "deviations": []
+  },
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean thin port-wiring factory; one over-length but branch-free declarative function and minor naming/duplication smells. No security, correctness, or spec deviations."
+}

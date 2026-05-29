@@ -1,0 +1,130 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/identity.py, src/agents_sync/artifact_names.py, src/agents_sync/sync_types.py",
+  "date": "2026-05-29",
+  "files_analyzed": 3,
+  "total_lines": 131,
+
+  "detailed_analysis": "All three scoped files are Layer-1 (Entities) modules per architecture.md §2/§4. They are small, cohesive, and exemplary against the project's own engineering limits (functions <= 40 lines, modules <= 300 lines, two-word naming, fail-fast at boundaries). identity.py (19 lines) defines validate_pair_id, which fails loud with a descriptive InvalidPairId and verifies both UUIDv4 version and canonical text form (str(parsed) == value rejects non-canonical casing/format) — a clean enforcement of invariant I-1. artifact_names.py (43 lines) defines a single pure, keyword-only resolve_artifact_name that validates precedence tokens (raises ValueError on an unknown source), ignores empty strings to avoid name=\"\" routing, and fails closed via required_label — strong fail-fast hygiene. sync_types.py (69 lines) defines three dataclasses for per-poll observation; the one mutable field (CustomizationArtifactInfo.agentic_tools) correctly uses field(default_factory=dict), so there is NO C4 mutable-default defect. The TYPE_CHECKING-guarded import of SharedKeyedMapLayout avoids an import cycle while keeping the inward-only Dependency Rule intact. No CRITICAL, MAJOR, or WARNING code-quality findings. Only one trivial INFO-grade observation: an intentional but undocumented type asymmetry in resolve_artifact_name parameters (frontmatter_name/prior_name typed `object`, path_name/override_name typed `str | None`). The single material issue is a spec/governance gap, not a code defect: artifact_names.py is a real production module imported by five Layer-3 adapters but is entirely absent from architecture.md — missing from the §4 module map (which asserts a 19-module total and assigns every module a layer) and from the §9 traceability table (which asserts every module carries at least one requirement/US). This violates the document's own stated completeness invariants.",
+
+  "dependency_graph_summary": {
+    "total_modules": 3,
+    "cyclic_dependencies": [],
+    "notes": "identity.py and sync_types.py have zero intra-package inward dependencies (Layer-1 leaves). artifact_names.py also has zero intra-package dependencies. sync_types.py imports agentic_tool_spec.SharedKeyedMapLayout only under TYPE_CHECKING, so no runtime/import cycle exists. All three are imported only by equal-or-outer layers (identity by canonical/archive/state/discovery/portable_archive; artifact_names by *_io adapters; sync_types by discovery/adoption/sync), consistent with the inward-only Dependency Rule (architecture §3).",
+    "highest_fan_in": {"module": "identity.py", "imported_by": 6},
+    "highest_fan_out": {"module": "sync_types.py", "imports": 1}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/identity.py",
+      "lines": 19,
+      "function_count": 1,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 0
+    },
+    {
+      "file": "src/agents_sync/artifact_names.py",
+      "lines": 43,
+      "function_count": 1,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "maintainability",
+      "finding_count": 1
+    },
+    {
+      "file": "src/agents_sync/sync_types.py",
+      "lines": 69,
+      "function_count": 0,
+      "class_count": 3,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 0
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/artifact_names.py",
+      "line": 9,
+      "function_or_class": "resolve_artifact_name",
+      "anti_pattern": "I1",
+      "variant": "Inconsistent / weak type annotation",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "frontmatter_name: object = None,\npath_name: str | None = None,\nprior_name: object = None,\noverride_name: str | None = None,",
+      "evidence_lines": "9-12",
+      "problem": "Two name sources (frontmatter_name, prior_name) are typed `object` while the other two (path_name, override_name) are typed `str | None`, yet all four are funnelled through `str(value)` identically. The `object` typing is presumably intentional (callers may pass non-str frontmatter values), but the asymmetry is undocumented and weakens the contract: a caller cannot tell from the signature which arguments accept arbitrary objects by design and which are merely loosely typed. Trivial; no behavioural impact.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 1.0,
+    "weakest_axis": "none"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 1, "total": 1},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map) / §9 (Traceability)",
+        "file": "src/agents_sync/artifact_names.py",
+        "line": 7,
+        "description": "artifact_names.py is a production Layer-1 module imported by five Layer-3 adapters (rules_io, copilot_io, cursor_io, opencode_io, gemini_cli_io) but is entirely absent from architecture.md. §4's module map lists neither the module nor its line count and asserts a total of '19 modules, 2 852 lines' that excludes it; §9 asserts 'every requirement ... and every story ... has at least one module carrying it' and 'any future requirement that has no carrying module is a defect', yet the module carrying the artifact-name precedence policy (relevant to US-04 rename / name-field resolution) is not traced. The governance documents are stale with respect to the code."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Three exemplary Layer-1 entity modules with zero code-quality defects (code_score 1.0); the only issue is a governance gap — artifact_names.py is undocumented in architecture.md §4 and §9."
+}

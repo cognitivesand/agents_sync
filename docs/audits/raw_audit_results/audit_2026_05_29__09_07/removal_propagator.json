@@ -1,0 +1,181 @@
+{
+  "project_version": "v0.5",
+  "scope": "file:src/agents_sync/adoption/removal_propagator.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 154,
+
+  "detailed_analysis": "removal_propagator.py is a small, well-factored mixin (154 lines, 4 methods) carrying the removal-propagation slice of AdoptionEngine. Naming is intention-revealing, the narrow exception tuple _REMOVAL_FAILURES correctly avoids swallowing programmer errors, and each helper has a clear single responsibility. Structurally it is clean: no God Class, no function exceeds 40 lines, nesting stays at or below 3. The dominant concern is correctness of the data-preservation ordering on the SharedKeyedMapLayout removal path: _remove_keyed_map_slot deletes the slot from the shared file via apply_slot(new_slot_text=None) and only afterwards persists the archive copy via archive.archive_text. This is delete-then-archive, contradicting the module's own docstring ('Archive-then-delete survivors') and architectural invariant I-3 / US-05 AC-2 (archive-before-delete) — if archive_text raises after the slot is removed, the prior bytes are lost. The single-file path (_remove_file_artifact) is correct because archive_move is an atomic move. Secondary structural smells are mild: the mixin reaches into host-class attributes (self.tool_status, self.agentic_tools, self.state_dir) it does not declare (implicit coupling typical of mixins), survivor_io is typed Any, and _propagate_removal carries a 5-parameter signature at the limit.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "n/a (single-file scope)", "imported_by": 0},
+    "highest_fan_out": {"module": "removal_propagator.py", "imports": 6}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/adoption/removal_propagator.py",
+      "lines": 154,
+      "function_count": 4,
+      "class_count": 1,
+      "correctness": 0.5,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.5,
+      "weakest_axis": "correctness",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/adoption/removal_propagator.py",
+      "line": 118,
+      "function_or_class": "RemovalPropagatorMixin._remove_keyed_map_slot",
+      "anti_pattern": "C3-adjacent / correctness",
+      "variant": "Destructive-write-before-preservation (archive ordering)",
+      "severity": "MAJOR",
+      "metrics": {},
+      "evidence": "prior_slot_text = apply_slot(\n    survivor_info.path, survivor_io.file_layout,\n    slot_key, new_slot_text=None,\n    expected_pair_id=pair_id,\n)\nexcept _REMOVAL_FAILURES:\n    ...\n    return False\nif prior_slot_text is not None:\n    archive.archive_text(self.state_dir, pair_id, tool, ...)",
+      "evidence_lines": "118-137",
+      "problem": "apply_slot(new_slot_text=None) removes the slot from the shared file on disk and RETURNS the prior text; the archive copy (archive.archive_text) is written only afterwards (line 130-136) and is OUTSIDE the try/except. The user's prior bytes are therefore deleted before they are preserved. If archive_text raises (OSError disk-full, permission, or the ValueError path-escape guard at archive.py:112), the slot is already gone and the bytes are lost — and the exception is unhandled, so it does not even return False to leave state for retry. This inverts the module's own docstring 'Archive-then-delete survivors' (line 1) and the in-band docstring 'Archive the prior slot text and delete the slot' (line 110).",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/adoption/removal_propagator.py",
+      "line": 108,
+      "function_or_class": "RemovalPropagatorMixin._remove_keyed_map_slot",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession / weak typing",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "def _remove_keyed_map_slot(self, pair_id, tool, survivor_info, survivor_io: Any) -> bool:",
+      "evidence_lines": "103-109",
+      "problem": "survivor_io is annotated Any while the body relies on a concrete contract: survivor_io.file_layout, .file_layout.file_suffix, and the isinstance(..., SharedKeyedMapLayout) check at the call site (line 76). Any defeats mypy --strict on the load-bearing field of a destructive path and obscures the real type (CustomizationTypeIO). NFR-14 requires explicit boundaries and easy-to-test designs.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/adoption/removal_propagator.py",
+      "line": 65,
+      "function_or_class": "RemovalPropagatorMixin (mixin coupling)",
+      "anti_pattern": "W3",
+      "variant": "Implicit host-class coupling / undeclared attributes",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "if self.tool_status.is_available(tool):  # line 53\nsurvivor_io = self.agentic_tools[tool].io[info.kind]  # line 75\narchive.archive_move(self.state_dir, pair_id, tool, survivor_path)  # line 146",
+      "evidence_lines": "53, 75, 132, 146",
+      "problem": "The mixin reads self.tool_status, self.agentic_tools, and self.state_dir but declares none of them — they are supplied by AdoptionEngine (engine.py:43-45). There is no Protocol or type bound constraining the host, so mypy cannot verify these attributes exist on this class in isolation, and a reader must locate the host to understand the contract. Typical mixin smell; mitigated only by convention.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/adoption/removal_propagator.py",
+      "line": 65,
+      "function_or_class": "RemovalPropagatorMixin._propagate_removal",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"parameters": 5},
+      "evidence": "def _propagate_removal(self, pair_id, info, state, missing_tools, survivors) -> bool:",
+      "evidence_lines": "65-72",
+      "problem": "Five parameters (excluding self) sits exactly at the project/Fowler limit of 5. pair_id, info, state travel together through the AdoptionEngine method family (a data clump shared with adopter/conflict_resolver/extender) and would be candidates for a per-pair context object. Borderline, informational.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/adoption/removal_propagator.py",
+      "line": 92,
+      "function_or_class": "RemovalPropagatorMixin._propagate_removal",
+      "anti_pattern": "I4",
+      "variant": "Duplicated literal log format strings",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "logging.info(\"Propagated removal (fully dropped): pair_id=%s ...\")  and  \"Propagated removal: pair_id=%s ... preserved_unavailable=%s\"",
+      "evidence_lines": "91-100, 57-62",
+      "problem": "Structured-log format strings are repeated inline across propagate_orphan_state and _propagate_removal with near-identical 'pair_id=%s ... preserved_unavailable=%s' shape. Minor DRY drift risk; structured fields are not named constants. Acceptable for log messages but worth noting for NFR-13 consistency.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.5,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.5,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "ordering_archive_before_delete": {"major": 1, "total": 1},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 1, "total": 1},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "user_story",
+        "reference": "US-05 AC-2",
+        "file": "src/agents_sync/adoption/removal_propagator.py",
+        "line": 118,
+        "description": "AC-2 mandates that on removal propagation each survivor's file/folder is MOVED to archive, never destroyed before preservation. For the SharedKeyedMapLayout path, _remove_keyed_map_slot deletes the slot from the shared file (apply_slot new_slot_text=None) and archives the returned prior text only afterwards (lines 130-136), outside the try/except. archive_move on the single-file path is correct; the keyed-map slot path is delete-then-archive."
+      },
+      {
+        "artifact": "requirement",
+        "reference": "NFR-01",
+        "file": "src/agents_sync/adoption/removal_propagator.py",
+        "line": 130,
+        "description": "Data-preservation: if archive.archive_text raises (OSError disk-full/permission, or the path-escape ValueError at archive.py:112) the slot bytes are already removed from disk, so user-authored content is lost. The destructive write is not gated on successful preservation."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §8 I-3",
+        "file": "src/agents_sync/adoption/removal_propagator.py",
+        "line": 118,
+        "description": "I-3 'no destructive write without prior archive' requires the archive_* call to precede the destructive mutation. On the keyed-map path the mutation (slot delete via apply_slot) precedes the archive (archive_text), inverting the invariant. The single-file path satisfies I-3."
+      },
+      {
+        "artifact": "requirement",
+        "reference": "NFR-05 / US-05 AC-3",
+        "file": "src/agents_sync/adoption/removal_propagator.py",
+        "line": 130,
+        "description": "archive_text is invoked unconditionally whenever prior_slot_text is not None, with no byte-equality short-circuit. US-05 AC-3 / NFR-07 (bounded archive growth) require an archive entry only when content would otherwise be lost; for a genuine removal this is correct, but combined with the ordering defect the archive write becomes the failure point of the delete, so the preservation guarantee and the suppression rule are not cleanly separated. Low-confidence / advisory."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Structurally clean small mixin, but the SharedKeyedMapLayout removal path deletes the slot before archiving its prior bytes (delete-then-archive), violating US-05 AC-2 / NFR-01 / I-3 and contradicting its own docstring."
+}

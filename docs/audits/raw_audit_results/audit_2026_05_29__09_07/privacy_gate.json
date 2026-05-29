@@ -1,0 +1,132 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/adoption/privacy_gate.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 85,
+
+  "detailed_analysis": "privacy_gate.py is a small, focused mixin (85 lines, 2 methods) implementing a deliberately fail-closed privacy gate for artifact projection. The module-level docstring is exemplary: it documents the fail-closed design decision, the tradeoff (a parser regression masquerading as a privacy block), and the logging mitigation. Code quality is high overall. Two structural concerns dominate: (1) PrivacyGateMixin is a mixin that reads but never declares the instance attributes it relies on (self.agentic_tools per the docstring is referenced via callers, though notably this mixin's own bodies do NOT touch self.agentic_tools — they receive everything as parameters, which is good), and the methods read self only to call the sibling method; (2) the predicate-named method _target_is_private performs filesystem reads and adapter parsing as side effects (a command masquerading as a query), and the broad except tuple (OSError, UnicodeDecodeError, ValueError, KeyError) on the parse path is wide enough that an adapter parser refactor bug would be silently reclassified as 'private', suppressing projection of real user content. This is a known, documented, intentional fail-closed tradeoff (per the docstring and the v0.5 remediation plan slice 08 CQ-13), so it is reported as a WARNING-grade smell rather than a CRITICAL silent-swallow: the exception type is logged at WARNING with structured context, so it is observable, not swallowed. _target_is_private also carries 7 parameters (over the >5 limit). Security posture is sound: no secrets, no injection vectors, no unsafe deserialization; the gate is fail-closed by design which is the secure direction. Spec/architecture conformance is good: the module sits correctly in Layer 2 (use case), imports only inward (agentic_tool_spec, canonical, rendering — all Layer 1/3), references no concrete tool name, and emits structured logs satisfying NFR-13/I-4.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "privacy_gate.py", "imported_by": 1},
+    "highest_fan_out": {"module": "privacy_gate.py", "imports": 3}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/adoption/privacy_gate.py",
+      "lines": 85,
+      "function_count": 2,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/adoption/privacy_gate.py",
+      "line": 55,
+      "function_or_class": "PrivacyGateMixin._target_is_private",
+      "anti_pattern": "C3",
+      "variant": "Broad except masking parser bugs (fail-closed, logged — not silent)",
+      "severity": "WARNING",
+      "metrics": {"caught_exception_types": 4},
+      "evidence": "try:\n    canonical = target_io.parse(text, None, artifact_path=target_path)\nexcept (OSError, UnicodeDecodeError, ValueError, KeyError) as exc:\n    logging.warning(... treating as private (fail-closed) ...)\n    return True",
+      "evidence_lines": "55-67",
+      "problem": "The parse-path except tuple (OSError, UnicodeDecodeError, ValueError, KeyError) is broad enough that a logic/refactor bug inside an adapter's parse() (e.g. a KeyError or ValueError from a schema change) is indistinguishable from a genuinely malformed target file. Both are reclassified as 'private' and projection is silently suppressed. This is NOT a true C3 silent-swallow — the exception type and message are logged at WARNING with structured extra={'event': ...} context, and the fail-closed direction is the deliberate, documented choice (module docstring; v0.5 remediation plan slice 08 CQ-13). Reported at WARNING severity because the failure is observable and the design is intentional, but the breadth of the catch is a real maintenance hazard: a parser regression looks like a privacy block until someone reads the logs.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/adoption/privacy_gate.py",
+      "line": 27,
+      "function_or_class": "PrivacyGateMixin._target_is_private",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"parameters_excluding_self": 7},
+      "evidence": "def _target_is_private(self, pair_id, tool_name, target_spec, kind, target_path, prior_text, target_slot=None) -> bool:",
+      "evidence_lines": "27-36",
+      "problem": "Seven parameters (excluding self) exceeds the >5 threshold (Fowler, project §3). pair_id/tool_name/target_spec/kind/target_path/target_slot are a recurring clump describing 'one target artifact' (the same set threads through adopter.py _read_target_prior_text and the call site at adopter.py:202-210). A ProjectionTarget / TargetArtifactRef parameter object would collapse the clump and clarify intent. Borderline with W4 Data Clumps given the co-occurrence across adopter.py.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/adoption/privacy_gate.py",
+      "line": 27,
+      "function_or_class": "PrivacyGateMixin._target_is_private",
+      "anti_pattern": "W-custom",
+      "variant": "Command-Query Separation violation (predicate name, side-effecting body)",
+      "severity": "WARNING",
+      "metrics": {"side_effects": 3},
+      "evidence": "def _target_is_private(...) -> bool:\n    ...\n    text = read_artifact_text(target_io, target_path, slot=target_slot)  # filesystem read\n    canonical = target_io.parse(text, None, artifact_path=target_path)    # adapter parse\n    ... logging.warning(...)                                              # logging side-effect",
+      "evidence_lines": "27-68",
+      "problem": "A method named as a boolean predicate (_target_is_private / 'is') performs three observable side effects: a filesystem read (read_artifact_text), adapter parsing (target_io.parse), and conditional logging. A reader of the call site (adopter.py:202) sees a pure query but it triggers I/O and parsing. This couples four distinct concerns in one method — filesystem IO, adapter parsing, policy classification (is_private), and fail-closed logging policy — a mild SRP/SOC strain flagged in prior audits (audit_analysis.md 0018). Acceptable at current scale (the method is short and the docstring is honest), hence WARNING not MAJOR.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/adoption/privacy_gate.py",
+      "line": 23,
+      "function_or_class": "PrivacyGateMixin",
+      "anti_pattern": "W3",
+      "variant": "Mixin with undeclared instance-attribute contract",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "class PrivacyGateMixin:\n    \"\"\"Privacy detection. Relies on ``self.agentic_tools`` from :class:`AdoptionEngine`.\"\"\"",
+      "evidence_lines": "23-25",
+      "problem": "The class docstring declares a dependency on self.agentic_tools supplied by AdoptionEngine, but the mixin neither declares that attribute (no annotation / Protocol) nor — notably — actually uses it in either method body (both methods receive target_spec as a parameter). The stated contract is therefore both unenforced by the type checker and stale relative to the code. A mypy --strict run cannot verify the mixin's assumptions about its host class. Low severity: it works because AdoptionEngine composes the attribute, but the implicit base-class coupling is exactly the inappropriate-intimacy pattern mixins tend to hide.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 1},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 1},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-documented fail-closed privacy gate; no CRITICAL/MAJOR defects. Main concerns: a predicate-named method with FS/parse side effects, a broad-but-logged parse except, and a stale/undeclared mixin attribute contract. code_score 0.75."
+}

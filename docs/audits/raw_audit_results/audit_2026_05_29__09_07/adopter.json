@@ -1,0 +1,160 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/adoption/adopter.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 294,
+
+  "detailed_analysis": "src/agents_sync/adoption/adopter.py is a Layer-2 use-case mixin (AdopterMixin) implementing the adopt-new-pair and one-way N-way sync flows for AdoptionEngine. The file is 294 lines (under the 300-line module limit) with one class and eight methods. It is structurally clean for a use-case orchestrator: it never references a concrete tool name (goal 5 / NFR-11 honoured), routes every destructive write through the archive gateway before write (I-3 / NFR-01 honoured via _archive_source_before_write and _archive_prior_slot_results), and delegates the secret-policy egress obligation (NFR-15) down to source_io.parse and render_to_agentic_tool rather than re-implementing it. The dominant smells are two long methods that each exceed the 40-line guideline and carry elevated cyclomatic complexity (_project_to_other_tools, _adopt_from_agentic_tool), and a near-duplication between _adopt_from_agentic_tool and _sync_from_agentic_tool (DRY). There is also untyped use of Any for source_io/source_info in _archive_source_before_write where the rest of the file uses precise types. No CRITICAL findings: no secrets, no injection, no silent swallowing (the one except is logged with structured context and returns a documented fallback), no mutable defaults, no no-op bodies. The mixin's reliance on undeclared attributes (self.config, self.agentic_tools, self.state_dir) and sibling methods is a mixin-coupling pattern that is documented in the class docstring but is structurally an inappropriate-intimacy/typing gap.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "n/a (single-file scope)", "imported_by": 0},
+    "highest_fan_out": {"module": "adopter.py", "imports": 9}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/adoption/adopter.py",
+      "lines": 294,
+      "function_count": 8,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 6
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 172,
+      "function_or_class": "AdopterMixin._project_to_other_tools",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 62, "cyclomatic_complexity": 11},
+      "evidence": "def _project_to_other_tools(\n    self, *, pair_id, canonical, info, source_tool, source_dir, read_prior_text,\n) -> dict[str, RenderResult]:\n    ...\n    for tool_name in self._available_participating_tools(info.kind):\n        if tool_name == source_tool: continue\n        ...\n        if target_info is not None and self._target_is_private(...): continue\n        if self._is_reserved_target_name(...): ... continue\n        results[tool_name] = render_to_agentic_tool(...)",
+      "evidence_lines": "172-233",
+      "problem": "Method spans lines 172-233 (62 lines, ~50 non-blank code lines) over the 40-line guideline. Branch keywords (for + 3 guard ifs with compound conditions + 2 inline conditionals on target_info) push cyclomatic complexity to ~11, above the >10 threshold. It mixes result-seeding, per-tool prior-text read, two skip gates, a reserved-name gate with logging, and the render call.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 52,
+      "function_or_class": "AdopterMixin._adopt_from_agentic_tool",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 54, "cyclomatic_complexity": 4},
+      "evidence": "def _adopt_from_agentic_tool(self, pair_id, source_tool, info, state) -> bool:\n    source_info = info.agentic_tools[source_tool]\n    source_spec = self.agentic_tools[source_tool]\n    ...\n    text = read_artifact_text(...)\n    canonical = source_io.parse(...)\n    if self._skip_private_canonical(...): return False\n    canonical[\"pair_id\"] = pair_id\n    if not source_info.pair_id_present: ... write_artifact_inplace(...)\n    save_canonical(...)\n    results = self._project_to_other_tools(...)\n    self._archive_prior_slot_results(...)\n    update_state_n_way(...)\n    logging.info(...)",
+      "evidence_lines": "52-105",
+      "problem": "Method spans lines 52-105 (54 lines). It performs source read+parse, privacy gate, pair_id injection, conditional archive+inplace-rewrite, canonical save, projection, prior-slot archive, state update, and logging — multiple sequential responsibilities in one body. Exceeds the 40-line guideline.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 132,
+      "function_or_class": "AdopterMixin._sync_from_agentic_tool vs _adopt_from_agentic_tool",
+      "anti_pattern": "W8",
+      "variant": "Duplicated logic (DRY)",
+      "severity": "WARNING",
+      "metrics": {"shared_line_blocks": 7},
+      "evidence": "Lines 141-145 (sync) duplicate 61-65 (adopt):\n    source_info = info.agentic_tools[source_tool]\n    source_spec = self.agentic_tools[source_tool]\n    source_io = source_spec.io[info.kind]\n    source_root = expand_path(self.config[source_spec.config_dir_keys[info.kind]])\n    text = read_artifact_text(source_io, source_info.path, slot=source_info.slot)\nand lines 154-166 duplicate 86,97-99 (save_canonical, source_dir computation, _project_to_other_tools, _archive_prior_slot_results, update_state_n_way).",
+      "evidence_lines": "132-170",
+      "problem": "_sync_from_agentic_tool and _adopt_from_agentic_tool share the source-resolution preamble (source_info/source_spec/source_io/source_root/text), the parse+privacy-gate sequence, the source_dir computation, and the project+archive+state-update tail almost verbatim. The only material differences are prior_canonical (None vs load_canonical), the conditional inplace rewrite, and read_prior_text (False vs True). The shared body is a Rule-of-Three candidate for extraction.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 107,
+      "function_or_class": "AdopterMixin._archive_source_before_write",
+      "anti_pattern": "I1",
+      "variant": "Missing / weakened type annotations",
+      "severity": "INFO",
+      "metrics": {"any_typed_params": 2},
+      "evidence": "def _archive_source_before_write(\n    self, pair_id: str, source_tool: str,\n    source_io: Any, source_info: Any, prior_text: str,\n) -> None:",
+      "evidence_lines": "107-114",
+      "problem": "source_io and source_info are typed Any while the rest of the file uses precise types (AgenticToolSpec, AgenticToolInfo, CustomizationTypeIO would be the natural choices, as in _read_target_prior_text at lines 240-241). The method reads source_io.file_layout and source_info.slot/.path, so Any disables type checking at exactly the archive boundary that backs NFR-01. Weakens the name contract per the project's public-interface annotation rule.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 37,
+      "function_or_class": "AdopterMixin",
+      "anti_pattern": "W3",
+      "variant": "Inappropriate intimacy via undeclared mixin attributes",
+      "severity": "WARNING",
+      "metrics": {"undeclared_attrs": 3, "undeclared_methods": 6},
+      "evidence": "class AdopterMixin:\n    \"\"\"... Relies on ``self.config``, ``self.agentic_tools``, ``self.state_dir``, and methods from :class:`AdoptionEngine` (``_pick_winner``, ``_available_participating_tools``, etc.).\"\"\"\n    ...\n    self._skip_private_canonical(...)  # line 72\n    self._target_is_private(...)        # line 202\n    self._is_reserved_target_name(...)  # line 212\n    self._available_participating_tools(info.kind)  # line 189",
+      "evidence_lines": "37-41",
+      "problem": "The mixin reads self.config, self.agentic_tools, self.state_dir and calls _skip_private_canonical, _target_is_private, _is_reserved_target_name, _available_participating_tools without declaring any of them; they exist only on the composed AdoptionEngine and sibling mixins. This is the documented mixin pattern (the docstring names the dependencies), but it is structurally untypable coupling: a type checker cannot verify these attributes/methods exist, and a reader cannot find the contract without leaving the file. Flagged WARNING, not MAJOR, because the docstring partially mitigates and the coupling is intra-class-cluster.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/adoption/adopter.py",
+      "line": 282,
+      "function_or_class": "AdopterMixin._archive_prior_slot_results",
+      "anti_pattern": "I4",
+      "variant": "Magic string fallback",
+      "severity": "INFO",
+      "metrics": {"literals": 1},
+      "evidence": "archive.archive_text(\n    self.state_dir, pair_id, tool,\n    slot_name=str(result.slot),\n    extension=extension or \".json\",\n    content=result.prior_slot_text,\n)",
+      "evidence_lines": "279-284",
+      "problem": "The fallback file extension \".json\" is an inline literal with no named constant or comment explaining why json is the default archive suffix when both file_layout.file_suffix and path.suffix are empty. Minor; intent is recoverable but not self-documenting per the no-hardcoding guideline.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 2, "total": 2},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 1, "total": 1},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 1, "total": 1},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Clean, tool-agnostic, archive-before-write use-case mixin; two over-length methods and a DRY duplication between adopt/sync cap structure at 0.5 (MAJOR). No CRITICAL findings and full spec/architecture conformance."
+}

@@ -1,0 +1,152 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/mcp_server_io/render.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 179,
+
+  "detailed_analysis": "render.py is a Layer-3 tool-agnostic adapter that projects a canonical mcp_server document onto a JSON slot. It is small (179 lines, under the 300-line module limit), every function is well under the 40-line limit, and it correctly routes its single egress through apply_mcp_secret_policy (lines 60-64) before serialising, satisfying NFR-15's render-boundary obligation. The design is clean overall: no God Module, no Long Function, no security injection vectors, no hardcoded secrets, no global mutable state, no dead code, no cyclic imports. The defects found are maintainability-grade: a recurring 5-parameter data clump (canonical, obj, dialect, tool_only, prior_obj) threaded through four private renderers, one helper at 6 parameters (over the >5 limit), magic string literals ('secrets_refused', 'json', 'stdio') that duplicate constants already defined in sibling modules, single-word names (obj, raw) against the two-word-minimum rule, and a missing descriptive boundary validation: the public render_mcp_server_json reaches into canonical['name'], canonical['url'], canonical['command'] with bare subscripts that raise an opaque KeyError rather than a structured artifact-naming error (NFR-13 / fail-fast §8). None of these rise to CRITICAL or MAJOR; the file passes.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "render.py", "imported_by": "n/a (scope=single file)"},
+    "highest_fan_out": {"module": "render.py", "imports": 6}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "lines": 179,
+      "function_count": 6,
+      "class_count": 0,
+      "correctness": 0.75,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "correctness",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "line": 97,
+      "function_or_class": "_render_transport_fields",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"parameter_count": 6},
+      "evidence": "def _render_transport_fields(\n    canonical: dict[str, Any],\n    obj: dict[str, Any],\n    transport: str,\n    dialect: McpServerDialect,\n    tool_only: dict[str, Any],\n    prior_obj: dict[str, Any],\n) -> None:",
+      "evidence_lines": "97-104",
+      "problem": "Six parameters, over the >5 threshold (Fowler). Signals the renderer would be clearer with a render-context parameter object grouping the threaded state.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "line": 68,
+      "function_or_class": "_render_common_fields / _render_stdio_fields / _render_transport_fields",
+      "anti_pattern": "W4",
+      "variant": "Data Clumps",
+      "severity": "WARNING",
+      "metrics": {"co_occurring_param_set_size": 5, "signatures_sharing_it": 3},
+      "evidence": "def _render_common_fields(canonical, obj, dialect, tool_only, prior_obj) -> None:\ndef _render_stdio_fields(canonical, obj, dialect, tool_only, prior_obj) -> None:\ndef _render_transport_fields(canonical, obj, transport, dialect, tool_only, prior_obj) -> None:",
+      "evidence_lines": "68-73, 97-104, 126-132",
+      "problem": "The same parameter group (canonical, obj, dialect, tool_only, prior_obj) appears in three private signatures (and partly in render_field_name call sites). >=3 co-occurrences is the Data Clumps threshold; the group should be a render-context dataclass passed once.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "line": 27,
+      "function_or_class": "render_mcp_server_json",
+      "anti_pattern": "I4",
+      "variant": "Magic Strings / duplicated constant",
+      "severity": "INFO",
+      "metrics": {"literals": 3},
+      "evidence": "    slot_format: str = \"json\",\n    secret_policy: str = \"secrets_refused\",\n...\n    if transport == \"stdio\":",
+      "evidence_lines": "26-27, 105",
+      "problem": "The default 'secrets_refused' duplicates a member of mcp_secret_policy.ALLOWED_SECRET_POLICIES rather than referencing it (DRY/hardcoding, §9); 'stdio' at line 105 and 'json' are bare literals already enumerated as constants elsewhere (dialect.CANONICAL_TRANSPORTS). If the canonical default policy changes in mcp_secret_policy, this literal drifts silently.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "line": 45,
+      "function_or_class": "render_mcp_server_json",
+      "anti_pattern": "fail-fast",
+      "variant": "Missing descriptive boundary validation",
+      "severity": "MINOR",
+      "metrics": {"unvalidated_required_keys": 3},
+      "evidence": "        obj[dialect.name_field] = str(canonical[\"name\"])\n...\n    obj[url_field] = canonical[\"url\"]\n...\n        obj[\"command\"] = [\n            str(canonical[\"command\"]),",
+      "evidence_lines": "45, 114, 135, 139",
+      "problem": "render_mcp_server_json is a public egress boundary but does not validate the canonical's required shape. Required keys ('name', 'url', 'command') are accessed by bare subscript, raising an opaque KeyError rather than a descriptive error naming the artifact and the missing field (AGENTS.md §8 fail-loud-with-message; NFR-13 structured failures). Loud, but not structured.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/mcp_server_io/render.py",
+      "line": 38,
+      "function_or_class": "render_mcp_server_json / _render_transport_value",
+      "anti_pattern": "I5",
+      "variant": "Single-word / ambiguous names",
+      "severity": "INFO",
+      "metrics": {"names": 2},
+      "evidence": "    obj: dict[str, Any] = {}\n...\n    raw = tool_only.get(\"transport_value\")",
+      "evidence_lines": "38, 160",
+      "problem": "'obj' (the slot under construction) and 'raw' (the prior transport value) are single-word names against the two-word-minimum naming rule (AGENTS.md §4). 'rendered_slot' / 'prior_transport_value' would be intention-revealing.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 1, "total": 1},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": "NFR-15 render-egress secret policy is honoured (apply_mcp_secret_policy at lines 60-64 before dumps_slot, with artifact name passed for structured error). Goal 5 / NFR-11 'sync engine never references a concrete tool name' is respected: this is a Layer-3 adapter that takes agentic_tool_name as a parameter and routes all tool spellings through McpServerDialect rather than branching on tool names. NFR-06 round-trip stability supported via prior_obj/prior_text field-name preservation (render_field_name). Dependency Rule: imports only sibling Layer-3 helpers and mcp_secret_policy; no inward-violating or layer-4 imports.",
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean tool-agnostic adapter; passes with maintainability-grade findings (data clump, magic strings, single-word names, one over-wide signature, opaque boundary KeyError). No CRITICAL or MAJOR issues; NFR-15 egress and goal-5 tool-agnosticism upheld."
+}
