@@ -113,11 +113,18 @@ class AdoptionEngine(
         return self._resolve_conflict_n_way(pair_id, info, state, changed)
 
     def _available_participating_tools(self, kind: str) -> list[str]:
-        """Participating tools whose status is currently `available`."""
+        """Tools that can participate in this `kind` right now.
+
+        Gated on kind-level availability (`is_kind_available`), not tool-level:
+        a tool whose root for `kind` is unconfigured / missing / unreadable
+        cannot hold, sync, be-removed-from, or be-extended-to for this kind, so
+        it must never enter the participation set. (Tool-level `is_available`
+        let such a cell through — e.g. copilot, available via its CLI surfaces
+        but with no VS Code `rules` root — and crashed render on `Path(None)`.)
+        """
         return [
-            name for name, spec in self.agentic_tools.items()
-            if kind in spec.supported_customization_types
-            and self.tool_status.is_available(name)
+            name for name in self.agentic_tools
+            if self.tool_status.is_kind_available(name, kind)
         ]
 
     def _is_reserved_target_name(
@@ -346,8 +353,6 @@ class AdoptionEngine(
                 continue
             target_info = info.agentic_tools.get(tool_name)
             target_spec = self.agentic_tools[tool_name]
-            if self.config.get(target_spec.config_dir_keys[info.kind]) is None:
-                continue  # this kind's root is not configured on the target — skip
             prior_text = self._read_target_prior_text(
                 pair_id=pair_id,
                 tool_name=tool_name,
