@@ -13,11 +13,10 @@ under :mod:`agents_sync.tool_specs`; sync-loop wiring lives in
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
-
+from typing import Any, Protocol
 
 RenderFn = Callable[[dict[str, Any], str | None], str]
 ExtractPairIdFn = Callable[[str], str | None]

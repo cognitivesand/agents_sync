@@ -15,12 +15,12 @@ from agents_sync.tool_specs._rules_factory import build_global_rules_io
 
 
 def build_claude_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
-    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.claude_io import (
         extract_pair_id_from_md,
         parse_claude_md,
         render_claude_md,
     )
+    from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.slash_command_io import (
         parse_slash_command_markdown,
         render_slash_command_markdown,

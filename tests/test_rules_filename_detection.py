@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec, RulesFileLayout
-from agents_sync.tool_specs._rules_factory import build_global_rules_io
 from agents_sync.sync import Syncer
-
+from agents_sync.tool_specs._rules_factory import build_global_rules_io
 
 # ---------- unit: detection_file_names precedence ----------
 

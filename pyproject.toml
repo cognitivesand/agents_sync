@@ -15,6 +15,8 @@ agents-sync = "agents_sync.cli:main"
 [dependency-groups]
 dev = [
   "pytest>=7.0",
+  "ruff>=0.6",
+  "mypy>=1.11",
 ]
 
 [build-system]
@@ -23,6 +25,24 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_sync"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Start with the high-value, low-noise rule families; tighten over time.
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test modules set a module-level `pytestmark` before importing fixtures by
+# project convention, which trips E402 (import-not-at-top).
+"tests/*" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
 
 [tool.pytest.ini_options]
 # Audit slice 10 · CQ-15: register slow / integration markers so a developer
