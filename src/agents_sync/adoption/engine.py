@@ -173,6 +173,8 @@ class AdoptionEngine(
         )
         if self._skip_private_canonical(pair_id, source_tool, canonical):
             return False
+        if self._skip_framework_specific(pair_id, source_tool, canonical):
+            return False
         canonical["pair_id"] = pair_id
 
         # Persist canonical + source state entry before mutating any on-disk
@@ -291,6 +293,8 @@ class AdoptionEngine(
         )
         if self._skip_private_canonical(pair_id, source_tool, canonical):
             return False
+        if self._skip_framework_specific(pair_id, source_tool, canonical):
+            return False
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
         if not source_info.pair_id_present:
@@ -356,7 +360,7 @@ class AdoptionEngine(
                 kind=info.kind,
                 read_prior_text=read_prior_text,
             )
-            if target_info is not None and self._target_is_private(
+            if target_info is not None and self._target_is_protected(
                 pair_id,
                 tool_name,
                 target_spec,
