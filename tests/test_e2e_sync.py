@@ -130,7 +130,8 @@ def test_invalid_pair_id_on_managed_file_does_not_propagate_deletion(syncer: Syn
     md = claude_dir / "SKILL.md"
     md.write_text(md.read_text().replace("pair_id:", "pair_id: ../escape #"))
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 0
     assert claude_dir.exists()
@@ -149,7 +150,8 @@ def test_duplicate_pair_id_on_same_side_is_left_untouched(syncer: Syncer):
     (first / "SKILL.md").write_text(first_text)
     (second / "SKILL.md").write_text(second_text)
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 0
     assert (first / "SKILL.md").read_text() == first_text
@@ -171,7 +173,8 @@ def test_two_foreign_artifacts_with_same_slug_are_not_adopted(syncer: Syncer):
     (first / "SKILL.md").write_text(_skill_md("same"))
     (second / "SKILL.md").write_text(_skill_md("same"))
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 0
     assert "pair_id:" not in (first / "SKILL.md").read_text()
@@ -196,21 +199,21 @@ def test_unreadable_prior_text_logs_warning_and_skips_target(
     pre_overwrite_bytes = (codex_dir / "SKILL.md").read_text()
     assert "v1" in pre_overwrite_bytes
 
-    # Patch the read_artifact_text name as resolved inside the adopter
-    # and privacy_gate mixins only. agents_sync.discovery imports the same
-    # function under its own name binding, so discovery's read of the codex
-    # artifact still succeeds; only the prior_text and privacy reads inside
-    # _sync_from_agentic_tool fail.
-    import agents_sync.adoption.adopter as adopter_mod
+    # Patch the read_artifact_text name as resolved inside the adoption
+    # engine and privacy_gate mixin only. agents_sync.discovery imports the
+    # same function under its own name binding, so discovery's read of the
+    # codex artifact still succeeds; only the prior_text and privacy reads
+    # inside _sync_from_agentic_tool fail.
+    import agents_sync.adoption.engine as engine_mod
     import agents_sync.adoption.privacy_gate as privacy_gate_mod
-    original_read = adopter_mod.read_artifact_text
+    original_read = engine_mod.read_artifact_text
 
     def patched_read(io, path: Path, slot: str | None = None) -> str:
         if Path(path) == codex_dir:
             raise OSError("simulated prior-text read failure")
         return original_read(io, path, slot=slot)
 
-    monkeypatch.setattr(adopter_mod, "read_artifact_text", patched_read)
+    monkeypatch.setattr(engine_mod, "read_artifact_text", patched_read)
     monkeypatch.setattr(privacy_gate_mod, "read_artifact_text", patched_read)
 
     claude_md = claude_dir / "SKILL.md"
@@ -246,7 +249,8 @@ def test_foreign_artifact_slug_collision_with_managed_pair_is_not_adopted(syncer
     foreign.mkdir()
     (foreign / "SKILL.md").write_text(_skill_md("same", body="foreign"))
 
-    result = syncer.sync_once(); changed = result.changed
+    result = syncer.sync_once()
+    changed = result.changed
 
     assert changed == 0
     assert "pair_id:" not in (foreign / "SKILL.md").read_text()

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents_sync import archive
 from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
@@ -21,6 +21,13 @@ from agents_sync.shared_keyed_map_io import (
 )
 from agents_sync.state import CustomizationArtifactState
 from agents_sync.sync_types import AgenticToolInfo, CustomizationArtifactInfo
+
+if TYPE_CHECKING:
+    from agents_sync.adoption._host import _AdoptionHost
+
+    _AdoptionHostBase = _AdoptionHost
+else:
+    _AdoptionHostBase = object
 
 # Narrow except set used by removal-propagation paths: I/O errors,
 # format-parse errors, and the two lock/collision failures that apply_slot
@@ -35,7 +42,7 @@ _REMOVAL_FAILURES: tuple[type[Exception], ...] = (
 )
 
 
-class RemovalPropagatorMixin:
+class RemovalPropagatorMixin(_AdoptionHostBase):
     """Removal propagation and orphan handling."""
 
     def propagate_orphan_state(

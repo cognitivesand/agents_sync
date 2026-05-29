@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agents_sync.agentic_tool_spec import (
     CustomizationTypeIO,
@@ -32,8 +33,15 @@ from agents_sync.sync_types import (
     CustomizationArtifactInfo,
 )
 
+if TYPE_CHECKING:
+    from agents_sync.discovery._host import _WalkerHost
 
-class EnumeratorMixin:
+    _WalkerHostBase = _WalkerHost
+else:
+    _WalkerHostBase = object
+
+
+class EnumeratorMixin(_WalkerHostBase):
     """Discovery walker mixin: enumerate on-disk artifacts.
 
     Relies on ``self.config``, ``self.agentic_tools``, and

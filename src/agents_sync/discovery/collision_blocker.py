@@ -12,6 +12,7 @@ would clobber:
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from agents_sync.agentic_tool_spec import SharedKeyedMapLayout
 from agents_sync.rendering import slot_aware_collision_key
@@ -21,6 +22,13 @@ from agents_sync.sync_types import (
     CustomizationArtifactInfo,
     PlannedTarget,
 )
+
+if TYPE_CHECKING:
+    from agents_sync.discovery._host import _WalkerHost
+
+    _WalkerHostBase = _WalkerHost
+else:
+    _WalkerHostBase = object
 
 
 def _target_already_exists(target: PlannedTarget) -> bool:
@@ -50,7 +58,7 @@ def _target_already_exists(target: PlannedTarget) -> bool:
     return target.slot in slots
 
 
-class CollisionBlockerMixin:
+class CollisionBlockerMixin(_WalkerHostBase):
     """Block pairs whose adoption targets collide. Relies on
     ``self.agentic_tools`` and the planner mixin's
     ``_planned_adoption_targets``."""

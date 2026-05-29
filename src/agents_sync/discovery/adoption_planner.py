@@ -7,7 +7,7 @@ adoption would write on tools that don't yet hold the artifact.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents_sync.agentic_tool_spec import (
     AgenticToolSpec,
@@ -27,8 +27,15 @@ from agents_sync.sync_types import (
     PlannedTarget,
 )
 
+if TYPE_CHECKING:
+    from agents_sync.discovery._host import _WalkerHost
 
-class AdoptionPlannerMixin:
+    _WalkerHostBase = _WalkerHost
+else:
+    _WalkerHostBase = object
+
+
+class AdoptionPlannerMixin(_WalkerHostBase):
     """Plan adoption targets. Relies on ``self.config``, ``self.agentic_tools``,
     ``self.tool_status`` from :class:`DiscoveryWalker`."""
 
