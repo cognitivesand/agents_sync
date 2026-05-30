@@ -24,12 +24,14 @@ _LEGACY_PATHS = [
     Path.home() / ".local/state/claude-codex-sync",
 ]
 if os.name == "nt":
-    _LEGACY_PATHS.extend([
-        Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
-        / "claude-codex-sync",
-        Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
-        / "claude-codex-sync",
-    ])
+    _LEGACY_PATHS.extend(
+        [
+            Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+            / "claude-codex-sync",
+            Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+            / "claude-codex-sync",
+        ]
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -264,8 +266,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mcp-server-secret-policy",
         choices=[
-            "refuse", "redact", "permissive",
-            "secrets_refused", "secrets_accepted",
+            "refuse",
+            "redact",
+            "permissive",
+            "secrets_refused",
+            "secrets_accepted",
         ],
         default=None,
         help=argparse.SUPPRESS,
@@ -279,25 +284,18 @@ def build_parser() -> argparse.ArgumentParser:
         "export",
         help="Write a portable library snapshot zip from the local canonical store.",
     )
-    export_parser.add_argument(
-        "output", type=Path, help="Destination zip file path."
-    )
+    export_parser.add_argument("output", type=Path, help="Destination zip file path.")
 
     import_parser = subparsers.add_parser(
         "import",
         help="Restore a portable library snapshot zip into the local install.",
     )
-    import_parser.add_argument(
-        "input", type=Path, help="Source zip file path."
-    )
+    import_parser.add_argument("input", type=Path, help="Source zip file path.")
     import_parser.add_argument(
         "--collision-strategy",
         choices=["skip", "mtime_wins", "overwrite"],
         default=None,
-        help=(
-            "Override the config's import_collision_strategy for this "
-            "invocation only."
-        ),
+        help=("Override the config's import_collision_strategy for this invocation only."),
     )
     import_parser.add_argument(
         "--force",
@@ -331,18 +329,14 @@ def _run_export(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
     secret_policy = str(
-        config.get("secret_policy")
-        or config.get("mcp_server_secret_policy")
-        or "secrets_refused"
+        config.get("secret_policy") or config.get("mcp_server_secret_policy") or "secrets_refused"
     )
     try:
         report = export_to_zip(state_dir, args.output, secret_policy=secret_policy)
     except OSError:
         logging.exception("Export failed")
         return 1
-    logging.info(
-        "Exported %d artifact(s) to %s", report.artifact_count, report.archive_path
-    )
+    logging.info("Exported %d artifact(s) to %s", report.artifact_count, report.archive_path)
     if report.skipped_secret_artifacts:
         logging.info(
             "Skipped %d secret-bearing artifact(s) under secret_policy=secrets_refused: %s",
@@ -368,7 +362,9 @@ def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
     # be overwritten so the user has a chance to confirm.
     try:
         would_overwrite, _would_skip = preview_import(
-            state_dir, args.input, strategy=strategy,
+            state_dir,
+            args.input,
+            strategy=strategy,
         )
     except PortableArchiveError:
         logging.exception("Import rejected")
@@ -380,7 +376,9 @@ def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
         logging.error(
             "Import would overwrite %d local pair(s) under strategy=%s. "
             "Re-run with --force to proceed. Affected pair_ids: %s",
-            len(would_overwrite), strategy, ", ".join(sorted(set(would_overwrite))),
+            len(would_overwrite),
+            strategy,
+            ", ".join(sorted(set(would_overwrite))),
         )
         return 2
 
@@ -401,7 +399,9 @@ def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
         return 1
     logging.info(
         "Import complete: accepted=%d skipped=%d archived_local=%d",
-        len(report.accepted), len(report.skipped), len(report.archived_local),
+        len(report.accepted),
+        len(report.skipped),
+        len(report.archived_local),
     )
     if report.skipped_secret_artifacts:
         logging.info(
@@ -409,6 +409,9 @@ def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
             len(report.skipped_secret_artifacts),
             report.skipped_secret_artifacts,
         )
+    # Canonical-only import only writes canonicals + state stubs; project them now
+    # so the one-shot CLI import takes effect without the daemon running.
+    Syncer(config).sync_once()
     return 0
 
 

@@ -25,6 +25,7 @@ Phase 0 (US-12). It is the source of truth for the `mtime_wins`
 comparison. Wall-clock is not monotonic across hosts; clock skew is
 tie-broken in favour of the local artifact (AC-6 tie rule).
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -41,24 +42,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from agents_sync import archive
-from agents_sync.agentic_tool_spec import AgenticToolSpec, SharedKeyedMapLayout
+from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.canonical import canonical_path, load_canonical
-from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.mcp_secret_policy import (
     find_mcp_secret_literals,
     normalize_secret_policy,
 )
-from agents_sync.rendering import render_to_agentic_tool, update_state_n_way
-from agents_sync.shared_keyed_map_io import apply_slot, read_slots
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,
     save_state,
     target_slug,
 )
-from agents_sync.sync_types import RenderResult
 from agents_sync.tool_status import ToolStatusTracker
 
 PORTABLE_ARCHIVE_SCHEMA_VERSION = 1
@@ -66,9 +62,7 @@ MANIFEST_NAME = "manifest.json"
 CANONICAL_PREFIX = "canonical/"
 
 CollisionStrategy = Literal["skip", "mtime_wins", "overwrite"]
-ALLOWED_STRATEGIES: frozenset[CollisionStrategy] = frozenset(
-    {"skip", "mtime_wins", "overwrite"}
-)
+ALLOWED_STRATEGIES: frozenset[CollisionStrategy] = frozenset({"skip", "mtime_wins", "overwrite"})
 
 
 class PortableArchiveError(ValueError):
@@ -101,7 +95,9 @@ def _agents_sync_version() -> str:
 
 
 def _build_manifest(
-    artifact_count: int, *, contains_secret_literals: bool = False,
+    artifact_count: int,
+    *,
+    contains_secret_literals: bool = False,
 ) -> dict[str, Any]:
     return {
         "schema_version": PORTABLE_ARCHIVE_SCHEMA_VERSION,
@@ -133,7 +129,9 @@ def export_to_zip(
     anything that would have flipped it).
     """
     normalized_policy = normalize_secret_policy(
-        secret_policy, source="export_to_zip", warn_deprecated=False,
+        secret_policy,
+        source="export_to_zip",
+        warn_deprecated=False,
     )
     state = load_state(state_dir)
     canonicals: dict[str, dict[str, Any]] = {}
@@ -155,16 +153,15 @@ def export_to_zip(
                     "Skipping export of artifact with literal secret material "
                     "under secret_policy=secrets_refused: "
                     "pair_id=%s fields=%s",
-                    pair_id, field_paths,
+                    pair_id,
+                    field_paths,
                 )
                 skipped_secret_artifacts.append(pair_id)
                 continue
             # secrets_accepted — include verbatim, summary warning emitted below
             secret_bearing_artifacts.append(pair_id)
         entry = dict(canonical)
-        entry["last_modified"] = (
-            ps.last_modified if ps.last_modified is not None else 0.0
-        )
+        entry["last_modified"] = ps.last_modified if ps.last_modified is not None else 0.0
         entry["generation"] = ps.generation
         canonicals[pair_id] = entry
 
@@ -172,12 +169,14 @@ def export_to_zip(
         logging.warning(
             "Customization library export under secret_policy=secrets_accepted: "
             "%d artifact(s) carry literal secret material: %s",
-            len(secret_bearing_artifacts), secret_bearing_artifacts,
+            len(secret_bearing_artifacts),
+            secret_bearing_artifacts,
         )
 
     contains_secret_literals = bool(secret_bearing_artifacts)
     manifest = _build_manifest(
-        len(canonicals), contains_secret_literals=contains_secret_literals,
+        len(canonicals),
+        contains_secret_literals=contains_secret_literals,
     )
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_fd, tmp_name = tempfile.mkstemp(
@@ -187,14 +186,11 @@ def export_to_zip(
     tmp_path = Path(tmp_name)
     try:
         with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr(
-                MANIFEST_NAME, json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-            )
+            zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
             for pair_id, entry in sorted(canonicals.items()):
                 zf.writestr(
                     f"{CANONICAL_PREFIX}{pair_id}.json",
-                    json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False)
-                    + "\n",
+                    json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
                 )
         os.replace(tmp_path, zip_path)
     except BaseException:
@@ -229,15 +225,11 @@ def _read_zip_entries(
     with zf:
         names = set(zf.namelist())
         if MANIFEST_NAME not in names:
-            raise PortableArchiveError(
-                f"Archive is missing {MANIFEST_NAME}: {zip_path}"
-            )
+            raise PortableArchiveError(f"Archive is missing {MANIFEST_NAME}: {zip_path}")
         try:
             manifest = json.loads(zf.read(MANIFEST_NAME).decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise PortableArchiveError(
-                f"Archive {MANIFEST_NAME} is unparseable: {exc}"
-            ) from exc
+            raise PortableArchiveError(f"Archive {MANIFEST_NAME} is unparseable: {exc}") from exc
         if not isinstance(manifest, dict):
             raise PortableArchiveError("Archive manifest is not a JSON object")
         canonicals: dict[str, dict[str, Any]] = {}
@@ -248,28 +240,20 @@ def _read_zip_entries(
             try:
                 validate_pair_id(pair_id)
             except InvalidPairId as exc:
-                raise PortableArchiveError(
-                    f"Archive entry has invalid pair_id: {name}"
-                ) from exc
+                raise PortableArchiveError(f"Archive entry has invalid pair_id: {name}") from exc
             try:
                 doc = json.loads(zf.read(name).decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise PortableArchiveError(
-                    f"Archive entry is unparseable: {name}: {exc}"
-                ) from exc
+                raise PortableArchiveError(f"Archive entry is unparseable: {name}: {exc}") from exc
             if not isinstance(doc, dict):
-                raise PortableArchiveError(
-                    f"Archive entry is not a JSON object: {name}"
-                )
+                raise PortableArchiveError(f"Archive entry is not a JSON object: {name}")
             if doc.get("pair_id") != pair_id:
                 raise PortableArchiveError(
                     f"Archive entry pair_id mismatch: filename={pair_id} "
                     f"document={doc.get('pair_id')!r}"
                 )
             if "kind" not in doc or "name" not in doc:
-                raise PortableArchiveError(
-                    f"Archive entry missing kind/name: {name}"
-                )
+                raise PortableArchiveError(f"Archive entry missing kind/name: {name}")
             canonicals[pair_id] = doc
     return manifest, canonicals
 
@@ -287,32 +271,24 @@ def _validate_manifest_version(manifest: dict[str, Any]) -> None:
         )
 
 
-def _local_last_modified(
-    state: dict[str, CustomizationArtifactState], pair_id: str
-) -> float:
+def _local_last_modified(state: dict[str, CustomizationArtifactState], pair_id: str) -> float:
     ps = state.get(pair_id)
     if ps is None or ps.last_modified is None:
         return 0.0
     return ps.last_modified
 
 
-def _local_generation(
-    state: dict[str, CustomizationArtifactState], pair_id: str
-) -> int:
-    ps = state.get(pair_id)
-    return ps.generation if ps is not None else 0
-
-
 @dataclass
 class _ImportDecision:
     """One per accepted-or-skipped artifact, fully resolved before disk writes."""
 
-    pair_id: str
+    pair_id: str  # the imported candidate's id (the loser id when merged away)
     canonical: dict[str, Any]
     last_modified: float
     generation: int
     accepted: bool
-    displaces_local_pair_id: str | None  # pair_id whose tool-side files to archive
+    displaces_local_pair_id: str | None  # local pair whose bytes the next poll archives
+    surviving_pair_id: str  # id the winning content is written under (local-id reuse)
 
 
 def _build_slug_index(
@@ -331,37 +307,21 @@ def _build_slug_index(
 
 def _decide_collision(
     *,
-    imported_pair_id: str,
     imported_last_modified: float,
-    imported_generation: int,
-    local_pair_id: str,
     local_last_modified: float,
-    local_generation: int,
     strategy: CollisionStrategy,
-) -> tuple[bool, str | None]:
-    """Return (accept_import, displaces_local_pair_id_or_None) per strategy.
+) -> bool:
+    """Whether the import wins against a colliding local artifact (US-12 AC-6).
 
-    AC-6 tie rule: ties on ``mtime_wins`` favour the local artifact
-    (default-deny on rewrite — protects against clock skew).
-
-    Comparison order: ``generation`` (monotonic, host-local) wins outright,
-    with ``last_modified`` only as a tiebreaker when generations are equal.
-    The generation field is host-local and only valid as a discriminator
-    when imported state was produced on the same host that holds the local
-    state, but for that common case it removes wall-clock-skew artifacts.
+    ``mtime_wins`` uses wall-clock ``last_modified`` (FR-12 / AC-17); ties favour
+    the local artifact (default-deny on rewrite). The host-local ``generation``
+    counter is not a cross-host discriminator.
     """
     if strategy == "skip":
-        return False, None
+        return False
     if strategy == "overwrite":
-        return True, local_pair_id
-    # mtime_wins
-    if imported_generation != local_generation:
-        if imported_generation > local_generation:
-            return True, local_pair_id
-        return False, None
-    if imported_last_modified > local_last_modified:
-        return True, local_pair_id
-    return False, None
+        return True
+    return imported_last_modified > local_last_modified
 
 
 def _classify(
@@ -370,137 +330,71 @@ def _classify(
     state_dir: Path,
     strategy: CollisionStrategy,
 ) -> list[_ImportDecision]:
+    """Reconcile imported candidates by ``(kind, target_slug(name))`` — across the
+    imported set (AC-17) and against local state (AC-6/AC-7) — to one winner per
+    slug. The winning content is written under the local id when one exists at
+    that slug (AC-17 reuse), else the winner's own id; losers are retired.
+    """
     slug_index = _build_slug_index(state, state_dir)
-    decisions: list[_ImportDecision] = []
-    for imported_pair_id, doc in canonicals.items():
-        doc_copy = dict(doc)
-        imported_last_modified = float(doc_copy.pop("last_modified", 0.0))
-        try:
-            imported_generation = int(doc_copy.pop("generation", 0) or 0)
-        except (TypeError, ValueError):
-            imported_generation = 0
+
+    # Group imported candidates by slug (sorted ids → stable lexicographic tie).
+    groups: dict[tuple[str, str], list[str]] = {}
+    meta: dict[str, tuple[dict[str, Any], float]] = {}
+    for imported_pair_id in sorted(canonicals):
+        doc_copy = dict(canonicals[imported_pair_id])
+        last_modified = float(doc_copy.pop("last_modified", 0.0))
+        doc_copy.pop("generation", None)
         kind = doc_copy["kind"]
         slug = target_slug(doc_copy["name"])
+        meta[imported_pair_id] = (doc_copy, last_modified)
+        groups.setdefault((kind, slug), []).append(imported_pair_id)
 
-        local_pair_id: str | None = None
-        if imported_pair_id in state:
-            local_pair_id = imported_pair_id
-        else:
-            local_pair_id = slug_index.get((kind, slug))
+    decisions: list[_ImportDecision] = []
+    for (kind, slug), candidate_ids in groups.items():
+        # Intra-import winner: highest last_modified; ties → lexicographically
+        # first (candidate_ids is sorted), per AC-17.
+        winner = max(candidate_ids, key=lambda pid: meta[pid][1])
+        winner_doc, winner_lm = meta[winner]
 
+        local_pair_id = winner if winner in state else slug_index.get((kind, slug))
         if local_pair_id is None:
-            decisions.append(
-                _ImportDecision(
-                    pair_id=imported_pair_id,
-                    canonical=doc_copy,
-                    last_modified=imported_last_modified,
-                    generation=imported_generation,
-                    accepted=True,
-                    displaces_local_pair_id=None,
-                )
+            accepted, displaces, surviving = True, None, winner
+        else:
+            accepted = _decide_collision(
+                imported_last_modified=winner_lm,
+                local_last_modified=_local_last_modified(state, local_pair_id),
+                strategy=strategy,
             )
-            continue
+            displaces = local_pair_id if accepted else None
+            surviving = local_pair_id  # reuse the local id (AC-17)
 
-        accept, displaces = _decide_collision(
-            imported_pair_id=imported_pair_id,
-            imported_last_modified=imported_last_modified,
-            imported_generation=imported_generation,
-            local_pair_id=local_pair_id,
-            local_last_modified=_local_last_modified(state, local_pair_id),
-            local_generation=_local_generation(state, local_pair_id),
-            strategy=strategy,
-        )
         decisions.append(
             _ImportDecision(
-                pair_id=imported_pair_id,
-                canonical=doc_copy,
-                last_modified=imported_last_modified,
-                generation=imported_generation,
-                accepted=accept,
+                pair_id=winner,
+                canonical=winner_doc,
+                last_modified=winner_lm,
+                generation=0,
+                accepted=accepted,
                 displaces_local_pair_id=displaces,
+                surviving_pair_id=surviving,
             )
         )
-    return decisions
-
-
-def _archive_displaced_tool_files(
-    state_dir: Path,
-    state: dict[str, CustomizationArtifactState],
-    agentic_tools: dict[str, AgenticToolSpec],
-    local_pair_id: str,
-    *,
-    move: bool,
-) -> list[tuple[str, str]]:
-    """Archive every tool-side file the local pair currently owns.
-
-    `move=True` ⇒ the original is removed from disk (used when the
-    imported identity will reclaim the same slug under a different
-    pair_id; the local artifact's bytes are preserved in the archive
-    but its directory must be cleared so the import can take over).
-    `move=False` ⇒ the original stays in place (used when the same
-    pair_id is being re-rendered; atomic_write_text overwrites
-    SKILL.md while keeping any auxiliary files).
-    """
-    archived: list[tuple[str, str]] = []
-    ps = state.get(local_pair_id)
-    if ps is None:
-        return archived
-    for tool_name, at in ps.agentic_tools.items():
-        path = at.path
-        if not path.exists():
-            continue
-        spec = agentic_tools.get(tool_name)
-        io = spec.io.get(ps.kind) if spec is not None else None
-        if (
-            io is not None
-            and isinstance(io.file_layout, SharedKeyedMapLayout)
-            and at.slot is not None
-        ):
-            slots, _ = read_slots(path, io.file_layout)
-            slot_text = slots.get(at.slot)
-            if slot_text is None:
+        # Losers in this group are retired (merged away).
+        for loser in candidate_ids:
+            if loser == winner:
                 continue
-            archive.archive_text(
-                state_dir,
-                local_pair_id,
-                tool_name,
-                slot_name=at.slot,
-                extension=io.file_layout.file_suffix,
-                content=slot_text,
+            decisions.append(
+                _ImportDecision(
+                    pair_id=loser,
+                    canonical=meta[loser][0],
+                    last_modified=meta[loser][1],
+                    generation=0,
+                    accepted=False,
+                    displaces_local_pair_id=None,
+                    surviving_pair_id=loser,
+                )
             )
-            if move:
-                apply_slot(path, io.file_layout, at.slot, None)
-            archived.append((local_pair_id, tool_name))
-            continue
-        if move:
-            archive.archive_move(state_dir, local_pair_id, tool_name, path)
-        else:
-            archive.archive_copy(state_dir, local_pair_id, tool_name, path)
-        archived.append((local_pair_id, tool_name))
-    return archived
-
-
-def _participating_tools(
-    kind: str,
-    config: dict[str, Any],
-    agentic_tools: dict[str, AgenticToolSpec],
-    tool_status: ToolStatusTracker,
-) -> list[tuple[str, AgenticToolSpec]]:
-    """The tools that import will actually project onto for `kind`.
-
-    Filter mirrors the daemon's per-poll filter: enabled (not disabled
-    by config), supporting this `kind`, and currently `available`
-    (US-11). Disabled or unavailable tools get no state entry; the
-    extend-to-new-tools branch in adoption.py will catch them up later.
-    """
-    result: list[tuple[str, AgenticToolSpec]] = []
-    for tool_name, spec in agentic_tools.items():
-        if kind not in spec.io:
-            continue
-        if not tool_status.is_kind_available(tool_name, kind):
-            continue
-        result.append((tool_name, spec))
-    return result
+    return decisions
 
 
 def preview_import(
@@ -575,12 +469,12 @@ def import_from_zip(
     # structured WARNING each; under secrets_accepted, all are imported
     # verbatim and one summary WARNING is emitted.
     raw_policy = str(
-        config.get("secret_policy")
-        or config.get("mcp_server_secret_policy")
-        or "secrets_refused"
+        config.get("secret_policy") or config.get("mcp_server_secret_policy") or "secrets_refused"
     )
     normalized_policy = normalize_secret_policy(
-        raw_policy, source="import_from_zip", warn_deprecated=False,
+        raw_policy,
+        source="import_from_zip",
+        warn_deprecated=False,
     )
     skipped_secret_artifacts: list[str] = []
     secret_bearing_artifacts: list[str] = []
@@ -596,7 +490,8 @@ def import_from_zip(
                 "Skipping import of artifact with literal secret material "
                 "under secret_policy=secrets_refused: "
                 "pair_id=%s fields=%s",
-                decision.pair_id, field_paths,
+                decision.pair_id,
+                field_paths,
             )
             decision.accepted = False
             skipped_secret_artifacts.append(decision.pair_id)
@@ -607,7 +502,8 @@ def import_from_zip(
         logging.warning(
             "Customization library import under secret_policy=secrets_accepted: "
             "%d artifact(s) carry literal secret material: %s",
-            len(secret_bearing_artifacts), secret_bearing_artifacts,
+            len(secret_bearing_artifacts),
+            secret_bearing_artifacts,
         )
 
     tool_status = ToolStatusTracker(config, agentic_tools)
@@ -615,120 +511,63 @@ def import_from_zip(
 
     accepted_decisions = [d for d in decisions if d.accepted]
 
-    # Phase A — stage every accepted canonical. If anything raises here,
-    # the pending dir is removed and the live state is untouched.
+    # Canonical-only import (US-12 AC-5, Decision A): write the winning canonical
+    # under its surviving id and update state; tool roots are never touched — the
+    # next sync_once projects (heal for a new stub, FR-14 re-project for an
+    # overwrite/displacement, archiving displaced bytes then).
+    #
+    # Stage every accepted canonical under its SURVIVING id and promote atomically
+    # (per-artifact, FR-13). A failure leaves a strict prefix promoted and state
+    # untouched.
     pending_dir = state_dir / f".import_pending_{uuid.uuid4().hex[:8]}"
     pending_dir.mkdir(parents=True, exist_ok=True)
     try:
         staged: list[tuple[Path, Path]] = []  # (pending_path, live_path)
         for decision in accepted_decisions:
-            pending_path = pending_dir / f"{decision.pair_id}.json"
-            save_canonical_to(pending_path, decision.canonical)
-            staged.append(
-                (pending_path, canonical_path(state_dir, decision.pair_id))
-            )
+            canonical = dict(decision.canonical)
+            canonical["pair_id"] = decision.surviving_pair_id
+            pending_path = pending_dir / f"{decision.surviving_pair_id}.json"
+            save_canonical_to(pending_path, canonical)
+            staged.append((pending_path, canonical_path(state_dir, decision.surviving_pair_id)))
     except Exception:
         shutil.rmtree(pending_dir, ignore_errors=True)
         raise
-
-    # Phase B — promote canonicals from staging into the live tree. Each
-    # os.replace is atomic per inode; we order them so the first failure
-    # leaves a strict prefix promoted (no partial-file canonicals).
     try:
         for pending_path, live_path in staged:
             live_path.parent.mkdir(parents=True, exist_ok=True)
             os.replace(pending_path, live_path)
     finally:
-        # Whether or not the loop succeeded, drop the staging directory.
-        # On success: it's empty. On partial failure: it may hold
-        # un-promoted files, which we discard (the canonicals they would
-        # have produced were never observed by the rest of the system).
         shutil.rmtree(pending_dir, ignore_errors=True)
 
-    # Phase C — handle displacements, tool-side projection, and state
-    # updates. This is the only phase that can leak partial tool-side
-    # files on failure; state.json is still written last.
     report = ImportReport(skipped_secret_artifacts=skipped_secret_artifacts)
     for decision in decisions:
         if not decision.accepted:
             report.skipped.append(decision.pair_id)
             logging.info(
-                "Import skipped (strategy=%s): pair_id=%s", strategy, decision.pair_id
+                "Import skipped/merged (strategy=%s): pair_id=%s", strategy, decision.pair_id
             )
             continue
-
-        if decision.displaces_local_pair_id is not None:
-            slug_displacement = (
-                decision.displaces_local_pair_id != decision.pair_id
+        surviving = decision.surviving_pair_id
+        ps = state.get(surviving)
+        if ps is None:
+            # Brand-new artifact: an empty-tools stub the next poll heals.
+            state[surviving] = CustomizationArtifactState(
+                kind=decision.canonical["kind"],
+                agentic_tools={},
+                last_modified=decision.last_modified,
+                generation=decision.generation,
+                canonical_digest=None,
             )
-            archived = _archive_displaced_tool_files(
-                state_dir,
-                state,
-                agentic_tools,
-                decision.displaces_local_pair_id,
-                move=slug_displacement,
-            )
-            report.archived_local.extend(archived)
-            if slug_displacement:
-                # Slug collision with a different local pair_id: drop the
-                # local entry (its canonical and state entry are about to be
-                # replaced by this imported artifact's identity). The
-                # ``unlink`` is retried so a transient Windows lock (AV
-                # scanner holding the JSON open) does not abort the import
-                # mid-loop (audit slice 09 · CQ-07).
-                state.pop(decision.displaces_local_pair_id, None)
-                local_canonical = canonical_path(
-                    state_dir, decision.displaces_local_pair_id
-                )
-                if local_canonical.exists():
-                    retry_fs(
-                        # mypy cannot infer the return type of a default-arg lambda
-                        # passed to a generic callable; the body returns None.
-                        lambda p=local_canonical: p.unlink(),  # type: ignore[misc]
-                        operation=f"unlink {local_canonical}",
-                    )
-
-        kind = decision.canonical["kind"]
-
-        results: dict[str, RenderResult] = {}
-        for tool_name, spec in _participating_tools(
-            kind, config, agentic_tools, tool_status
-        ):
-            existing_path = None
-            existing_slot = None
-            if (
-                decision.pair_id in state
-                and tool_name in state[decision.pair_id].agentic_tools
-            ):
-                existing = state[decision.pair_id].agentic_tools[tool_name]
-                existing_path = Path(existing.path)
-                existing_slot = existing.slot
-            result = render_to_agentic_tool(
-                config,
-                spec,
-                kind,
-                decision.canonical,
-                existing_path=existing_path,
-                prior_text=None,
-                source_dir=None,
-                existing_slot=existing_slot,
-            )
-            results[tool_name] = result
-
-        update_state_n_way(state, decision.pair_id, kind, results, agentic_tools)
-        # Adoption stamps last_modified = time.time() and bumps generation;
-        # we overwrite both with the imported values so cross-host equality
-        # and the mtime_wins comparison stay consistent (a re-export from
-        # this host carries the source host's original timestamp and
-        # generation).
-        state[decision.pair_id].last_modified = decision.last_modified
-        state[decision.pair_id].generation = decision.generation
-
-        report.accepted.append(decision.pair_id)
-        logging.info(
-            "Import accepted: pair_id=%s strategy=%s projected_tools=%s",
-            decision.pair_id, strategy, sorted(results.keys()),
-        )
+        else:
+            # Overwrite / local-id reuse: keep the recorded tools but leave the
+            # OLD canonical_digest unchanged so it mismatches the just-written
+            # canonical — FR-14 then re-projects (archiving displaced bytes) next
+            # poll. Clearing it to None would not work: load-time migration would
+            # recompute it to the new canonical and hide the change.
+            ps.last_modified = decision.last_modified
+            ps.generation = decision.generation
+        report.accepted.append(surviving)
+        logging.info("Import accepted (canonical-only): pair_id=%s", surviving)
 
     save_state(state_dir, state)
     return report

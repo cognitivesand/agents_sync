@@ -4,6 +4,7 @@ Each test names the AC it covers. Filesystem tests use the existing
 `syncer` fixture from `conftest.py`, which builds a real `Syncer`
 against a tmp directory — no mocks, per CLAUDE.md §7.
 """
+
 from __future__ import annotations
 
 import json
@@ -55,11 +56,23 @@ def _fresh_syncer(tmp_path: Path, label: str) -> Syncer:
     state_dir = base / "state"
     state_dir.mkdir(parents=True)
     for sub in (
-        "ca", "cc", "cs", "cr",
-        "xa", "xp", "xs", "xr",
+        "ca",
+        "cc",
+        "cs",
+        "cr",
+        "xa",
+        "xp",
+        "xs",
+        "xr",
         "as",
-        "ga", "gc", "gs", "gr",
-        "oa", "oc", "os", "or",
+        "ga",
+        "gc",
+        "gs",
+        "gr",
+        "oa",
+        "oc",
+        "os",
+        "or",
     ):
         (base / sub).mkdir(parents=True)
     return Syncer(
@@ -172,11 +185,10 @@ def test_export_attaches_last_modified_from_state(syncer: Syncer, tmp_path: Path
     assert doc["generation"] == ps.generation
 
 
-def test_import_mtime_wins_prefers_higher_generation_over_newer_clock(
-    syncer: Syncer, tmp_path: Path
-):
-    """Generation is the primary discriminator; a newer local wall-clock with
-    a smaller generation must not beat an import with a higher generation."""
+def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tmp_path: Path):
+    """FR-12/AC-17: the host-local generation is NOT a cross-host discriminator;
+    wall-clock last_modified decides. An import with a higher generation but an
+    OLDER clock must lose to a newer local artifact."""
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
@@ -213,9 +225,11 @@ def test_import_mtime_wins_prefers_higher_generation_over_newer_clock(
         agentic_tools=syncer.agentic_tools,
     )
 
-    assert report.accepted == [pair_id]
+    # Generation is ignored cross-host; the newer local wall-clock wins.
+    assert report.accepted == []
+    assert report.skipped == [pair_id]
     state_after = load_state(syncer.state_dir)
-    assert state_after[pair_id].generation == 2
+    assert state_after[pair_id].generation == 1  # local kept; import lost
 
 
 # ---------------- AC-4: export failure ----------------
@@ -238,9 +252,7 @@ def test_export_fails_clean_on_unwritable_target(syncer: Syncer, tmp_path: Path)
 # ---------------- AC-5: import into empty install ----------------
 
 
-def test_import_into_empty_install_creates_canonicals_and_projects(
-    syncer: Syncer, tmp_path: Path
-):
+def test_import_into_empty_install_creates_canonicals_and_projects(syncer: Syncer, tmp_path: Path):
     zip_path = _seed_and_export(syncer, tmp_path, "foo", "bar")
 
     target = _fresh_syncer(tmp_path, "target")
@@ -255,9 +267,12 @@ def test_import_into_empty_install_creates_canonicals_and_projects(
     assert len(report.accepted) == 2
     assert report.skipped == []
     assert report.archived_local == []
-    # Canonicals materialised
+    # Canonicals materialised; import is canonical-only — no tool files yet.
     assert len(list((target.state_dir / "canonical").glob("*.json"))) == 2
-    # Tool-side files projected onto every available tool for `skill` kind
+    for name in ("foo", "bar"):
+        assert not (target.tool_root("claude", "skill") / name / "SKILL.md").exists()
+    # The next sync_once projects onto every available tool for `skill` kind.
+    target.sync_once()
     for tool, root in (
         ("claude", target.tool_root("claude", "skill")),
         ("codex", target.tool_root("codex", "skill")),
@@ -266,13 +281,13 @@ def test_import_into_empty_install_creates_canonicals_and_projects(
     ):
         for name in ("foo", "bar"):
             assert (root / name / "SKILL.md").exists(), f"{tool}/{name}/SKILL.md missing"
-    # No archive entries (no displacement)
+    # No archive entries (fresh install, no displacement)
     archive_root = target.state_dir / "archive"
     assert not archive_root.exists() or not any(archive_root.rglob("*"))
 
 
-def test_import_followed_by_sync_once_is_a_noop(syncer: Syncer, tmp_path: Path):
-    """NFR-05: after a synchronous import, the next sync_once writes nothing."""
+def test_import_then_first_sync_projects_second_is_noop(syncer: Syncer, tmp_path: Path):
+    """Canonical-only import: the first sync_once projects, the second is a no-op (NFR-05)."""
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
     target = _fresh_syncer(tmp_path, "target")
     import_from_zip(
@@ -283,25 +298,22 @@ def test_import_followed_by_sync_once_is_a_noop(syncer: Syncer, tmp_path: Path):
         agentic_tools=target.agentic_tools,
     )
 
-    archive_root = target.state_dir / "archive"
-    archives_before = (
-        list(archive_root.rglob("*")) if archive_root.exists() else []
-    )
-    result = target.sync_once()
-    archives_after = (
-        list(archive_root.rglob("*")) if archive_root.exists() else []
-    )
+    first = target.sync_once()
+    assert first.changed >= 1  # the canonical-only import is projected here
 
-    assert result.changed == 0
+    archive_root = target.state_dir / "archive"
+    archives_before = list(archive_root.rglob("*")) if archive_root.exists() else []
+    second = target.sync_once()
+    archives_after = list(archive_root.rglob("*")) if archive_root.exists() else []
+
+    assert second.changed == 0
     assert archives_before == archives_after
 
 
 # ---------------- AC-6: pair_id collision policies ----------------
 
 
-def test_import_pair_id_collision_skip_leaves_local_intact(
-    syncer: Syncer, tmp_path: Path
-):
+def test_import_pair_id_collision_skip_leaves_local_intact(syncer: Syncer, tmp_path: Path):
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
     # Same install as source — pair_id collision on the same pair_id.
     pre_canonical = (
@@ -344,9 +356,12 @@ def test_import_pair_id_collision_mtime_wins_import_newer_overwrites(
 
     assert report.accepted == [pair_id]
     assert report.skipped == []
-    assert report.archived_local  # NFR-01 displacement archive
     state_after = load_state(syncer.state_dir)
     assert state_after[pair_id].last_modified != 1.0
+    # Canonical-only: the displaced bytes are archived when the next sync_once
+    # re-projects the imported canonical (NFR-01).
+    syncer.sync_once()
+    assert any((syncer.state_dir / "archive").rglob("*"))
 
 
 def test_import_pair_id_collision_mtime_wins_local_newer_keeps_local(
@@ -375,9 +390,7 @@ def test_import_pair_id_collision_mtime_wins_local_newer_keeps_local(
     assert state_after[pair_id].last_modified == 9_999_999_999.0
 
 
-def test_import_pair_id_collision_mtime_wins_tie_keeps_local(
-    syncer: Syncer, tmp_path: Path
-):
+def test_import_pair_id_collision_mtime_wins_tie_keeps_local(syncer: Syncer, tmp_path: Path):
     """AC-6 tiebreak: ties favour the local artifact (default-deny on rewrite)."""
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
 
@@ -395,9 +408,7 @@ def test_import_pair_id_collision_mtime_wins_tie_keeps_local(
     assert len(report.skipped) == 1
 
 
-def test_import_pair_id_collision_overwrite_archives_local(
-    syncer: Syncer, tmp_path: Path
-):
+def test_import_pair_id_collision_overwrite_archives_local(syncer: Syncer, tmp_path: Path):
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
 
     report = import_from_zip(
@@ -409,22 +420,25 @@ def test_import_pair_id_collision_overwrite_archives_local(
     )
 
     assert len(report.accepted) == 1
-    assert report.archived_local  # every local tool-side file got archived
+    # Canonical-only: every local tool-side file is archived when the next
+    # sync_once re-projects the imported canonical (NFR-01).
+    syncer.sync_once()
+    assert any((syncer.state_dir / "archive").rglob("*"))
 
 
-def test_import_overwrite_archives_shared_map_slot_not_whole_file(
-    syncer: Syncer, tmp_path: Path
-):
+def test_import_overwrite_archives_shared_map_slot_not_whole_file(syncer: Syncer, tmp_path: Path):
     claude_file = syncer.tool_root("claude", "mcp_server")
     claude_file.write_text(
-        json.dumps({
-            "mcpServers": {
-                "github": {
-                    "type": "stdio",
-                    "command": "gh-mcp",
+        json.dumps(
+            {
+                "mcpServers": {
+                    "github": {
+                        "type": "stdio",
+                        "command": "gh-mcp",
+                    },
                 },
-            },
-        }),
+            }
+        ),
         encoding="utf-8",
     )
     syncer.sync_once()
@@ -444,6 +458,10 @@ def test_import_overwrite_archives_shared_map_slot_not_whole_file(
         json.dumps(cursor_config, indent=2) + "\n",
         encoding="utf-8",
     )
+    # Absorb the local edit into the canonical first, so the overwrite-import
+    # genuinely differs from local and the post-import sync_once re-projects
+    # without a concurrent tool-edit conflict.
+    syncer.sync_once()
 
     report = import_from_zip(
         syncer.state_dir,
@@ -454,15 +472,14 @@ def test_import_overwrite_archives_shared_map_slot_not_whole_file(
     )
 
     assert report.accepted == [pair_id]
+    # Canonical-only: the next sync_once re-projects, archiving the displaced slot.
+    syncer.sync_once()
     cursor_after = json.loads(cursor_file.read_text(encoding="utf-8"))
     assert cursor_after["mcpServers"]["github"]["command"] == "gh-mcp"
     assert cursor_after["mcpServers"]["local-only"]["command"] == "local-server"
 
     archive_dir = syncer.state_dir / "archive" / pair_id / "cursor"
-    archived = [
-        json.loads(path.read_text(encoding="utf-8"))
-        for path in archive_dir.iterdir()
-    ]
+    archived = [json.loads(path.read_text(encoding="utf-8")) for path in archive_dir.iterdir()]
     assert any(obj.get("command") == "local-change" for obj in archived)
     assert all("mcpServers" not in obj for obj in archived)
 
@@ -470,9 +487,7 @@ def test_import_overwrite_archives_shared_map_slot_not_whole_file(
 # ---------------- AC-7: slug collision ----------------
 
 
-def test_import_slug_collision_different_pair_id_uses_strategy(
-    syncer: Syncer, tmp_path: Path
-):
+def test_import_slug_collision_different_pair_id_uses_strategy(syncer: Syncer, tmp_path: Path):
     """Different pair_ids, same target_slug(name) — strategy applies identically."""
     _write_claude_skill(syncer, "shared")
     syncer.sync_once()
@@ -502,10 +517,12 @@ def test_import_slug_collision_different_pair_id_uses_strategy(
         agentic_tools=syncer.agentic_tools,
     )
 
-    assert report.accepted == [other_pair_id]
+    # AC-17 tweak: the winning content is written under the LOCAL id; the
+    # imported id is retired.
+    assert report.accepted == [local_pair_id]
     state_after = load_state(syncer.state_dir)
-    assert other_pair_id in state_after
-    assert local_pair_id not in state_after  # replaced by the imported identity
+    assert local_pair_id in state_after
+    assert other_pair_id not in state_after
 
 
 # ---------------- AC-9: validation failures ----------------
@@ -660,14 +677,11 @@ def test_import_failure_midway_leaves_state_json_unchanged(
     # before the second raised) lived only inside the staging directory and
     # was discarded when staging aborted.
     canonical_dir = target.state_dir / "canonical"
-    canonicals = (
-        list(canonical_dir.iterdir()) if canonical_dir.exists() else []
-    )
+    canonicals = list(canonical_dir.iterdir()) if canonical_dir.exists() else []
     assert canonicals == []
     # No leftover staging directory either.
     leftover_pending = [
-        p for p in target.state_dir.iterdir()
-        if p.name.startswith(".import_pending_")
+        p for p in target.state_dir.iterdir() if p.name.startswith(".import_pending_")
     ]
     assert leftover_pending == []
 
@@ -675,9 +689,7 @@ def test_import_failure_midway_leaves_state_json_unchanged(
 # ---------------- AC-11: round-trip ----------------
 
 
-def test_export_then_reimport_is_byte_identical_for_canonicals(
-    syncer: Syncer, tmp_path: Path
-):
+def test_export_then_reimport_is_byte_identical_for_canonicals(syncer: Syncer, tmp_path: Path):
     _write_claude_skill(syncer, "foo")
     _write_claude_skill(syncer, "bar")
     syncer.sync_once()
