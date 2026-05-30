@@ -185,6 +185,15 @@ def write_artifact_inplace(
     return None
 
 
+class UnconfiguredRootError(RuntimeError):
+    """A (tool, kind) cell was asked to render but has no configured root.
+
+    With participation gated on ``ToolStatusTracker.is_kind_available`` this
+    never fires in normal flow; it is a loud guardrail so a future caller that
+    bypasses that gate fails fast here instead of crashing on ``Path(None)``.
+    """
+
+
 def render_to_agentic_tool(
     config: dict[str, Any],
     spec: AgenticToolSpec,
@@ -217,7 +226,13 @@ def render_to_agentic_tool(
             allow_unpaired_existing_slot=allow_unpaired_existing_slot,
             prior_text=prior_text,
         )
-    root = expand_path(config[spec.config_dir_keys[kind]])
+    raw_root = config.get(spec.config_dir_keys[kind])
+    if raw_root is None:
+        raise UnconfiguredRootError(
+            f"{spec.name}/{kind} has no configured root "
+            f"({spec.config_dir_keys[kind]}); cannot render"
+        )
+    root = expand_path(raw_root)
     if isinstance(layout, SingleFileLayout):
         return _render_single_file(
             io, canonical, root, slug, existing_path, prior_text,
