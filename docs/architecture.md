@@ -388,6 +388,28 @@ Properties this control flow gives us:
 | **FR-02** fault isolation | `sync_once` wraps each `process_pair` and each `propagate_orphan_state` in `try / except Exception` + `logging.exception(...)` — one bad artifact does not halt the loop. |
 | **FR-04** trusted removal source | `_propagate_removal` only fires when an **available** tool's view is missing the artifact; entries owned only by **unavailable** tools are preserved (`propagate_orphan_state` short-circuit). |
 
+### 6.1 Import as a merge (US-12, FR-12 / FR-13)
+
+`portable_archive.import_from_zip` is a **second entry point** that feeds
+`sync_once`, not a parallel writer. It writes only the **canonical store +
+`state.json` stubs** — never an agentic_tool root (US-12 AC-5, canonical-only);
+the next `sync_once` projects the imported artifacts through the unchanged
+adoption pipeline, so all tool-side writes keep the archive-before-write
+discipline (NFR-01).
+
+Import is a **merge keyed by `(customization_type, target_slug(name))`**, not a
+blind restore. `_classify` folds an **incremental** slug index — seeded from local
+state and updated as each candidate is accepted — so that two canonicals with the
+same slug but different `customization_artifact_id`s (the cross-machine case:
+the same artifact independently minted on two hosts) reconcile to **one** winner
+by the US-06 rule, the loser archived (FR-12, AC-17). This makes import idempotent
+and prevents it from manufacturing the slug collisions that US-03 AC-8 would block.
+
+Writes are **per-artifact atomic** (FR-13): each `(canonical + state stub)` lands
+as a unit or not at all, so a failure on one artifact leaves the rest intact and
+the failed one retried next run — no partial canonical, no state entry without its
+canonical.
+
 ---
 
 ## 7. Ports and adapters
