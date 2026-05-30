@@ -126,7 +126,11 @@ The "what the system does in response to inputs":
   and runs one poll.
 - **`DiscoveryWalker`** (`discovery.py`) — walks the registry, reads
   every artifact, validates `pair_id`s, groups by `pair_id`, and blocks
-  any pair whose adoption target would collide with an existing path.
+  any pair whose adoption target would collide with an existing path. Because
+  the id is recovered in isolation (point 3 above), a *managed* artifact whose
+  surrounding metadata is malformed still appears under its own id and is never
+  mistaken for a deletion; the unparseable **content** is dealt with downstream
+  by the orchestrator (US-03 AC-11, below).
 - **`AdoptionEngine`** (`adoption.py`) — per-pair dispatcher. Decides
   whether to adopt, sync one-way, extend to newly-available tools,
   resolve a conflict by mtime, or propagate a removal.
@@ -289,8 +293,11 @@ Five rules every adapter must obey (US-10 AC-1, AC-4, AC-5, AC-6):
 2. **`render` is pure**. When `prior_text` is provided it preserves user
    formatting where the underlying syntax allows (ruamel round-trip in
    YAML; tomlkit-style in TOML).
-3. **`extract_pair_id` never raises** on malformed input — it returns
-   `None`.
+3. **`extract_pair_id` never raises** on malformed input. It reads the
+   `customization_artifact_id` tag **in isolation**, tolerating a malformed
+   surrounding metadata block: it returns the id when the tag is present and
+   well-formed (even if the rest of the block is unparseable), and `None` only
+   when the tag itself is absent or unreadable (FR-11).
 4. **Unknown fields are not dropped**; they live in
    `canonical["per_agentic_tool_extra"][tool_name]` and survive
    round-trips verbatim.
@@ -360,6 +367,8 @@ sync_once
 │         ├── exactly one changed tool       → _sync_from_agentic_tool
 │         ├── ≥ 2 changed tools              → _resolve_conflict_n_way
 │         └── no changes but new participants → _extend_to_new_tools
+│       on AdapterParseError / YAMLError      → FREEZE: structured warning,
+│         add to blocked, no sync, no removal (US-03 AC-11 / FR-11)
 │
 ├── for pair_id in state \ discovery:
 │       adoption.propagate_orphan_state(pair_id, state)

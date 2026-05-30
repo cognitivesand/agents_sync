@@ -25,6 +25,7 @@ Project-wide constraints (Python 3.12+, per-OS supervision mechanism, single use
 - **FR-08** (slash_command matrix): The daemon **shall** sync user-level `slash_command` customization_artifacts across every available agentic_tool whose `supported_customization_types` includes `slash_command`.
 - **FR-09** (mcp_server matrix): The daemon **shall** sync user-level `mcp_server` customization_artifacts across every available agentic_tool whose `supported_customization_types` includes `mcp_server`.
 - **FR-10** (Standard global-rules filename detection): For the whole-file global-rules family (`claude`, `codex`, `opencode`), the daemon **shall** detect a tool's `rules` artifact by an ordered list of standard filenames and treat the highest-precedence present file as that tool's single `rules` artifact, preferring `AGENTS.md`. A filename not on a tool's declared list **shall not** be adopted as a `rules` artifact.
+- **FR-11** (Identity robustness): The daemon **shall** extract a customization_artifact's `customization_artifact_id` independently of the validity of the remainder of its artifact metadata. When the artifact metadata is malformed but the `customization_artifact_id` tag is present and well-formed, the daemon **shall** recover the id, **shall not** mint a new id, and **shall not** misattribute the artifact. When the metadata is malformed such that content cannot be parsed, the daemon **shall** freeze the owning customization_artifact (no reconcile, no sync, no removal) and emit a structured warning per NFR-13.
 
 ## Non-Functional Requirements
 

@@ -28,6 +28,7 @@ Public API:
   a ruamel-mutable dict (or an empty one) for render-time mutation.
 - ``AdapterParseError`` — common parse-error type across adapters.
 """
+
 from __future__ import annotations
 
 import io
@@ -41,6 +42,15 @@ from ruamel.yaml.error import YAMLError
 FRONTMATTER_RE = re.compile(
     r"\A(?:﻿)?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)(.*)\Z",
     re.DOTALL,
+)
+
+# FR-11: an isolated lookup of just the injected id tag, used to recover identity
+# when the surrounding metadata block is malformed YAML. Matches a `pair_id:` line
+# anywhere in the frontmatter, with or without surrounding quotes; the recovered
+# value is validated downstream by ``identity.validate_pair_id``.
+_PAIR_ID_LINE_RE = re.compile(
+    r"^[ \t]*pair_id[ \t]*:[ \t]*[\"']?(?P<id>[^\s\"'#]+)",
+    re.MULTILINE,
 )
 
 _CORRUPTED_UTF8_BOM = "ï»¿"
@@ -129,7 +139,10 @@ def normalize_markdown_text(text: str) -> str:
 
 
 def split_frontmatter(
-    text: str, *, label: str, strip_body: bool = True,
+    text: str,
+    *,
+    label: str,
+    strip_body: bool = True,
 ) -> tuple[dict[str, Any], str]:
     """Split a Markdown document into ``(frontmatter_dict, body_text)``.
 
@@ -164,7 +177,7 @@ def split_frontmatter(
             body = body.strip()
         return {}, body
     raw_frontmatter = match.group(1)
-    body_raw = text[match.start(2):]
+    body_raw = text[match.start(2) :]
     body = strip_bom_prefix(body_raw)
     if strip_body:
         body = body.strip()
@@ -172,9 +185,7 @@ def split_frontmatter(
     if loaded is None:
         return {}, body
     if not isinstance(loaded, dict):
-        raise AdapterParseError(
-            f"{label} frontmatter must be a YAML mapping"
-        )
+        raise AdapterParseError(f"{label} frontmatter must be a YAML mapping")
     return dict(loaded), body
 
 
@@ -205,9 +216,7 @@ def metadata_subset(
 ) -> dict[str, Any]:
     """Return the fields from ``metadata`` that are named in ``field_names``."""
     return {
-        field_name: metadata[field_name]
-        for field_name in field_names
-        if field_name in metadata
+        field_name: metadata[field_name] for field_name in field_names if field_name in metadata
     }
 
 
@@ -260,7 +269,14 @@ def extract_pair_id_from_md(text: str) -> str | None:
     match = FRONTMATTER_RE.match(text)
     if not match:
         return None
-    loaded = yaml_load(match.group(1))
+    block = match.group(1)
+    try:
+        loaded = yaml_load(block)
+    except YAMLError:
+        # FR-11: the surrounding metadata is malformed — recover our own id tag
+        # in isolation so identity is never lost to a field we do not own.
+        isolated = _PAIR_ID_LINE_RE.search(block)
+        return isolated.group("id") if isolated else None
     if isinstance(loaded, dict) and isinstance(loaded.get("pair_id"), str):
         return cast("str", loaded["pair_id"])
     return None
