@@ -425,6 +425,17 @@ as a unit or not at all, so a failure on one artifact leaves the rest intact and
 the failed one retried next run — no partial canonical, no state entry without its
 canonical.
 
+Because import is a second entry point onto the same `sync_once` foundation rather
+than a parallel writer, it may run **while the daemon is active** (FR-15). Two
+mechanisms make the interleaving safe. First, every `state.json` write goes through
+`state.atomic_write_text`, which writes a unique per-process temp file and
+`os.replace`s it onto the target — so a daemon poll never reads a torn record and a
+concurrent import write lands all-or-nothing. Second, the daemon reconciles from the
+**canonical store** (the heal foundation above, FR-14), so a poll that races an import
+converges regardless of ordering: at worst it defers projection of a just-imported
+canonical to a later poll, never corrupting state. The net managed state is identical
+to running the import and the poll sequentially.
+
 ---
 
 ## 7. Ports and adapters
