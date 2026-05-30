@@ -1,6 +1,8 @@
 # Amendment 002 — Cross-machine config merge: slug-reconciling, atomic import
 
-- status: reqs-validated
+- status: reqs-validated (all governance applied; code deferred to a focused pass)
+- governance applied: US-12 AC-5/17/18, FR-12, FR-13, NFR-16, US-11 AC-8, US-05 AC-5;
+  architecture §6.1 marked planned-not-built
 
 ## Validated decisions (2026-05-30)
 
@@ -112,6 +114,41 @@ Proposed AC-5 rewrite (canonical-only):
 > - **FR-13** (Atomic import): `import` **shall** apply atomically — on any
 >   failure, the local install **shall** retain exactly the customization_artifacts
 >   it had before, with no orphaned tool-side files (NFR-03).
+
+## Expansion (2026-05-30) — canonical store is the source of truth
+
+Implementing canonical-only import revealed that the daemon projects only from
+**on-disk tool files**; a canonical with no disk presence is inert (never
+rendered, never removed). Rather than work around it, the project inverts the
+arrow: **the canonical store is the authoritative source of truth; tool-side
+files are projections derived from it.** Decisions:
+
+1. **Canonical authority + round-trip losslessness** (not byte-identical): parsing
+   a tool file into canonical loses no user-authored information; a fresh
+   projection reproduces every declared field and value (formatting may normalise).
+   New requirement **NFR-16**.
+2. **Project disk-absent canonicals**: `sync_once` gains a step that projects any
+   managed artifact present in state+canonical but on zero tool disks (freshly
+   imported, or a newly-available tool) onto every enabled/supporting/available
+   tool via the adoption pipeline.
+3. **Heal vs delete (state-based)**: absence of a tool file that state **never
+   recorded** for that tool ⇒ project/heal from canonical; absence of a file state
+   **did record** ⇒ authored deletion ⇒ propagate removal (unchanged FR-04). The
+   import case is purely the heal kind (new to this host, zero tools).
+4. **Archive canonical on drop**: when a canonical record is dropped (e.g. deletion
+   propagation), it is archived first — data preservation extended from tool-side
+   bytes to the canonical store (NFR-01 / NFR-07).
+
+With (2), canonical-only import (AC-5, Decision A) is sound: import writes
+canonical + state stub atomically; the next `sync_once` projects it. The
+cross-machine merge (AC-17) then sits on top unchanged.
+
+### Additional governance edits (require validation)
+
+- **NFR-16 (Canonical authority & fidelity)** — new requirement (text below).
+- **US-11** (removal) / **US-03** (adoption): an AC for project-disk-absent and the
+  heal-vs-delete state rule.
+- **US-05** (archive) or removal story: an AC for archiving a dropped canonical.
 
 ## Design edits (architecture — applied after validation)
 

@@ -388,13 +388,28 @@ Properties this control flow gives us:
 | **FR-02** fault isolation | `sync_once` wraps each `process_pair` and each `propagate_orphan_state` in `try / except Exception` + `logging.exception(...)` — one bad artifact does not halt the loop. |
 | **FR-04** trusted removal source | `_propagate_removal` only fires when an **available** tool's view is missing the artifact; entries owned only by **unavailable** tools are preserved (`propagate_orphan_state` short-circuit). |
 
-### 6.1 Import as a merge (US-12, FR-12 / FR-13)
+### 6.1 Import as a merge — PLANNED (amendment 002, not yet implemented)
 
-`portable_archive.import_from_zip` is a **second entry point** that feeds
-`sync_once`, not a parallel writer. It writes only the **canonical store +
-`state.json` stubs** — never an agentic_tool root (US-12 AC-5, canonical-only);
-the next `sync_once` projects the imported artifacts through the unchanged
-adoption pipeline, so all tool-side writes keep the archive-before-write
+> **Status: designed, not built.** The sections below describe the target design
+> per `docs/amendment/002-cross-machine-merge-import.md` (NFR-16, FR-12/13, US-12
+> AC-5/17/18, US-11 AC-8, US-05 AC-5). The **current** code does the opposite of
+> the source-of-truth inversion: the daemon projects from on-disk tool files
+> (canonical = cache), and `import_from_zip` renders directly to tool roots and is
+> not atomic across tool-side writes. This subsection is the roadmap, not a
+> description of running behaviour, until the implementation lands.
+
+The inversion: **the canonical store becomes the source of truth** (NFR-16); every
+tool-side file is a projection. `sync_once` gains a step that projects any managed
+artifact present in canonical + `state` but absent from an agentic_tool that
+`state` never recorded (freshly imported, or a newly-available tool) — heal, not
+remove (US-11 AC-8); an authored deletion (absence of a *recorded* file) stays a
+removal. Dropping a canonical archives it first (US-05 AC-5).
+
+On that foundation, `portable_archive.import_from_zip` becomes a **second entry
+point** that feeds `sync_once`, not a parallel writer. It writes only the
+**canonical store + `state.json` stubs** — never an agentic_tool root (US-12 AC-5,
+canonical-only); the next `sync_once` projects the imported artifacts through the
+unchanged adoption pipeline, so all tool-side writes keep the archive-before-write
 discipline (NFR-01).
 
 Import is a **merge keyed by `(customization_type, target_slug(name))`**, not a

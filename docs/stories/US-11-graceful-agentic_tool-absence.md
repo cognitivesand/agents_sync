@@ -38,6 +38,8 @@ Vocabulary used in this story is defined in the project glossary at `docs/projec
 
 - [ ] AC-7 [Failure — all agentic_tools unavailable]: Given every configured + enabled agentic_tool has status `unavailable` at the same poll, When the watcher polls, Then no destructive operation is performed on any customization_artifact, no state entry is mutated, and the daemon continues polling (a no-op cycle), waiting for at least one agentic_tool to return to `available`.
 
+- [ ] AC-8 [Normal — project from canonical when never recorded]: Given a managed customization_artifact present in the canonical store and `state` but absent from an enabled, supporting, `available` agentic_tool **that `state` never recorded as holding it** (a freshly imported artifact on zero agentic_tools, or a newly-available agentic_tool), When the watcher polls, Then the artifact is projected onto that agentic_tool from its canonical via the adoption pipeline — the absence is treated as "not yet projected," **not** as a removal. Absence from an agentic_tool that `state` **did** record as holding the artifact remains a removal signal per AC-4 / US-05 AC-2.
+
 ## Notes
 
 The critical safety invariant is AC-4: an `unavailable` agentic_tool is **not** treated as "the user removed all the artifacts on that agentic_tool." Removal propagation (US-05 AC-2) fires only when an agentic_tool whose status is `available` is observed to be missing an artifact that is recorded in state. This is what prevents an unmounted drive or an uninstalled agentic_tool from wiping the user's library on the other agentic_tools.
