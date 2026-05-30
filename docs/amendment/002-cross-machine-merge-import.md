@@ -36,6 +36,24 @@ A second architecture audit closed 8/10 issues and found 2 more; all now fixed
   propagates. Verified the gap against `tool_status.refresh` and
   `removal_propagator` ("every entry dropped ⇒ pair_id dropped" — no prior guard).
 
+## Re-audit fixes (2026-05-30, architecture-critic round 3)
+
+Round 3 found the round-2 AC-9 ("freeze but stay available") incoherent with
+canonical-as-truth: a frozen tool stays `available`, so the AC-8 heal / project-
+disk-absent step re-creates exactly what AC-9 forbade; it also made deleting a
+tool's last artifact impossible. Driven by the user's **fire-and-forget**
+principle (the daemon must adapt to a removed tool with no user command):
+- **NFR-17 (Unattended operation)** added — no interaction required for any
+  add/edit/remove/rename/uninstall.
+- **US-11 AC-9 redesigned**: an emptied-but-was-populated tool is **reclassified
+  `unavailable`** (= "the tool was removed"), reusing AC-2 (preserve, no removal,
+  no heal) and AC-3 (re-extend on reinstall). Coherent status change, clear
+  mechanism (`tool_status` consults `state`), closes audit #1/#5/#9. The last-
+  artifact (#2) and bulk-vs-serial timing (#3) edges are now safe-by-design
+  (preserve, never silent data loss), not footguns.
+- Still open from round 3 (clean): **FR-12** needs the lexicographic tiebreaker
+  AC-17 carries (#4); a **populated-host import** normal-case AC is missing (#6).
+
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-30
 - supersedes / relates to: US-12 (AC-5, AC-7, AC-10, AC-11), US-03 (AC-3 reconciliation),
