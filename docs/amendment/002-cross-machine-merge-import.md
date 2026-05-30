@@ -53,6 +53,26 @@ principle (the daemon must adapt to a removed tool with no user command):
   (preserve, never silent data loss), not footguns.
 - Still open from round 3 (clean): **FR-12** needs the lexicographic tiebreaker
   AC-17 carries (#4); a **populated-host import** normal-case AC is missing (#6).
+  Both closed (FR-12 amended; US-12 AC-19 added), user-validated.
+
+## Re-audit fixes (2026-05-30, architecture-critic round 4)
+
+Round 4 **confirmed the import-merge governance clean** (AC-19, NFR-17, Decision A,
+AC-5/8, US-05 AC-5, NFR-16, FR-12 all sound) but found the round-3 AC-9
+("reclassify `unavailable`") still broken: AC-3's unguarded return-to-`available`
+precondition flips the emptied-but-reachable-root tool straight back next poll
+(oscillation, re-heal), it overloads the `unavailable` status (root IS reachable),
+and `tool_status` cannot consult `state` (it runs before `load_state`). AC-9
+fixed-by-patch failed four times because the empty-reachable-root is genuinely
+ambiguous and does not fit the 3-status model.
+
+**Final AC-9 (user policy, count threshold at the removal-vs-heal decision — not a
+status change):** ≥2 of a tool's recorded artifacts vanishing in a single poll is a
+**glitch** → not propagated; the canonical (authoritative) re-projects them back.
+Exactly **one** disappearance is a deliberate deletion → propagated (deletes are
+one-at-a-time). Tool status untouched, so AC-3 never enters → no oscillation; the
+mechanism lives in the adoption/removal phase after `load_state`. This closes all
+four round-4 AC-9 defects and fixes the round-3 last-artifact problem.
 
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-30
