@@ -124,12 +124,13 @@ class Syncer:
         discovery, self._blocked_pair_ids = self.discovery.discover(state)
         self._reconcile_new_groups(discovery, state)
         self._blocked_pair_ids |= self.discovery.block_target_collisions(discovery, state)
+        glitch_tools = self._glitch_tools(discovery, state)
         changed = 0
         failed: list[str] = []
 
         for pair_id, info in discovery.items():
             try:
-                if self.adoption.process_pair(pair_id, info, state):
+                if self.adoption.process_pair(pair_id, info, state, glitch_tools):
                     changed += 1
             except (AdapterParseError, YAMLError) as exc:
                 # US-03 AC-11 / FR-11: a managed artifact whose content cannot be
@@ -174,7 +175,7 @@ class Syncer:
             if not any(self.tool_status.is_kind_available(t, ps.kind) for t in ps.agentic_tools):
                 continue
             try:
-                if self.adoption.propagate_orphan_state(pair_id, state):
+                if self.adoption.propagate_orphan_state(pair_id, state, glitch_tools):
                     changed += 1
             except Exception:
                 logging.exception("Failed to handle orphan state: pair_id=%s", pair_id)
@@ -193,6 +194,31 @@ class Syncer:
             len(result.blocked),
         )
         return result
+
+    def _glitch_tools(
+        self,
+        discovery: dict[str, CustomizationArtifactInfo],
+        state: dict[str, CustomizationArtifactState],
+    ) -> frozenset[str]:
+        """Tools that lost **two or more** of their recorded artifacts this poll.
+
+        A bulk disappearance from one available tool is a glitch (uninstall,
+        unmount, mid-write), not a deliberate deletion (US-11 AC-9). Per
+        available tool, count the managed pairs that `state` records for it but
+        that the poll shows absent on it; >=2 flags the tool. Blocked pairs are
+        excluded (their absence is not a removal signal).
+        """
+        vanished: dict[str, set[str]] = {}
+        for pair_id, ps in state.items():
+            if pair_id in self._blocked_pair_ids:
+                continue
+            info = discovery.get(pair_id)
+            for tool in ps.agentic_tools:
+                if not self.tool_status.is_kind_available(tool, ps.kind):
+                    continue
+                if info is None or tool not in info.agentic_tools:
+                    vanished.setdefault(tool, set()).add(pair_id)
+        return frozenset(t for t, pids in vanished.items() if len(pids) >= 2)
 
     # ---------- first-boot reconciliation (v0.4 plan §5.5) ----------
 

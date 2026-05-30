@@ -66,6 +66,7 @@ class AdoptionEngine(
         pair_id: str,
         info: CustomizationArtifactInfo,
         state: dict[str, CustomizationArtifactState],
+        glitch_tools: frozenset[str] = frozenset(),
     ) -> bool:
         ps = state.get(pair_id)
         if ps is None:
@@ -79,13 +80,19 @@ class AdoptionEngine(
             t for t in available if t in ps.agentic_tools and t not in info.agentic_tools
         ]
         if missing_from_state:
-            return self._propagate_removal(
-                pair_id,
-                info,
-                state,
-                missing_from_state,
-                survivors=present,
-            )
+            deliberate = [t for t in missing_from_state if t not in glitch_tools]
+            if deliberate:
+                return self._propagate_removal(
+                    pair_id,
+                    info,
+                    state,
+                    missing_from_state,
+                    survivors=present,
+                )
+            # Every vanished tool is glitch-flagged (>=2 of its artifacts gone
+            # this poll, US-11 AC-9): a transient glitch, not a deletion —
+            # re-project from the authoritative canonical.
+            return self.project_from_canonical(pair_id, state, target_tools=missing_from_state)
         if not present:
             return False
 
@@ -590,15 +597,19 @@ class AdoptionEngine(
         self,
         pair_id: str,
         state: dict[str, CustomizationArtifactState],
+        target_tools: list[str] | None = None,
     ) -> bool:
-        """Heal: project a managed pair's canonical onto every supporting,
-        available tool that does not yet hold it (US-11 AC-8, NFR-16).
+        """Heal: project a managed pair's canonical onto supporting, available
+        tools (US-11 AC-8/AC-9, NFR-16).
 
         Unlike ``_extend_to_new_tools`` this needs no on-disk ``info`` — it is
-        the path for a pair present on **zero** tools (a freshly imported stub,
-        or a glitch-vanished pair re-projected per US-11 AC-9). Rendering is
-        canonical-only (``source_dir=None``); ``update_state_n_way`` records the
-        post-write on-disk digest so the next poll re-projects nothing (NFR-05).
+        the path for a pair present on **zero** tools (a freshly imported stub)
+        or for glitch-vanished tools re-projected per US-11 AC-9. With
+        ``target_tools=None`` it projects onto every supporting available tool
+        not yet recorded (the stub case); pass an explicit list to re-heal
+        specific (already-recorded) tools. Rendering is canonical-only
+        (``source_dir=None``); ``update_state_n_way`` records the post-write
+        on-disk digest so the next poll re-projects nothing (NFR-05).
         """
         ps = state[pair_id]
         canonical = load_canonical(self.state_dir, pair_id)
@@ -606,9 +617,10 @@ class AdoptionEngine(
             logging.error("Cannot project pair_id=%s: canonical document missing", pair_id)
             return False
         kind = ps.kind
-        target_tools = [
-            t for t in self._available_participating_tools(kind) if t not in ps.agentic_tools
-        ]
+        if target_tools is None:
+            target_tools = [
+                t for t in self._available_participating_tools(kind) if t not in ps.agentic_tools
+            ]
         results: dict[str, RenderResult] = {}
         for tool_name in target_tools:
             target_spec = self.agentic_tools[tool_name]

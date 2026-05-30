@@ -49,19 +49,36 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
     """Removal propagation and orphan handling."""
 
     def propagate_orphan_state(
-        self, pair_id: str, state: dict[str, CustomizationArtifactState]
+        self,
+        pair_id: str,
+        state: dict[str, CustomizationArtifactState],
+        glitch_tools: frozenset[str] = frozenset(),
     ) -> bool:
         """pair_id is in state but no available tool surfaced it this poll.
 
-        Entries for ``available`` tools are dropped (those tools removed the
-        artifact). Entries for ``unavailable`` tools are preserved verbatim
-        (US-11 AC-4). When no entries remain, the pair_id itself is dropped.
+        If **every** available tool that recorded the pair is glitch-flagged
+        (>=2 of its artifacts vanished this poll, US-11 AC-9), the disappearance
+        is a transient glitch: re-project the pair from the canonical, drop
+        nothing. Otherwise it is a deliberate removal — entries for ``available``
+        tools are dropped (those tools removed the artifact), entries for
+        ``unavailable`` tools are preserved verbatim (US-11 AC-4), and when no
+        entries remain the canonical is archived (US-05 AC-5) and the pair_id
+        dropped.
         """
         ps = state[pair_id]
-        for tool in list(ps.agentic_tools.keys()):
-            if self.tool_status.is_available(tool):
-                del ps.agentic_tools[tool]
+        available_recorded = [t for t in ps.agentic_tools if self.tool_status.is_available(t)]
+        if available_recorded and all(t in glitch_tools for t in available_recorded):
+            self.project_from_canonical(pair_id, state, target_tools=available_recorded)
+            logging.warning(
+                "Glitch (bulk disappearance) re-projected, not removed: pair_id=%s tools=%s",
+                pair_id,
+                available_recorded,
+            )
+            return True
+        for tool in available_recorded:
+            del ps.agentic_tools[tool]
         if not ps.agentic_tools:
+            archive.archive_canonical(self.state_dir, pair_id)
             del state[pair_id]
             logging.info("Pair fully removed: pair_id=%s", pair_id)
         else:
