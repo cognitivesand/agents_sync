@@ -1,10 +1,13 @@
 """Per-pair sync algorithm — Phase 3 (bidirectional with mtime conflict resolution)."""
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from ruamel.yaml.error import YAMLError
 
 from agents_sync import archive
 from agents_sync.adoption import AdoptionEngine
@@ -21,6 +24,7 @@ from agents_sync.config import (
     validate_config,
 )
 from agents_sync.discovery import DiscoveryWalker
+from agents_sync.markdown_yaml_metadata_block import AdapterParseError
 from agents_sync.mcp_secret_policy import reset_mcp_secret_warning_cache
 from agents_sync.rendering import read_artifact_text, slot_aware_collision_key
 from agents_sync.state import (
@@ -89,15 +93,12 @@ class Syncer:
         self.config = normalize_config(config, source="syncer", warn_deprecated=False)
         validate_config(self.config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (
-            agentic_tools if agentic_tools is not None
-            else default_agentic_tools(self.config)
+            agentic_tools if agentic_tools is not None else default_agentic_tools(self.config)
         )
         self.state_dir = prepare_state_storage(self.config)
         self._blocked_pair_ids: set[str] = set()
         self.tool_status = ToolStatusTracker(self.config, self.agentic_tools)
-        self.discovery = DiscoveryWalker(
-            self.config, self.agentic_tools, self.tool_status
-        )
+        self.discovery = DiscoveryWalker(self.config, self.agentic_tools, self.tool_status)
         self.adoption = AdoptionEngine(
             self.config, self.agentic_tools, self.state_dir, self.tool_status
         )
@@ -122,9 +123,7 @@ class Syncer:
         state = load_state(self.state_dir)
         discovery, self._blocked_pair_ids = self.discovery.discover(state)
         self._reconcile_new_groups(discovery, state)
-        self._blocked_pair_ids |= self.discovery.block_target_collisions(
-            discovery, state
-        )
+        self._blocked_pair_ids |= self.discovery.block_target_collisions(discovery, state)
         changed = 0
         failed: list[str] = []
 
@@ -132,6 +131,21 @@ class Syncer:
             try:
                 if self.adoption.process_pair(pair_id, info, state):
                     changed += 1
+            except (AdapterParseError, YAMLError) as exc:
+                # US-03 AC-11 / FR-11: a managed artifact whose content cannot be
+                # parsed is frozen, not failed — never synced, never removed
+                # (it stays in `discovery`, so the removal loop skips it), until
+                # the user repairs it. Structured warning per NFR-13.
+                locations = ", ".join(
+                    f"{tool}:{ti.path}" for tool, ti in info.agentic_tools.items()
+                )
+                logging.warning(
+                    "Frozen — unparseable artifact content: pair_id=%s artifacts=[%s] cause=%s",
+                    pair_id,
+                    locations,
+                    exc,
+                )
+                self._blocked_pair_ids.add(pair_id)
             except Exception:
                 logging.exception("Failed to sync pair: pair_id=%s", pair_id)
                 failed.append(pair_id)
@@ -146,10 +160,7 @@ class Syncer:
             if pair_id in self._blocked_pair_ids:
                 continue
             ps = state[pair_id]
-            if not any(
-                self.tool_status.is_kind_available(t, ps.kind)
-                for t in ps.agentic_tools
-            ):
+            if not any(self.tool_status.is_kind_available(t, ps.kind) for t in ps.agentic_tools):
                 continue
             try:
                 if self.adoption.propagate_orphan_state(pair_id, state):
@@ -166,7 +177,9 @@ class Syncer:
         )
         logging.info(
             "Sync poll complete: changed=%d failed=%d blocked=%d",
-            result.changed, len(result.failed), len(result.blocked),
+            result.changed,
+            len(result.failed),
+            len(result.blocked),
         )
         return result
 
@@ -198,7 +211,8 @@ class Syncer:
             return
 
         groups, source_tool_by_pair = self._group_new_pairs_by_slug(
-            new_pair_ids, discovery,
+            new_pair_ids,
+            discovery,
         )
 
         for (kind, slug), group_pair_ids in groups.items():
@@ -226,16 +240,17 @@ class Syncer:
             )
 
     def _collect_new_pair_ids(
-        self, discovery: dict[str, CustomizationArtifactInfo],
+        self,
+        discovery: dict[str, CustomizationArtifactInfo],
     ) -> list[str]:
         """Return pair_ids whose every tool-side observation lacks a pair_id —
         i.e. the artifact has never been managed before. Sole eligibility for
         the §5.5 group-and-merge phase."""
         return [
-            pair_id for pair_id, info in discovery.items()
-            if info.agentic_tools and all(
-                not t.pair_id_present for t in info.agentic_tools.values()
-            )
+            pair_id
+            for pair_id, info in discovery.items()
+            if info.agentic_tools
+            and all(not t.pair_id_present for t in info.agentic_tools.values())
         ]
 
     def _group_new_pairs_by_slug(
@@ -275,7 +290,9 @@ class Syncer:
             except Exception:
                 logging.exception(
                     "Reconcile: cannot parse for grouping: pair_id=%s tool=%s path=%s",
-                    pair_id, tool_name, tool_info.path,
+                    pair_id,
+                    tool_name,
+                    tool_info.path,
                 )
                 continue
             if is_private(canonical):
@@ -300,6 +317,7 @@ class Syncer:
         Losers' bytes archived under the winner's minted pair_id before
         discovery is rewritten. Adoption then proceeds from the winner.
         """
+
         def tool_info_for(pair_id: str) -> AgenticToolInfo:
             return discovery[pair_id].agentic_tools[source_tool_by_pair[pair_id]]
 
@@ -319,23 +337,27 @@ class Syncer:
             try:
                 if isinstance(loser_io.file_layout, SharedKeyedMapLayout):
                     loser_text = read_artifact_text(
-                        loser_io, loser_path, slot=loser_info.slot,
+                        loser_io,
+                        loser_path,
+                        slot=loser_info.slot,
                     )
                     archive.archive_text(
-                        self.state_dir, merged_pair_id, loser_tool,
+                        self.state_dir,
+                        merged_pair_id,
+                        loser_tool,
                         slot_name=str(loser_info.slot),
                         extension=loser_io.file_layout.file_suffix,
                         content=loser_text,
                     )
                 else:
-                    archive.archive_copy(
-                        self.state_dir, merged_pair_id, loser_tool, loser_path
-                    )
+                    archive.archive_copy(self.state_dir, merged_pair_id, loser_tool, loser_path)
             except Exception:
                 logging.exception(
-                    "Reconcile: archive failed; aborting merge "
-                    "kind=%s slug=%s pair_id=%s tool=%s",
-                    kind, slug, p, loser_tool,
+                    "Reconcile: archive failed; aborting merge kind=%s slug=%s pair_id=%s tool=%s",
+                    kind,
+                    slug,
+                    p,
+                    loser_tool,
                 )
                 return
 
@@ -350,10 +372,10 @@ class Syncer:
         discovery[merged_pair_id] = merged_info
 
         logging.info(
-            "Reconciled new-artifact group: kind=%s slug=%s pair_id=%s "
-            "winner=%s merged_tools=%s",
-            kind, slug, merged_pair_id,
+            "Reconciled new-artifact group: kind=%s slug=%s pair_id=%s winner=%s merged_tools=%s",
+            kind,
+            slug,
+            merged_pair_id,
             source_tool_by_pair[winner_pair_id],
             list(merged_tools.keys()),
         )
-

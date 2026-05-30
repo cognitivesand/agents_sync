@@ -53,6 +53,8 @@ Vocabulary used in this story is defined in the project glossary at `docs/projec
 
 - [ ] AC-10 [Failure — malformed new customization artifact]: Given a new customization artifact whose artifact metadata is malformed or missing the required `name` field, When discovery encounters it, Then the artifact is skipped (not adopted, not reconciled, not used to block any other reconciliation), and a structured warning names the agentic_tool, the path, and the underlying parse error.
 
+- [ ] AC-11 [Failure — managed customization artifact became malformed]: Given an **already-managed** customization artifact whose on-disk artifact metadata has become malformed or unparseable (e.g. invalid YAML frontmatter) while its `customization_artifact_id` tag is still present and well-formed, When discovery encounters it, Then the artifact's owning `customization_artifact_id` is **frozen** — not reconciled, not synced, and **not interpreted as a removal** (no removal is propagated to other agentic_tools) — and a structured warning names the agentic_tool, the path, and the underlying parse error, until the user repairs the metadata.
+
 ## Notes
 
 Reconciliation runs **between** discovery and per-customization_artifact processing, on the set of new customization artifacts only. It groups new customization artifacts by reconciliation key and decides each group in isolation. The total number of managed customization_artifacts after reconciliation equals the number of distinct keys observed across all new customization artifacts that poll, plus the count of already-managed customization_artifacts that were not absorbed under AC-6.
