@@ -19,7 +19,7 @@ Must Have
 - [ ] AC-3 [Normal]: Given a routine retranslation overwrite where the prior content is byte-equal to a render of the current canonical, When the overwrite runs, Then no archive entry is created (avoids noise without losing recoverable information).
 - [ ] AC-4 [Failure]: Given the archive directory cannot be written (permission, disk full, etc.), When the tool needs to archive, Then the destructive operation that triggered the archive is aborted, the original file remains untouched, and a structured error is logged.
 
-- [ ] AC-5 [Normal — archive a dropped canonical]: Given an operation drops a customization_artifact's canonical record from the canonical store (e.g. removal propagation completes), When the drop occurs, Then the canonical record is first written to archive — the canonical store is covered by the same no-`rm` data-preservation rule as tool-side files.
+- [ ] AC-5 [Normal — archive a dropped canonical]: Given an operation drops a customization_artifact's canonical record from the canonical store (e.g. removal propagation completes), When the drop occurs, Then the canonical record is first copied to `archive/<customization_artifact_id>/_canonical/<customization_artifact_id>.json.<ISO-UTC-timestamp>` — a reserved `_canonical` path segment, distinct from any agentic_tool name (a canonical belongs to no agentic_tool). The canonical store is thereby covered by the same no-`rm` data-preservation rule as tool-side files; an archived canonical is recovery-only and is never automatically resurrected.
 
 ## Notes
 

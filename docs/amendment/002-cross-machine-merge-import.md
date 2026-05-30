@@ -12,9 +12,12 @@
 - **FR-12 / FR-13 approved**, reworded as clean self-contained high-level rules (no
   US/AC/NFR cross-refs, no implementation terms). FR-13 is **per-artifact** atomicity
   (fault-isolated), not whole-import all-or-nothing.
-- **Data preservation confirmed already covered** by NFR-01 ("no loss of user-authored
-  content under any operation") + NFR-07; AC-17 keeps the explicit loser-archiving
-  clause. No new data-preservation requirement needed.
+- **Data preservation**: the *tool-side* bytes are already covered by NFR-01 ("no loss
+  of user-authored content under any operation") + NFR-07, and AC-17 keeps the explicit
+  loser-archiving clause. The *canonical store* was **not** previously an archived
+  surface — the Expansion below adds US-05 AC-5 to extend the no-`rm` rule to a dropped
+  canonical (with a defined `_canonical` archive path). No new top-level requirement is
+  needed; NFR-01/NFR-07 already mandate it, US-05 AC-5 makes the canonical path concrete.
 
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-30
@@ -61,8 +64,10 @@ non-atomic. This must be resolved before the feature is built.
 
 **Import is a merge, not an overwrite: it reconciles every candidate — imported
 *and* local — by `(customization_type, target_slug(name))`, collapsing same-slug
-candidates to a single winner by generation/mtime (US-06 semantics), archiving the
-losers, and it is atomic — either the whole library lands or nothing does.**
+candidates to a single winner by wall-clock `last_modified` (US-06 semantics; the
+host-local `generation` counter is not a cross-host discriminator), archiving the
+losers, and it is **per-artifact atomic** — each artifact lands completely or not
+at all, a failure on one not affecting the rest (FR-13).**
 
 ## Proposed governance edits (require user validation)
 
@@ -90,12 +95,14 @@ Proposed AC-5 rewrite (canonical-only):
 > canonicals share the same `(customization_type, target_slug(name))` but carry
 > **different** `customization_artifact_id`s (e.g. the same skill independently
 > created on two machines), When `import` runs, Then they are reconciled into a
-> **single** managed artifact: the candidate with the higher `generation`
-> (`last_modified` as tiebreaker, per US-06) wins and is written under one
-> `customization_artifact_id`; every losing candidate's bytes are archived
-> (NFR-01); no two managed artifacts share a slug after import (US-03 AC-8 is never
-> provoked). This reconciliation applies across the imported set and against local
-> state uniformly.
+> **single** managed artifact: the candidate with the higher wall-clock
+> `last_modified` wins, ties favouring the local artifact (host-local `generation`
+> is not a cross-host discriminator, per US-06); the winner keeps its
+> `customization_artifact_id`, every **losing candidate's id is retired** (not
+> written to canonical or `state`), its bytes archived (NFR-01) under the winner's
+> id; no two managed artifacts share a slug after import (US-03 AC-8 never
+> provoked); re-import is a no-op. This reconciliation applies across the imported
+> set and against local state uniformly.
 
 ### Decision C — preview reports merges (US-12, amend AC + add)
 
@@ -106,14 +113,20 @@ Proposed AC-5 rewrite (canonical-only):
 
 ### Requirements (US-12 realises; add to project_requirements.md)
 
-> - **FR-12** (Import convergence): `import` **shall** be idempotent and
->   **shall** reconcile candidate customization_artifacts by
->   `(customization_type, target_slug(name))` across both the imported set and
->   local state, collapsing same-slug candidates to a single managed artifact by
->   the US-06 conflict rule. Re-importing an exported library **shall** be a no-op.
-> - **FR-13** (Atomic import): `import` **shall** apply atomically — on any
->   failure, the local install **shall** retain exactly the customization_artifacts
->   it had before, with no orphaned tool-side files (NFR-03).
+_(Final validated text, as applied to `project_requirements.md` — these supersede
+the earlier drafts; reworded as clean self-contained high-level rules.)_
+
+> - **FR-12** (Import convergence): The daemon **shall** import a customization
+>   library idempotently: candidate customization_artifacts that resolve to the
+>   same customization_type and name **shall** be reconciled into a single managed
+>   customization_artifact, the most recently modified candidate prevailing and
+>   ties resolved in favour of the locally-present artifact. Re-importing a library
+>   exported from an unchanged state **shall** produce no change.
+> - **FR-13** (Per-artifact atomic import): The daemon **shall** import each
+>   customization_artifact atomically and in isolation: a customization_artifact
+>   **shall** be either fully imported or not imported at all, and a failure to
+>   import one customization_artifact **shall not** affect customization_artifacts
+>   that have already imported successfully.
 
 ## Expansion (2026-05-30) — canonical store is the source of truth
 
