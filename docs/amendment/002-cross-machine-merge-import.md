@@ -207,9 +207,17 @@ duplicates reconcile to one pair; that import writes canonical + state only
 - Atomic failure: induce a mid-import error → state unchanged, no orphan tool files
   (FR-13 / AC-10).
 - Preview honesty: preview lists the merges before disk writes (AC-18).
-- The tmp/dup_test.py scenario now succeeds (merges to 5, no crash).
+- The `tmp/dup_test.py` scenario must succeed (10 entries merge to 5, no crash) —
+  **target, not yet met**: against the current (unbuilt) code it crashes with a
+  `FileExistsError` and leaves orphan files (the probe that motivated this work).
 
 ## Verification
 
-Full `uv run pytest`, `mypy --strict`, `ruff`. The synthetic 10→5 merge and the
-live 19-pair round-trip both clean; daemon stays `blocked=0`.
+> **Code not yet implemented.** The acceptance below is the target for the
+> deferred implementation pass, not a report of a passing run.
+
+Once built: full `uv run pytest`, `mypy --strict`, `ruff` clean; the synthetic
+10→5 merge succeeds without crashing; re-import is idempotent. Already verified
+*today* against the **current** code (not this feature): a clean 19-pair
+export→import round-trip lands all 19 with `blocked=0` (`tmp/export_import_live.py`)
+— that path has no duplicates, so it does not exercise the merge.

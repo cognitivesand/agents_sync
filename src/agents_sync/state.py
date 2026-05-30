@@ -1,4 +1,5 @@
 """State store — pair_id-keyed index + filesystem helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -97,7 +98,12 @@ class CustomizationArtifactState:
     monotonic in-process counter that the daemon bumps on every write to this
     pair; it is the primary discriminator for the ``mtime_wins`` collision
     strategy at import time (US-12), with ``last_modified`` as the tiebreaker
-    when comparing entries from different hosts. A ``None`` ``last_modified``
+    when comparing entries from different hosts. (Planned — amendment 002 /
+    US-12 AC-17: the *cross-host* import comparison switches to wall-clock
+    ``last_modified`` as the primary key, since ``generation`` is host-local and
+    not comparable across machines; ``generation`` stays the intra-host runtime
+    discriminator. This docstring describes the current pre-amendment behaviour.)
+    A ``None`` ``last_modified``
     predates the field; ``generation`` defaults to ``0`` and is treated as
     "no edits seen yet" for comparison.
 
@@ -124,9 +130,7 @@ class CustomizationArtifactState:
             "customization_type": self.kind,
             "last_modified": self.last_modified,
             "generation": self.generation,
-            "agentic_tools": {
-                name: at.to_dict() for name, at in self.agentic_tools.items()
-            },
+            "agentic_tools": {name: at.to_dict() for name, at in self.agentic_tools.items()},
         }
 
     @classmethod
@@ -321,13 +325,16 @@ def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
     if schema_version != STATE_SCHEMA_VERSION:
         logging.info(
             "state.json schema_version=%r is not %d; rebuilding from scratch: %s",
-            schema_version, STATE_SCHEMA_VERSION, path,
+            schema_version,
+            STATE_SCHEMA_VERSION,
+            path,
         )
         return {}
     raw_entries = data.get("customization_artifacts")
     if not isinstance(raw_entries, dict):
         _quarantine_corrupt(
-            state_dir, path,
+            state_dir,
+            path,
             reason="customization_artifacts missing or not an object",
         )
         return {}
@@ -383,13 +390,17 @@ def _quarantine_corrupt(state_dir: Path, source: Path, *, reason: str) -> None:
         logging.error(
             "Quarantined corrupt %s (%s) -> %s. "
             "Rebuilding from scratch; inspect the quarantined file to recover.",
-            source, reason, dest,
+            source,
+            reason,
+            dest,
         )
     except OSError:
         logging.exception(
             "Quarantine failed for %s (%s); leaving the file in place. "
             "Rebuilding from scratch — please remove or fix %s by hand.",
-            source, reason, source,
+            source,
+            reason,
+            source,
         )
 
 
