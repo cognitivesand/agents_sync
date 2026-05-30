@@ -7,8 +7,10 @@ Both renderers project from it; in Phase 3 both parsers will fold side
 changes back into it. For Phase 2 (one-way) only the Claude parser is
 wired through.
 """
+
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -144,6 +146,17 @@ def canonical_path(state_dir: Path, pair_id: str) -> Path:
     return state_dir / "canonical" / f"{pair_id}.json"
 
 
+def canonical_digest(canonical: dict[str, Any]) -> str:
+    """Stable SHA-256 digest of a canonical document (FR-14 change detection).
+
+    Hashed over a deterministic JSON serialisation so the same canonical always
+    yields the same digest across hosts and runs. A mismatch against a pair's
+    recorded ``canonical_digest`` means the canonical changed out of band.
+    """
+    payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def load_canonical(state_dir: Path, pair_id: str) -> dict[str, Any] | None:
     """Return the canonical dict for ``pair_id``, or ``None`` if absent.
 
@@ -189,8 +202,12 @@ def save_canonical(state_dir: Path, pair_id: str, canonical: dict[str, Any]) -> 
     atomic_write_text(
         path,
         json.dumps(
-            canonicalize(canonical), indent=2, ensure_ascii=False, sort_keys=True,
-        ) + "\n",
+            canonicalize(canonical),
+            indent=2,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
     )
 
 
@@ -230,8 +247,6 @@ def apply_per_tool_partition(
 
     per_extra = dict(canonical.get("per_agentic_tool_extra") or {})
     per_extra[agentic_tool_name] = {
-        key: value
-        for key, value in frontmatter_data.items()
-        if key not in known_fields
+        key: value for key, value in frontmatter_data.items() if key not in known_fields
     }
     canonical["per_agentic_tool_extra"] = per_extra

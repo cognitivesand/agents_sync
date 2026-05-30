@@ -16,7 +16,7 @@ from agents_sync.agentic_tool_spec import (
     SharedKeyedMapLayout,
     default_agentic_tools,
 )
-from agents_sync.canonical import is_private
+from agents_sync.canonical import canonical_digest, is_private, load_canonical
 from agents_sync.config import (
     expand_path,
     normalize_config,
@@ -130,7 +130,12 @@ class Syncer:
 
         for pair_id, info in discovery.items():
             try:
-                if self.adoption.process_pair(pair_id, info, state, glitch_tools):
+                if self._canonical_changed_out_of_band(pair_id, info, state):
+                    # FR-14: the canonical changed but its tools did not (an
+                    # import) — re-project the canonical onto the tools.
+                    if self.adoption.reproject_canonical(pair_id, info, state):
+                        changed += 1
+                elif self.adoption.process_pair(pair_id, info, state, glitch_tools):
                     changed += 1
             except (AdapterParseError, YAMLError) as exc:
                 # US-03 AC-11 / FR-11: a managed artifact whose content cannot be
@@ -181,6 +186,13 @@ class Syncer:
                 logging.exception("Failed to handle orphan state: pair_id=%s", pair_id)
                 failed.append(pair_id)
 
+        # FR-14: record each pair's current canonical digest as the baseline for
+        # the next poll's out-of-band-change detection.
+        for pair_id, ps in state.items():
+            digest = self._current_canonical_digest(pair_id)
+            if digest is not None:
+                ps.canonical_digest = digest
+
         save_state(self.state_dir, state)
         result = SyncResult(
             changed=changed,
@@ -219,6 +231,39 @@ class Syncer:
                 if info is None or tool not in info.agentic_tools:
                     vanished.setdefault(tool, set()).add(pair_id)
         return frozenset(t for t, pids in vanished.items() if len(pids) >= 2)
+
+    def _current_canonical_digest(self, pair_id: str) -> str | None:
+        canonical = load_canonical(self.state_dir, pair_id)
+        return canonical_digest(canonical) if canonical is not None else None
+
+    def _canonical_changed_out_of_band(
+        self,
+        pair_id: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+    ) -> bool:
+        """FR-14: the canonical changed since its last projection but no tool did.
+
+        A mismatch with no tool-side change means the canonical was replaced out
+        of band (an import); it must be re-projected. A tool-side change instead
+        reverse-projects (and rewrites the canonical), so it takes precedence.
+        """
+        ps = state.get(pair_id)
+        if ps is None or ps.canonical_digest is None:
+            return False
+        current = self._current_canonical_digest(pair_id)
+        if current is None or current == ps.canonical_digest:
+            return False
+        return not self._any_tool_changed(info, ps)
+
+    def _any_tool_changed(
+        self, info: CustomizationArtifactInfo, ps: CustomizationArtifactState
+    ) -> bool:
+        for tool, tool_info in info.agentic_tools.items():
+            recorded = ps.agentic_tools.get(tool)
+            if recorded is None or tool_info.digest != recorded.last_written:
+                return True
+        return False
 
     # ---------- first-boot reconciliation (v0.4 plan §5.5) ----------
 

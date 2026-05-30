@@ -119,6 +119,11 @@ class CustomizationArtifactState:
     agentic_tools: dict[str, AgenticToolState] = field(default_factory=dict)
     last_modified: float | None = None
     generation: int = 0
+    # Digest of the canonical at its last projection (FR-14). ``None`` predates
+    # the field and is migrated on load. A mismatch against the current canonical
+    # means the canonical changed out of band (e.g. an import) and must be
+    # re-projected onto the tools.
+    canonical_digest: str | None = None
 
     def bump(self, *, now: float) -> None:
         """Record a write to this pair: advance generation, set last_modified."""
@@ -130,6 +135,7 @@ class CustomizationArtifactState:
             "customization_type": self.kind,
             "last_modified": self.last_modified,
             "generation": self.generation,
+            "canonical_digest": self.canonical_digest,
             "agentic_tools": {name: at.to_dict() for name, at in self.agentic_tools.items()},
         }
 
@@ -152,6 +158,8 @@ class CustomizationArtifactState:
             generation = int(raw_generation) if raw_generation is not None else 0
         except (TypeError, ValueError) as exc:
             raise ValueError("generation must be an integer") from exc
+        raw_canonical_digest = data.get("canonical_digest")
+        canonical_digest = str(raw_canonical_digest) if raw_canonical_digest is not None else None
         return cls(
             kind=data["customization_type"],
             agentic_tools={
@@ -161,6 +169,7 @@ class CustomizationArtifactState:
             },
             last_modified=last_modified,
             generation=generation,
+            canonical_digest=canonical_digest,
         )
 
 
@@ -351,7 +360,27 @@ def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
             result[pair_id] = CustomizationArtifactState.from_dict(entry)
         except (KeyError, ValueError):
             logging.warning("Skipping malformed state entry for pair_id=%s", pair_id)
+    _migrate_canonical_digests(state_dir, result)
     return result
+
+
+def _migrate_canonical_digests(
+    state_dir: Path, state: dict[str, CustomizationArtifactState]
+) -> None:
+    """Initialise ``canonical_digest`` for pairs that predate the field (FR-14).
+
+    Computing it from the on-disk canonical establishes the canonical as the
+    recorded source of truth without a spurious re-projection on the next poll.
+    """
+    # Lazy import — canonical.py imports state.py, so this avoids an import cycle.
+    from agents_sync.canonical import canonical_digest, load_canonical
+
+    for pair_id, ps in state.items():
+        if ps.canonical_digest is not None:
+            continue
+        canonical = load_canonical(state_dir, pair_id)
+        if canonical is not None:
+            ps.canonical_digest = canonical_digest(canonical)
 
 
 def _read_text_for_recovery(path: Path) -> str | None:

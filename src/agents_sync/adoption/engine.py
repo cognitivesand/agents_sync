@@ -650,3 +650,43 @@ class AdoptionEngine(
             sorted(results),
         )
         return True
+
+    def reproject_canonical(
+        self,
+        pair_id: str,
+        info: CustomizationArtifactInfo,
+        state: dict[str, CustomizationArtifactState],
+    ) -> bool:
+        """Re-project a canonical that changed out of band (FR-14) onto the tools
+        that currently hold it, archiving their displaced bytes first (NFR-01).
+
+        Unlike the stub heal (``project_from_canonical``), the tools already hold
+        an owned file, so rendering targets the existing path (overwrite) rather
+        than a fresh slug path.
+        """
+        canonical = load_canonical(self.state_dir, pair_id)
+        if canonical is None:
+            logging.error("Cannot re-project pair_id=%s: canonical missing", pair_id)
+            return False
+        present = [
+            t for t in self._available_participating_tools(info.kind) if t in info.agentic_tools
+        ]
+        results: dict[str, RenderResult] = {}
+        for tool in present:
+            self._archive_existing_tool_bytes(pair_id, info.kind, tool, info)
+            tool_info = info.agentic_tools[tool]
+            results[tool] = render_to_agentic_tool(
+                self.config,
+                self.agentic_tools[tool],
+                info.kind,
+                canonical,
+                existing_path=tool_info.path,
+                prior_text=None,
+                source_dir=None,
+                existing_slot=tool_info.slot,
+            )
+        if not results:
+            return False
+        update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
+        logging.info("Canonical re-projected (FR-14): pair_id=%s tools=%s", pair_id, present)
+        return True
