@@ -1,6 +1,7 @@
 # Amendment 001 — Identity tag readable in isolation; freeze on malformed managed metadata
 
 - status: applied
+- landing commit: d151d4e
 - branch: fix/v0.5-malformed-metadata-warn-not-block
 - date: 2026-05-30
 - supersedes / relates to: US-03 (AC-10); deferred option-3 framing from the
