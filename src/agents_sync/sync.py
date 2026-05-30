@@ -160,6 +160,17 @@ class Syncer:
             if pair_id in self._blocked_pair_ids:
                 continue
             ps = state[pair_id]
+            if not ps.agentic_tools:
+                # Never-projected stub (a freshly imported canonical on zero
+                # tools): heal it onto every supporting available tool from the
+                # authoritative canonical (US-11 AC-8, NFR-16) — not a removal.
+                try:
+                    if self.adoption.project_from_canonical(pair_id, state):
+                        changed += 1
+                except Exception:
+                    logging.exception("Failed to project pair: pair_id=%s", pair_id)
+                    failed.append(pair_id)
+                continue
             if not any(self.tool_status.is_kind_available(t, ps.kind) for t in ps.agentic_tools):
                 continue
             try:
