@@ -186,6 +186,8 @@ After installation, there is nothing else to start manually:
 
 Use Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
+> ⚠️ **Delete customizations one at a time.** A single removal is treated as a deliberate deletion and propagates to your other tools (each copy is archived first, so it stays recoverable). **Do not bulk-delete** — removing several customizations from one tool at once is not a reliable way to clear your library: today it removes them from every tool (still recoverable from the archive), and a planned safeguard will instead treat a simultaneous bulk disappearance as a glitch (e.g. a tool uninstalled, a drive unmounted) and restore the files from the canonical. Make each deletion an individual, intentional action.
+
 ---
 
 <a id="check-that-it-is-running"></a>
