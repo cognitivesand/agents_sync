@@ -104,12 +104,12 @@ class AdoptionPlannerMixin(_WalkerHostBase):
         io: Any,
         canonical: dict[str, Any],
     ) -> PlannedTarget | None:
+        # Callers only pass kind-available tools (see _planned_adoption_targets
+        # -> _available_participating_tools), so every config key here is
+        # present and non-None; the render guardrail backstops any future gap.
         layout = io.file_layout
         if isinstance(layout, SharedKeyedMapLayout):
-            raw_shared = self.config.get(layout.shared_path_config_key)
-            if raw_shared is None:
-                return None  # shared file not configured on this tool — skip
-            shared_path = expand_path(raw_shared)
+            shared_path = expand_path(self.config[layout.shared_path_config_key])
             slot_key = str(canonical.get(layout.key_field, ""))
             if not slot_key:
                 return None
@@ -118,10 +118,7 @@ class AdoptionPlannerMixin(_WalkerHostBase):
                 slot=slot_key,
                 file_layout=layout,
             )
-        raw_root = self.config.get(spec.config_dir_keys[kind])
-        if raw_root is None:
-            return None  # target root not configured on this tool — skip it
-        root = expand_path(raw_root)
+        root = expand_path(self.config[spec.config_dir_keys[kind]])
         slugger = io.slugify_name or target_slug
         slug = slugger(canonical["name"])
         if isinstance(layout, SingleFileLayout):
@@ -131,10 +128,12 @@ class AdoptionPlannerMixin(_WalkerHostBase):
         raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
     def _available_participating_tools(self, kind: str) -> list[str]:
+        # Kind-level availability (matches the engine + discovery walker): a
+        # tool whose root for `kind` is unusable is not a real adoption target
+        # and must not figure in collision planning.
         return [
-            name
-            for name, spec in self.agentic_tools.items()
-            if kind in spec.supported_customization_types and self.tool_status.is_available(name)
+            name for name in self.agentic_tools
+            if self.tool_status.is_kind_available(name, kind)
         ]
 
     def _is_reserved_target_name(
