@@ -19,6 +19,23 @@
   canonical (with a defined `_canonical` archive path). No new top-level requirement is
   needed; NFR-01/NFR-07 already mandate it, US-05 AC-5 makes the canonical path concrete.
 
+## Re-audit fixes (2026-05-30, architecture-critic round 2)
+
+A second architecture audit closed 8/10 issues and found 2 more; all now fixed
+(user-validated):
+- **AC-17 tie fallback**: the pure cross-host merge (two imported candidates,
+  neither local, `last_modified` tie) had no resolver — "ties favour local"
+  selects nobody. Added a lexicographic-by-`customization_artifact_id` last resort.
+- **AC-8 digest source**: the recorded digest is now stated to be the on-disk
+  post-write (post-normalisation) bytes, closing an NFR-05 phantom-delta loop.
+- **US-11 AC-9 (new, framework-removal safety)**: an uninstalled framework that
+  leaves a present-but-empty root keeps the tool `available` (root reachability is
+  content-blind), so today its emptiness reads as a mass user deletion and
+  propagates removal. AC-9 freezes a bulk all-gone-at-once disappearance on an
+  available tool (no removal, no re-projection); partial disappearance still
+  propagates. Verified the gap against `tool_status.refresh` and
+  `removal_propagator` ("every entry dropped ⇒ pair_id dropped" — no prior guard).
+
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-30
 - supersedes / relates to: US-12 (AC-5, AC-7, AC-10, AC-11), US-03 (AC-3 reconciliation),
