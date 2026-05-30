@@ -10,6 +10,7 @@ Two flavours:
   - `archive_move`: moves the source into the archive; original is gone.
     Used during conflict-loser overwrite and symmetric delete.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -129,6 +130,26 @@ def archive_move(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
         operation=f"archive_move {source} -> {target}",
     )
     return target
+
+
+def archive_canonical(state_dir: Path, pair_id: str) -> Path | None:
+    """Archive-and-remove a pair's canonical record before it is dropped.
+
+    Moves ``canonical/<pair_id>.json`` to
+    ``archive/<pair_id>/_canonical/<pair_id>.json.<ts>`` (US-05 AC-5). The
+    ``_canonical`` segment is reserved (leading underscore) and never collides
+    with an agentic_tool name. Returns the archive path, or ``None`` when there
+    is no canonical to archive. Used when a pair is fully dropped, so a stale
+    canonical can never be re-projected (NFR-16).
+    """
+    # Lazy import: canonical.py is a higher-level module; importing it at load
+    # time would couple this archive primitive to the canonical schema.
+    from agents_sync.canonical import canonical_path
+
+    source = canonical_path(state_dir, pair_id)
+    if not source.exists():
+        return None
+    return archive_move(state_dir, pair_id, "_canonical", source)
 
 
 # Back-compat alias used by callers written for Phase 2.

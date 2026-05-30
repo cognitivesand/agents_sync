@@ -8,6 +8,7 @@ pair_id itself is dropped. If a survivor removal fails after earlier
 survivors were already deleted, state advances for the completed
 survivors so the next poll retries only the entries still present.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,7 +67,8 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
         else:
             logging.info(
                 "Pair partially removed: pair_id=%s preserved_unavailable=%s",
-                pair_id, list(ps.agentic_tools.keys()),
+                pair_id,
+                list(ps.agentic_tools.keys()),
             )
         return True
 
@@ -85,14 +87,19 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
             survivor_io = self.agentic_tools[tool].io[info.kind]
             if isinstance(survivor_io.file_layout, SharedKeyedMapLayout):
                 if not self._remove_keyed_map_slot(
-                    pair_id, tool, survivor_info, survivor_io,
+                    pair_id,
+                    tool,
+                    survivor_info,
+                    survivor_io,
                 ):
                     failed_survivor = tool
                     break
                 removed_survivors.append(tool)
                 continue
             if not self._remove_file_artifact(
-                pair_id, tool, survivor_info.path,
+                pair_id,
+                tool,
+                survivor_info.path,
             ):
                 failed_survivor = tool
                 break
@@ -105,7 +112,10 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
             logging.warning(
                 "Removal propagation partially applied: pair_id=%s "
                 "missing=%s removed_survivors=%s failed_survivor=%s",
-                pair_id, missing_tools, removed_survivors, failed_survivor,
+                pair_id,
+                missing_tools,
+                removed_survivors,
+                failed_survivor,
             )
             return True
 
@@ -113,14 +123,18 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
         if pair_id not in state:
             logging.info(
                 "Propagated removal (fully dropped): pair_id=%s missing=%s survivors=%s",
-                pair_id, missing_tools, survivors,
+                pair_id,
+                missing_tools,
+                survivors,
             )
         else:
             ps = state[pair_id]
             logging.info(
-                "Propagated removal: pair_id=%s missing=%s survivors=%s "
-                "preserved_unavailable=%s",
-                pair_id, missing_tools, survivors, list(ps.agentic_tools.keys()),
+                "Propagated removal: pair_id=%s missing=%s survivors=%s preserved_unavailable=%s",
+                pair_id,
+                missing_tools,
+                survivors,
+                list(ps.agentic_tools.keys()),
             )
         return True
 
@@ -134,6 +148,9 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
         for tool in tools:
             ps.agentic_tools.pop(tool, None)
         if not ps.agentic_tools:
+            # US-05 AC-5: archive-and-remove the canonical before dropping the
+            # pair, so a stale canonical can never be re-projected (NFR-16).
+            archive.archive_canonical(self.state_dir, pair_id)
             del state[pair_id]
 
     def _remove_keyed_map_slot(
@@ -153,19 +170,25 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
             return True
         try:
             prior_slot_text = apply_slot(
-                survivor_info.path, survivor_io.file_layout,
-                slot_key, new_slot_text=None,
+                survivor_info.path,
+                survivor_io.file_layout,
+                slot_key,
+                new_slot_text=None,
                 expected_pair_id=pair_id,
             )
         except _REMOVAL_FAILURES:
             logging.exception(
                 "Archive-then-remove aborted: pair_id=%s survivor=%s slot=%s",
-                pair_id, tool, slot_key,
+                pair_id,
+                tool,
+                slot_key,
             )
             return False
         if prior_slot_text is not None:
             archive.archive_text(
-                self.state_dir, pair_id, tool,
+                self.state_dir,
+                pair_id,
+                tool,
                 slot_name=slot_key,
                 extension=survivor_io.file_layout.file_suffix,
                 content=prior_slot_text,
@@ -173,7 +196,10 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
         return True
 
     def _remove_file_artifact(
-        self, pair_id: str, tool: str, survivor_path: Path,
+        self,
+        pair_id: str,
+        tool: str,
+        survivor_path: Path,
     ) -> bool:
         """Archive-move the survivor file into the per-pair archive."""
         if not survivor_path.exists():
@@ -183,7 +209,8 @@ class RemovalPropagatorMixin(_AdoptionHostBase):
         except _REMOVAL_FAILURES:
             logging.exception(
                 "Archive-then-remove aborted: pair_id=%s survivor=%s",
-                pair_id, tool,
+                pair_id,
+                tool,
             )
             return False
         return True
