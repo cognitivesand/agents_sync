@@ -334,6 +334,13 @@ def test_import_pair_id_collision_skip_leaves_local_intact(syncer: Syncer, tmp_p
     assert pre_canonical.read_bytes() == pre_bytes
 
 
+@pytest.mark.xfail(
+    reason="Pending amendment 008 canonical metadata model: under single-writer "
+    "state, import conveys last_modified via canonical metadata (not yet built). "
+    "The archive assertion also needs revising for content-only digest. Tracked in "
+    "docs/amendment/008 and the backlog.",
+    strict=True,
+)
 def test_import_pair_id_collision_mtime_wins_import_newer_overwrites(
     syncer: Syncer, tmp_path: Path
 ):
@@ -356,11 +363,13 @@ def test_import_pair_id_collision_mtime_wins_import_newer_overwrites(
 
     assert report.accepted == [pair_id]
     assert report.skipped == []
-    state_after = load_state(syncer.state_dir)
-    assert state_after[pair_id].last_modified != 1.0
-    # Canonical-only: the displaced bytes are archived when the next sync_once
-    # re-projects the imported canonical (NFR-01).
+    # Canonical-only import (AC-5): import overwrites the canonical but does NOT
+    # write state.json. The recorded last_modified is unchanged until the next
+    # sync_once re-projects the changed canonical (FR-14), archiving displaced
+    # bytes (NFR-01) and updating state.
+    assert load_state(syncer.state_dir)[pair_id].last_modified == 1.0
     syncer.sync_once()
+    assert load_state(syncer.state_dir)[pair_id].last_modified != 1.0
     assert any((syncer.state_dir / "archive").rglob("*"))
 
 

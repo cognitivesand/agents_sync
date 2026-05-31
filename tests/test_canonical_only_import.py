@@ -1,13 +1,15 @@
 """US-12 AC-5/17/19 (P5): canonical-only import + cross-machine merge.
 
-- import writes canonicals + state stubs only, never touching tool roots; the
-  next sync_once projects (AC-5, Decision A).
+- import writes canonicals ONLY — neither state nor tool roots; the next sync_once
+  adopts each orphan canonical (FR-16) and projects it (AC-5, revised by
+  amendment 008 — single-writer state).
 - two same-(kind,slug) canonicals with different ids reconcile to ONE managed
   pair, the newest winning (AC-17).
 - importing onto a populated host where the import wins reuses the local id and
   the next sync_once re-projects the winning content (AC-17 tweak / AC-19).
 
-FROZEN test contract for v0.6 P5 — do not edit without user feedback.
+FROZEN test contract for v0.6 P5 (revised by amendment 008) — do not edit without
+user feedback.
 """
 
 from __future__ import annotations
@@ -85,12 +87,14 @@ def test_import_is_canonical_only_then_sync_once_projects(tmp_path: Path) -> Non
 
     _import(syncer, zip_path)
 
-    # Canonical + state stub written; NO tool files yet.
+    # Canonical written; import writes NEITHER state nor tool files (AC-5,
+    # amendment 008 — single-writer state). The daemon adopts the orphan canonical.
     assert (syncer.state_dir / "canonical" / f"{I1}.json").exists()
-    assert I1 in load_state(syncer.state_dir)
+    assert I1 not in load_state(syncer.state_dir)
     assert not (syncer.tool_root("claude", "skill") / "demo" / "SKILL.md").exists()
 
-    syncer.sync_once()  # the daemon projects
+    syncer.sync_once()  # the daemon adopts the orphan canonical (FR-16) and projects
+    assert I1 in load_state(syncer.state_dir)
     assert (syncer.tool_root("claude", "skill") / "demo" / "SKILL.md").exists()
     assert (syncer.tool_root("codex", "skill") / "demo" / "SKILL.md").exists()
     assert syncer.sync_once().changed == 0  # NFR-05

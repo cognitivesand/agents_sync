@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from agents_sync.identity import validate_pair_id
+from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded
 from agents_sync.state import _quarantine_corrupt, atomic_write_text
 
@@ -144,6 +144,26 @@ def canonical_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
 def canonical_path(state_dir: Path, pair_id: str) -> Path:
     validate_pair_id(pair_id)
     return state_dir / "canonical" / f"{pair_id}.json"
+
+
+def list_canonical_ids(state_dir: Path) -> list[str]:
+    """Return the pair_ids of every canonical document in the store.
+
+    Used by the daemon to adopt a canonical present in the store but not yet
+    managed (FR-16) — a freshly imported canonical. Filenames whose stem is not a
+    valid pair_id are skipped (defensive; canonical writes always use a valid id).
+    """
+    canonical_dir = state_dir / "canonical"
+    if not canonical_dir.is_dir():
+        return []
+    ids: list[str] = []
+    for path in sorted(canonical_dir.glob("*.json")):
+        try:
+            validate_pair_id(path.stem)
+        except InvalidPairId:
+            continue
+        ids.append(path.stem)
+    return ids
 
 
 def canonical_digest(canonical: dict[str, Any]) -> str:

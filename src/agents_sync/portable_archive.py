@@ -44,7 +44,7 @@ from typing import Any, Literal
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.archive import archive_canonical
-from agents_sync.canonical import canonical_path, load_canonical
+from agents_sync.canonical import canonical_path, list_canonical_ids, load_canonical
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.mcp_secret_policy import (
     find_mcp_secret_literals,
@@ -53,7 +53,6 @@ from agents_sync.mcp_secret_policy import (
 from agents_sync.state import (
     CustomizationArtifactState,
     load_state,
-    save_state,
     target_slug,
 )
 from agents_sync.tool_status import ToolStatusTracker
@@ -272,11 +271,18 @@ def _validate_manifest_version(manifest: dict[str, Any]) -> None:
         )
 
 
-def _local_last_modified(state: dict[str, CustomizationArtifactState], pair_id: str) -> float:
+def _local_last_modified(
+    state: dict[str, CustomizationArtifactState], state_dir: Path, pair_id: str
+) -> float:
+    """The local last_modified for a pair: from state when managed, else from the
+    on-disk canonical (a prior import the daemon has not yet adopted, FR-16)."""
     ps = state.get(pair_id)
-    if ps is None or ps.last_modified is None:
-        return 0.0
-    return ps.last_modified
+    if ps is not None and ps.last_modified is not None:
+        return ps.last_modified
+    canonical = load_canonical(state_dir, pair_id)
+    if canonical is not None:
+        return float(canonical.get("last_modified", 0.0))
+    return 0.0
 
 
 @dataclass
@@ -292,17 +298,21 @@ class _ImportDecision:
     surviving_pair_id: str  # id the winning content is written under (local-id reuse)
 
 
-def _build_slug_index(
-    state: dict[str, CustomizationArtifactState], state_dir: Path
-) -> dict[tuple[str, str], str]:
-    """Map `(kind, target_slug(name))` to local pair_id for every managed pair."""
+def _build_slug_index(state_dir: Path) -> dict[tuple[str, str], str]:
+    """Map `(kind, target_slug(name))` to pair_id for every canonical in the store.
+
+    Keyed on the canonical store (the source of truth, NFR-16/FR-16) rather than on
+    managed state, so a sequence of imports reconciles against on-disk canonicals —
+    including ones an earlier import wrote that the daemon has not yet adopted into
+    state — and never mints a duplicate at the same slug.
+    """
     slug_index: dict[tuple[str, str], str] = {}
-    for local_pair_id, ps in state.items():
+    for local_pair_id in list_canonical_ids(state_dir):
         canonical = load_canonical(state_dir, local_pair_id)
         if canonical is None:
             continue
         slug = target_slug(canonical["name"])
-        slug_index[(ps.kind, slug)] = local_pair_id
+        slug_index[(canonical["kind"], slug)] = local_pair_id
     return slug_index
 
 
@@ -336,7 +346,7 @@ def _classify(
     slug. The winning content is written under the local id when one exists at
     that slug (AC-17 reuse), else the winner's own id; losers are retired.
     """
-    slug_index = _build_slug_index(state, state_dir)
+    slug_index = _build_slug_index(state_dir)
 
     # Group imported candidates by slug (sorted ids → stable lexicographic tie).
     groups: dict[tuple[str, str], list[str]] = {}
@@ -357,13 +367,14 @@ def _classify(
         winner = max(candidate_ids, key=lambda pid: meta[pid][1])
         winner_doc, winner_lm = meta[winner]
 
-        local_pair_id = winner if winner in state else slug_index.get((kind, slug))
+        winner_has_canonical = canonical_path(state_dir, winner).exists()
+        local_pair_id = winner if winner_has_canonical else slug_index.get((kind, slug))
         if local_pair_id is None:
             accepted, displaces, surviving = True, None, winner
         else:
             accepted = _decide_collision(
                 imported_last_modified=winner_lm,
-                local_last_modified=_local_last_modified(state, local_pair_id),
+                local_last_modified=_local_last_modified(state, state_dir, local_pair_id),
                 strategy=strategy,
             )
             displaces = local_pair_id if accepted else None
@@ -471,14 +482,14 @@ def import_from_zip(
 
     accepted_decisions = [d for d in decisions if d.accepted]
 
-    # Canonical-only import (US-12 AC-5, Decision A): write the winning canonical
-    # under its surviving id and update state; tool roots are never touched — the
-    # next sync_once projects (heal for a new stub, FR-14 re-project for an
-    # overwrite/displacement, archiving displaced bytes then).
+    # Canonical-only import (US-12 AC-5): write the winning canonical under its
+    # surviving id; `import` writes neither state.json nor any tool root. The next
+    # sync_once adopts each new canonical (orphan -> stub -> project, FR-16) and
+    # re-projects each overwritten canonical via FR-14 digest mismatch — making
+    # state.json solely the daemon's to write, so a concurrent poll cannot lose a
+    # state update (FR-15).
     _stage_and_promote_canonicals(state_dir, accepted_decisions)
-    report = _apply_import_to_state(decisions, state, strategy, skipped_secret_artifacts)
-    save_state(state_dir, state)
-    return report
+    return _build_import_report(decisions, strategy, skipped_secret_artifacts)
 
 
 def _filter_secret_bearing_decisions(
@@ -569,16 +580,16 @@ def _stage_and_promote_canonicals(
         shutil.rmtree(pending_dir, ignore_errors=True)
 
 
-def _apply_import_to_state(
+def _build_import_report(
     decisions: list[_ImportDecision],
-    state: dict[str, CustomizationArtifactState],
     strategy: str,
     skipped_secret_artifacts: list[str],
 ) -> ImportReport:
-    """Update ``state`` for each decision and build the report: a brand-new
-    surviving id becomes an empty-tools stub the next poll heals; an overwrite
-    bumps last_modified/generation but leaves the OLD canonical_digest stale so
-    FR-14 re-projects (and archives displaced bytes) next poll."""
+    """Build the import report. `import` writes canonical-only and never touches
+    state.json (FR-16): the next sync_once adopts each new canonical (orphan → stub
+    → project) and re-projects each overwritten managed canonical via the FR-14
+    digest mismatch (the recorded digest is naturally stale because state was not
+    touched). state.json stays solely the daemon's to write (FR-15)."""
     report = ImportReport(skipped_secret_artifacts=skipped_secret_artifacts)
     for decision in decisions:
         if not decision.accepted:
@@ -587,27 +598,8 @@ def _apply_import_to_state(
                 "Import skipped/merged (strategy=%s): pair_id=%s", strategy, decision.pair_id
             )
             continue
-        surviving = decision.surviving_pair_id
-        ps = state.get(surviving)
-        if ps is None:
-            # Brand-new artifact: an empty-tools stub the next poll heals.
-            state[surviving] = CustomizationArtifactState(
-                kind=decision.canonical["kind"],
-                agentic_tools={},
-                last_modified=decision.last_modified,
-                generation=decision.generation,
-                canonical_digest=None,
-            )
-        else:
-            # Overwrite / local-id reuse: keep the recorded tools but leave the
-            # OLD canonical_digest unchanged so it mismatches the just-written
-            # canonical — FR-14 then re-projects (archiving displaced bytes) next
-            # poll. Clearing it to None would not work: load-time migration would
-            # recompute it to the new canonical and hide the change.
-            ps.last_modified = decision.last_modified
-            ps.generation = decision.generation
-        report.accepted.append(surviving)
-        logging.info("Import accepted (canonical-only): pair_id=%s", surviving)
+        report.accepted.append(decision.surviving_pair_id)
+        logging.info("Import accepted (canonical-only): pair_id=%s", decision.surviving_pair_id)
     return report
 
 

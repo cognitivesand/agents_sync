@@ -13,7 +13,6 @@ Two mechanisms realise FR-15 and are pinned here:
 from __future__ import annotations
 
 import json
-import threading
 import zipfile
 from pathlib import Path
 
@@ -22,7 +21,7 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from agents_sync.portable_archive import import_from_zip
-from agents_sync.state import load_state
+from agents_sync.state import load_state, state_path
 
 from ._helpers import make_syncer, skill_md
 
@@ -92,46 +91,37 @@ def _seed_local_alpha(syncer) -> str:
     return next(iter(load_state(syncer.state_dir)))
 
 
-def test_concurrent_read_during_import_never_sees_torn_state(tmp_path: Path) -> None:
-    """FR-15: while an import rewrites state.json, a concurrent reader (standing in
-    for a daemon poll's state load) only ever observes a well-formed record that
-    still contains the locally-authored pair — no torn read, no lost content."""
+def test_import_does_not_write_state_so_a_concurrent_poll_cannot_lose_an_update(
+    tmp_path: Path,
+) -> None:
+    """Finding A, closed by amendment 008 (single-writer state): `import` writes
+    canonical-only and never touches state.json, so a daemon poll racing an import
+    cannot clobber the import's state — there is exactly one state writer. We assert
+    state.json is byte-identical across the import, the imports are orphan canonicals
+    (present in the store, absent from state), and a later sync_once adopts them
+    (FR-16). This is what made the old lost-update race (tmp/repro_A_lost_update.py)
+    impossible by construction."""
     syncer = make_syncer(tmp_path)
     alpha_id = _seed_local_alpha(syncer)
     zip_path = _build_zip(tmp_path / "lib.zip", _IMPORTED)
 
-    done = threading.Event()
-    errors: list[BaseException] = []
+    before = state_path(syncer.state_dir).read_bytes()
+    report = _import(syncer, zip_path)
+    after = state_path(syncer.state_dir).read_bytes()
 
-    def reader() -> None:
-        # Hammer load_state until the import finishes (hard-capped so a hung
-        # writer can never wedge the test).
-        for _ in range(200_000):
-            if done.is_set():
-                break
-            try:
-                state = load_state(syncer.state_dir)
-            except BaseException as exc:  # a torn/partial read would raise here
-                errors.append(exc)
-                return
-            # alpha's content must never vanish mid-import.
-            if alpha_id not in state:
-                errors.append(AssertionError("local pair disappeared during import"))
-                return
-
-    t = threading.Thread(target=reader)
-    t.start()
-    try:
-        report = _import(syncer, zip_path)
-    finally:
-        done.set()
-        t.join()
-
-    assert not errors, errors[0]
+    # The single-writer guarantee: import did not write state.json at all.
+    assert after == before
     assert len(report.accepted) == len(_IMPORTED)
-    final = load_state(syncer.state_dir)
-    assert alpha_id in final  # local content survived
-    assert len(final) == len(_IMPORTED) + 1  # alpha + every imported pair
+
+    # The imported artifacts are orphan canonicals: in the store, not yet in state.
+    state_after_import = load_state(syncer.state_dir)
+    assert alpha_id in state_after_import
+    assert all(doc["pair_id"] not in state_after_import for doc in _IMPORTED)
+
+    # The daemon — the sole state writer — adopts them (FR-16) and projects.
+    syncer.sync_once()
+    adopted = load_state(syncer.state_dir)
+    assert len(adopted) == len(_IMPORTED) + 1
 
 
 def test_poll_interleaved_with_import_matches_sequential(tmp_path: Path) -> None:

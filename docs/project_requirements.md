@@ -30,6 +30,7 @@ Project-wide constraints (Python 3.12+, per-OS supervision mechanism, single use
 - **FR-13** (Per-artifact atomic import): The daemon **shall** import each customization_artifact atomically and in isolation: a customization_artifact **shall** be either fully imported or not imported at all, and a failure to import one customization_artifact **shall not** affect customization_artifacts that have already imported successfully.
 - **FR-14** (Canonical-change detection): The daemon **shall** detect when a customization_artifact's canonical record has changed independently of its tool-side files and **shall** re-project the canonical onto every supporting available tool, preserving any displaced bytes.
 - **FR-15** (Import-while-active safety): The daemon **shall** permit a customization-library import to run while the daemon is active. A concurrent import and daemon poll **shall not** corrupt the shared state record nor lose user-authored content, and the resulting managed state **shall** be identical to that produced by the same import and poll run sequentially.
+- **FR-16** (Canonical adoption): When the customization library contains a canonical record for a customization_artifact the daemon is not yet managing, the daemon **shall** adopt that customization_artifact and project it onto every supporting available agentic_tool.
 
 ## Non-Functional Requirements
 

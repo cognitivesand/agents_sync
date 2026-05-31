@@ -16,7 +16,12 @@ from agents_sync.agentic_tool_spec import (
     SharedKeyedMapLayout,
     default_agentic_tools,
 )
-from agents_sync.canonical import canonical_digest, is_private, load_canonical
+from agents_sync.canonical import (
+    canonical_digest,
+    is_private,
+    list_canonical_ids,
+    load_canonical,
+)
 from agents_sync.config import (
     expand_path,
     normalize_config,
@@ -121,6 +126,7 @@ class Syncer:
         reset_mcp_secret_warning_cache()
         self.tool_status.refresh()
         state = load_state(self.state_dir)
+        self._adopt_orphan_canonicals(state)
         discovery, self._blocked_pair_ids = self.discovery.discover(state)
         self._reconcile_new_groups(discovery, state)
         self._blocked_pair_ids |= self.discovery.block_target_collisions(discovery, state)
@@ -147,6 +153,26 @@ class Syncer:
             len(result.blocked),
         )
         return result
+
+    def _adopt_orphan_canonicals(self, state: dict[str, CustomizationArtifactState]) -> None:
+        """FR-16: adopt every canonical present in the store but not yet managed —
+        a freshly imported canonical (`import` writes canonical-only, never state).
+        Insert a state stub the deleted-pair heal path then projects. A deliberately
+        dropped pair has its canonical archived (US-05 AC-5), so an orphan canonical
+        can only be a fresh import; this never resurrects a deletion."""
+        for pair_id in list_canonical_ids(self.state_dir):
+            if pair_id in state:
+                continue
+            canonical = load_canonical(self.state_dir, pair_id)
+            if canonical is None:
+                continue
+            state[pair_id] = CustomizationArtifactState(
+                kind=canonical["kind"],
+                agentic_tools={},
+                last_modified=float(canonical.get("last_modified", 0.0)),
+                generation=int(canonical.get("generation", 1)),
+                canonical_digest=None,
+            )
 
     def _process_discovered_pairs(
         self,
