@@ -420,6 +420,16 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
+### 0.5.7
+
+**Audit follow-ups (review + remediation)**
+
+- Added FR-15 (import may run while the daemon is active) with a regression test.
+- Import now archives a displaced canonical before overwriting it, and a corrupt `state.json` that cannot be quarantined fails closed instead of being overwritten.
+- Broadened MCP secret value-shape detection (Google, GitLab, Stripe, npm, more Slack token shapes) and documented the heuristic boundary in NFR-15.
+- Documentation coherence: the architecture and README now describe the shipped v0.6 canonical-as-truth behaviour.
+- Internal refactor (behaviour-preserving): extracted the canonical-projection mixin and split `sync_once` / `import_from_zip` into per-concern helpers.
+
 ### 0.5.6 (v0.6 canonical-as-truth)
 
 **Canonical store is the source of truth**
