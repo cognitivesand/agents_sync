@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
+from agents_sync.archive import archive_canonical
 from agents_sync.canonical import canonical_path, load_canonical
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.mcp_secret_policy import (
@@ -522,19 +523,31 @@ def import_from_zip(
     pending_dir = state_dir / f".import_pending_{uuid.uuid4().hex[:8]}"
     pending_dir.mkdir(parents=True, exist_ok=True)
     try:
-        staged: list[tuple[Path, Path]] = []  # (pending_path, live_path)
+        staged: list[tuple[Path, Path, str]] = []  # (pending_path, live_path, surviving_id)
         for decision in accepted_decisions:
             canonical = dict(decision.canonical)
             canonical["pair_id"] = decision.surviving_pair_id
             pending_path = pending_dir / f"{decision.surviving_pair_id}.json"
             save_canonical_to(pending_path, canonical)
-            staged.append((pending_path, canonical_path(state_dir, decision.surviving_pair_id)))
+            staged.append(
+                (
+                    pending_path,
+                    canonical_path(state_dir, decision.surviving_pair_id),
+                    decision.surviving_pair_id,
+                )
+            )
     except Exception:
         shutil.rmtree(pending_dir, ignore_errors=True)
         raise
     try:
-        for pending_path, live_path in staged:
+        for pending_path, live_path, surviving_id in staged:
             live_path.parent.mkdir(parents=True, exist_ok=True)
+            if live_path.exists():
+                # Overwrite: preserve the displaced local canonical before it is
+                # replaced (NFR-01 archive-before-write for the canonical store;
+                # the import loser is archived per US-12 AC-17). Covers the
+                # stub-overwrite case where no tool-side files exist to recover from.
+                archive_canonical(state_dir, surviving_id)
             os.replace(pending_path, live_path)
     finally:
         shutil.rmtree(pending_dir, ignore_errors=True)

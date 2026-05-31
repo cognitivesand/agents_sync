@@ -18,6 +18,16 @@ from agents_sync.identity import InvalidPairId, validate_pair_id
 STATE_SCHEMA_VERSION = 3
 
 
+class StateQuarantineError(RuntimeError):
+    """Raised when a corrupt ``state.json`` could not be moved aside.
+
+    The corrupt file is still at its original path, so the caller must NOT
+    proceed to rebuild-and-overwrite (that would destroy the operator's only
+    recovery source). Fail closed instead — the daemon's poll loop catches this,
+    logs it, and retries without writing (NFR-01).
+    """
+
+
 _WINDOWS_RESERVED_BASENAMES = {
     "CON",
     "PRN",
@@ -403,9 +413,11 @@ def _read_text_for_recovery(path: Path) -> str | None:
 def _quarantine_corrupt(state_dir: Path, source: Path, *, reason: str) -> None:
     """Move ``source`` into ``state_dir/quarantine/`` so the user can recover.
 
-    Best-effort: a quarantine failure is logged but does not propagate (the
-    caller still has to return an empty state so the daemon can make
-    forward progress). The source file is removed after a successful move.
+    On a successful move the corrupt file is preserved under ``quarantine/`` and
+    the caller may safely rebuild from empty. If the move **fails** the corrupt
+    file is still at ``source`` — rebuilding would overwrite it — so this fails
+    closed by raising :class:`StateQuarantineError` rather than swallowing the
+    error (the daemon poll loop catches it and retries without writing).
     """
     quarantine_dir = state_dir / "quarantine"
     try:
@@ -423,14 +435,16 @@ def _quarantine_corrupt(state_dir: Path, source: Path, *, reason: str) -> None:
             reason,
             dest,
         )
-    except OSError:
+    except OSError as exc:
         logging.exception(
-            "Quarantine failed for %s (%s); leaving the file in place. "
-            "Rebuilding from scratch — please remove or fix %s by hand.",
+            "Quarantine failed for %s (%s); leaving the file in place and "
+            "failing closed so it is not overwritten — please remove or fix it by hand.",
             source,
             reason,
-            source,
         )
+        raise StateQuarantineError(
+            f"could not quarantine corrupt {source} ({reason}): {exc}"
+        ) from exc
 
 
 def _monotonic_ms() -> int:
