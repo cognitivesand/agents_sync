@@ -125,9 +125,40 @@ class Syncer:
         self._reconcile_new_groups(discovery, state)
         self._blocked_pair_ids |= self.discovery.block_target_collisions(discovery, state)
         glitch_tools = self._glitch_tools(discovery, state)
+
+        changed, failed = self._process_discovered_pairs(discovery, state, glitch_tools)
+        deleted_changed, deleted_failed = self._reconcile_deleted_pairs(
+            discovery, state, glitch_tools
+        )
+        changed += deleted_changed
+        failed.extend(deleted_failed)
+
+        self._record_canonical_baselines(state)
+        save_state(self.state_dir, state)
+        result = SyncResult(
+            changed=changed,
+            failed=tuple(failed),
+            blocked=tuple(sorted(self._blocked_pair_ids)),
+        )
+        logging.info(
+            "Sync poll complete: changed=%d failed=%d blocked=%d",
+            result.changed,
+            len(result.failed),
+            len(result.blocked),
+        )
+        return result
+
+    def _process_discovered_pairs(
+        self,
+        discovery: dict[str, CustomizationArtifactInfo],
+        state: dict[str, CustomizationArtifactState],
+        glitch_tools: frozenset[str],
+    ) -> tuple[int, list[str]]:
+        """Sync each discovered pair: re-project an out-of-band canonical change
+        (FR-14) or run the normal adopt/sync path. Unparseable content is frozen
+        (FR-11), not failed."""
         changed = 0
         failed: list[str] = []
-
         for pair_id, info in discovery.items():
             try:
                 if self._canonical_changed_out_of_band(pair_id, info, state):
@@ -155,15 +186,22 @@ class Syncer:
             except Exception:
                 logging.exception("Failed to sync pair: pair_id=%s", pair_id)
                 failed.append(pair_id)
+        return changed, failed
 
-        # Detect deleted pairs (in state but not in discovery). Per US-11 AC-4,
-        # only `available` tools can be removal sources: a pair whose state
-        # entries are all for unavailable tools is preserved verbatim until at
-        # least one of its tools returns to `available`.
+    def _reconcile_deleted_pairs(
+        self,
+        discovery: dict[str, CustomizationArtifactInfo],
+        state: dict[str, CustomizationArtifactState],
+        glitch_tools: frozenset[str],
+    ) -> tuple[int, list[str]]:
+        """Handle pairs in state but not in discovery. Per US-11 AC-4, only
+        `available` tools can be removal sources: a pair whose state entries are
+        all for unavailable tools is preserved verbatim until one returns to
+        `available`. A never-projected stub is healed from canonical, not removed."""
+        changed = 0
+        failed: list[str] = []
         for pair_id in list(state.keys()):
-            if pair_id in discovery:
-                continue
-            if pair_id in self._blocked_pair_ids:
+            if pair_id in discovery or pair_id in self._blocked_pair_ids:
                 continue
             ps = state[pair_id]
             if not ps.agentic_tools:
@@ -185,27 +223,15 @@ class Syncer:
             except Exception:
                 logging.exception("Failed to handle orphan state: pair_id=%s", pair_id)
                 failed.append(pair_id)
+        return changed, failed
 
-        # FR-14: record each pair's current canonical digest as the baseline for
-        # the next poll's out-of-band-change detection.
+    def _record_canonical_baselines(self, state: dict[str, CustomizationArtifactState]) -> None:
+        """FR-14: record each pair's current canonical digest as the baseline for
+        the next poll's out-of-band-change detection."""
         for pair_id, ps in state.items():
             digest = self._current_canonical_digest(pair_id)
             if digest is not None:
                 ps.canonical_digest = digest
-
-        save_state(self.state_dir, state)
-        result = SyncResult(
-            changed=changed,
-            failed=tuple(failed),
-            blocked=tuple(sorted(self._blocked_pair_ids)),
-        )
-        logging.info(
-            "Sync poll complete: changed=%d failed=%d blocked=%d",
-            result.changed,
-            len(result.failed),
-            len(result.blocked),
-        )
-        return result
 
     def _glitch_tools(
         self,
