@@ -7,6 +7,7 @@ pin the *logic* of the case-only collision detector but they do **not**
 exercise the inode-shared-between-two-names behaviour real NTFS / APFS
 exhibits (audit slice 10 · CQ-12).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -59,19 +60,32 @@ def test_state_owner_lookup_can_be_case_insensitive(
 
 
 def test_case_only_target_collisions_are_blocked(syncer: Syncer, monkeypatch: pytest.MonkeyPatch):
+    """Unit-test of the multi-pair collision detector in ``block_target_collisions``.
+
+    The collaborator ``_planned_adoption_targets`` is stubbed deliberately as an
+    INPUT-ISOLATION seam, not to hide a design problem: it reads real on-disk
+    source canonicals and computes per-tool targets, and producing a *case-only*
+    target collision through it requires either real NTFS/APFS case-folding (not
+    available on the case-sensitive CI host) or fixture plumbing that would test
+    the planner rather than the detector under test here. The planner itself is
+    exercised end-to-end by the real-adapter integration tests
+    (``test_*_real_adapters.py``); this test pins only the detector's logic given
+    two planned targets that collide under the (here-patched) ``normcase``.
+    """
     monkeypatch.setattr("agents_sync.rendering.os.path.normcase", lambda value: value.lower())
     discovery = {
         "pair-a": CustomizationArtifactInfo(kind="skill"),
         "pair-b": CustomizationArtifactInfo(kind="skill"),
     }
     from agents_sync.sync_types import PlannedTarget
-    targets = iter([
-        PlannedTarget(syncer.tool_root("codex", "skill") / "Alpha"),
-        PlannedTarget(syncer.tool_root("codex", "skill") / "alpha"),
-    ])
-    monkeypatch.setattr(
-        syncer.discovery, "_planned_adoption_targets", lambda info: [next(targets)]
+
+    targets = iter(
+        [
+            PlannedTarget(syncer.tool_root("codex", "skill") / "Alpha"),
+            PlannedTarget(syncer.tool_root("codex", "skill") / "alpha"),
+        ]
     )
+    monkeypatch.setattr(syncer.discovery, "_planned_adoption_targets", lambda info: [next(targets)])
 
     blocked = syncer.discovery.block_target_collisions(discovery, state={})
 
