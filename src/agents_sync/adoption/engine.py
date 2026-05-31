@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_sync import archive
+from agents_sync.adoption.canonical_projection import CanonicalProjectionMixin
 from agents_sync.adoption.privacy_gate import PrivacyGateMixin
 from agents_sync.adoption.removal_propagator import RemovalPropagatorMixin
 from agents_sync.agentic_tool_spec import (
@@ -44,6 +45,7 @@ from agents_sync.tool_status import ToolStatusTracker
 
 
 class AdoptionEngine(
+    CanonicalProjectionMixin,
     PrivacyGateMixin,
     RemovalPropagatorMixin,
 ):
@@ -540,153 +542,3 @@ class AdoptionEngine(
             artifact_path=tool_info.path,
         )
         return self._skip_private_canonical(pair_id, winner, canonical)
-
-    # ------------------------------------------------------------------ #
-    # Extend an existing canonical to newly-available tools (v0.4 plan §5).
-    # ------------------------------------------------------------------ #
-
-    def _extend_to_new_tools(
-        self,
-        pair_id: str,
-        info: CustomizationArtifactInfo,
-        state: dict[str, CustomizationArtifactState],
-        target_tools: list[str],
-    ) -> bool:
-        canonical = load_canonical(self.state_dir, pair_id)
-        if canonical is None:
-            logging.error("Cannot extend pair_id=%s: canonical document missing", pair_id)
-            return False
-
-        source_dir: Path | None = None
-        if info.kind == "skill":
-            for _tool_name, tool_info in info.agentic_tools.items():
-                if tool_info.path.exists():
-                    source_dir = tool_info.path
-                    break
-
-        results: dict[str, RenderResult] = {}
-        for tool_name in target_tools:
-            target_spec = self.agentic_tools[tool_name]
-            if self._is_reserved_target_name(target_spec, info.kind, canonical):
-                logging.warning(
-                    "Reserved slash_command name skipped: pair_id=%s tool=%s name=%s",
-                    pair_id,
-                    tool_name,
-                    canonical.get("name"),
-                )
-                continue
-            results[tool_name] = render_to_agentic_tool(
-                self.config,
-                target_spec,
-                info.kind,
-                canonical,
-                existing_path=None,
-                prior_text=None,
-                source_dir=source_dir,
-            )
-        self._archive_prior_slot_results(pair_id, info.kind, results)
-        update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
-        logging.info(
-            "Extended to newly available tools: pair_id=%s tools=%s",
-            pair_id,
-            target_tools,
-        )
-        return True
-
-    def project_from_canonical(
-        self,
-        pair_id: str,
-        state: dict[str, CustomizationArtifactState],
-        target_tools: list[str] | None = None,
-    ) -> bool:
-        """Heal: project a managed pair's canonical onto supporting, available
-        tools (US-11 AC-8/AC-9, NFR-16).
-
-        Unlike ``_extend_to_new_tools`` this needs no on-disk ``info`` — it is
-        the path for a pair present on **zero** tools (a freshly imported stub)
-        or for glitch-vanished tools re-projected per US-11 AC-9. With
-        ``target_tools=None`` it projects onto every supporting available tool
-        not yet recorded (the stub case); pass an explicit list to re-heal
-        specific (already-recorded) tools. Rendering is canonical-only
-        (``source_dir=None``); ``update_state_n_way`` records the post-write
-        on-disk digest so the next poll re-projects nothing (NFR-05).
-        """
-        ps = state[pair_id]
-        canonical = load_canonical(self.state_dir, pair_id)
-        if canonical is None:
-            logging.error("Cannot project pair_id=%s: canonical document missing", pair_id)
-            return False
-        kind = ps.kind
-        if target_tools is None:
-            target_tools = [
-                t for t in self._available_participating_tools(kind) if t not in ps.agentic_tools
-            ]
-        results: dict[str, RenderResult] = {}
-        for tool_name in target_tools:
-            target_spec = self.agentic_tools[tool_name]
-            if self._is_reserved_target_name(target_spec, kind, canonical):
-                logging.warning(
-                    "Reserved name skipped on projection: pair_id=%s tool=%s name=%s",
-                    pair_id,
-                    tool_name,
-                    canonical.get("name"),
-                )
-                continue
-            results[tool_name] = render_to_agentic_tool(
-                self.config,
-                target_spec,
-                kind,
-                canonical,
-                existing_path=None,
-                prior_text=None,
-                source_dir=None,
-            )
-        if not results:
-            return False
-        update_state_n_way(state, pair_id, kind, results, self.agentic_tools)
-        logging.info(
-            "Projected from canonical: pair_id=%s tools=%s",
-            pair_id,
-            sorted(results),
-        )
-        return True
-
-    def reproject_canonical(
-        self,
-        pair_id: str,
-        info: CustomizationArtifactInfo,
-        state: dict[str, CustomizationArtifactState],
-    ) -> bool:
-        """Re-project a canonical that changed out of band (FR-14) onto the tools
-        that currently hold it, archiving their displaced bytes first (NFR-01).
-
-        Unlike the stub heal (``project_from_canonical``), the tools already hold
-        an owned file, so rendering targets the existing path (overwrite) rather
-        than a fresh slug path.
-        """
-        canonical = load_canonical(self.state_dir, pair_id)
-        if canonical is None:
-            logging.error("Cannot re-project pair_id=%s: canonical missing", pair_id)
-            return False
-        present = [
-            t for t in self._available_participating_tools(info.kind) if t in info.agentic_tools
-        ]
-        results: dict[str, RenderResult] = {}
-        for tool in present:
-            self._archive_existing_tool_bytes(pair_id, info.kind, tool, info)
-            tool_info = info.agentic_tools[tool]
-            results[tool] = render_to_agentic_tool(
-                self.config,
-                self.agentic_tools[tool],
-                info.kind,
-                canonical,
-                existing_path=tool_info.path,
-                prior_text=None,
-                source_dir=None,
-                existing_slot=tool_info.slot,
-            )
-        if not results:
-            return False
-        update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
-        logging.info("Canonical re-projected (FR-14): pair_id=%s tools=%s", pair_id, present)
-        return True

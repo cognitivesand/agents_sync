@@ -14,16 +14,18 @@ never alters the mixin's runtime bases or metaclass.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.state import CustomizationArtifactState
+from agents_sync.sync_types import CustomizationArtifactInfo, RenderResult
 from agents_sync.tool_status import ToolStatusTracker
 
 
 class _AdoptionHost(Protocol):
-    """Attributes and methods the removal-propagation mixin reads from its host."""
+    """Attributes and methods the adoption leaf-mixins read from their host."""
 
+    config: dict[str, Any]
     agentic_tools: dict[str, AgenticToolSpec]
     state_dir: Path
     tool_status: ToolStatusTracker
@@ -34,3 +36,17 @@ class _AdoptionHost(Protocol):
         state: dict[str, CustomizationArtifactState],
         target_tools: list[str] | None = None,
     ) -> bool: ...
+
+    def _available_participating_tools(self, kind: str) -> list[str]: ...
+
+    def _is_reserved_target_name(
+        self, spec: AgenticToolSpec, kind: str, canonical: dict[str, Any]
+    ) -> bool: ...
+
+    def _archive_prior_slot_results(
+        self, pair_id: str, kind: str, results: dict[str, RenderResult]
+    ) -> None: ...
+
+    def _archive_existing_tool_bytes(
+        self, pair_id: str, kind: str, tool: str, info: CustomizationArtifactInfo
+    ) -> None: ...
