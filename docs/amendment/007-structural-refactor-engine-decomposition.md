@@ -57,3 +57,9 @@ Full `uv run pytest` + `mypy --strict` + `ruff` green after each step.
 - Step 2 (CQ-02) applied: `sync_once` split into `_process_discovered_pairs`,
   `_reconcile_deleted_pairs`, `_record_canonical_baselines` (each ≤40 lines);
   orchestrator ~28 lines. Suite 516 green, mypy/ruff clean.
+- Step 3 (CQ-04) applied: `import_from_zip` split into
+  `_filter_secret_bearing_decisions`, `_stage_and_promote_canonicals`,
+  `_apply_import_to_state`; orchestrator now ~20 lines. Suite 516 green,
+  mypy/ruff clean. (Observation, not changed per the surgical rule: the
+  `tool_status = ToolStatusTracker(...).refresh()` in `import_from_zip` is
+  pre-existing dead code in the canonical-only path — flagged, not removed.)

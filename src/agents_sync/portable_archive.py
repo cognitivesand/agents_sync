@@ -464,11 +464,31 @@ def import_from_zip(
     state = load_state(state_dir)
     decisions = _classify(canonicals, state, state_dir, strategy)
 
-    # Per-artifact secret filter (US-12 AC-15 / AC-16). The receiver's
-    # policy ALWAYS overrides whatever the source-host policy was. Under
-    # secrets_refused, secret-bearing canonicals are skipped with one
-    # structured WARNING each; under secrets_accepted, all are imported
-    # verbatim and one summary WARNING is emitted.
+    skipped_secret_artifacts = _filter_secret_bearing_decisions(decisions, config)
+
+    tool_status = ToolStatusTracker(config, agentic_tools)
+    tool_status.refresh()
+
+    accepted_decisions = [d for d in decisions if d.accepted]
+
+    # Canonical-only import (US-12 AC-5, Decision A): write the winning canonical
+    # under its surviving id and update state; tool roots are never touched — the
+    # next sync_once projects (heal for a new stub, FR-14 re-project for an
+    # overwrite/displacement, archiving displaced bytes then).
+    _stage_and_promote_canonicals(state_dir, accepted_decisions)
+    report = _apply_import_to_state(decisions, state, strategy, skipped_secret_artifacts)
+    save_state(state_dir, state)
+    return report
+
+
+def _filter_secret_bearing_decisions(
+    decisions: list[_ImportDecision], config: dict[str, Any]
+) -> list[str]:
+    """Per-artifact secret filter (US-12 AC-15 / AC-16). The receiver's policy
+    ALWAYS overrides whatever the source-host policy was. Under secrets_refused,
+    secret-bearing canonicals are de-accepted with one structured WARNING each;
+    under secrets_accepted, all are imported verbatim and one summary WARNING is
+    emitted. Returns the pair_ids skipped under secrets_refused."""
     raw_policy = str(
         config.get("secret_policy") or config.get("mcp_server_secret_policy") or "secrets_refused"
     )
@@ -506,20 +526,16 @@ def import_from_zip(
             len(secret_bearing_artifacts),
             secret_bearing_artifacts,
         )
+    return skipped_secret_artifacts
 
-    tool_status = ToolStatusTracker(config, agentic_tools)
-    tool_status.refresh()
 
-    accepted_decisions = [d for d in decisions if d.accepted]
-
-    # Canonical-only import (US-12 AC-5, Decision A): write the winning canonical
-    # under its surviving id and update state; tool roots are never touched — the
-    # next sync_once projects (heal for a new stub, FR-14 re-project for an
-    # overwrite/displacement, archiving displaced bytes then).
-    #
-    # Stage every accepted canonical under its SURVIVING id and promote atomically
-    # (per-artifact, FR-13). A failure leaves a strict prefix promoted and state
-    # untouched.
+def _stage_and_promote_canonicals(
+    state_dir: Path, accepted_decisions: list[_ImportDecision]
+) -> None:
+    """Stage every accepted canonical under its SURVIVING id, then promote
+    atomically per-artifact (FR-13). A displaced live canonical is archived before
+    overwrite (NFR-01, US-12 AC-17). A failure leaves a strict prefix promoted and
+    state untouched."""
     pending_dir = state_dir / f".import_pending_{uuid.uuid4().hex[:8]}"
     pending_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -552,6 +568,17 @@ def import_from_zip(
     finally:
         shutil.rmtree(pending_dir, ignore_errors=True)
 
+
+def _apply_import_to_state(
+    decisions: list[_ImportDecision],
+    state: dict[str, CustomizationArtifactState],
+    strategy: str,
+    skipped_secret_artifacts: list[str],
+) -> ImportReport:
+    """Update ``state`` for each decision and build the report: a brand-new
+    surviving id becomes an empty-tools stub the next poll heals; an overwrite
+    bumps last_modified/generation but leaves the OLD canonical_digest stale so
+    FR-14 re-projects (and archives displaced bytes) next poll."""
     report = ImportReport(skipped_secret_artifacts=skipped_secret_artifacts)
     for decision in decisions:
         if not decision.accepted:
@@ -581,8 +608,6 @@ def import_from_zip(
             ps.generation = decision.generation
         report.accepted.append(surviving)
         logging.info("Import accepted (canonical-only): pair_id=%s", surviving)
-
-    save_state(state_dir, state)
     return report
 
 
