@@ -98,7 +98,7 @@ Each agentic_tool is a projection of the canonical. On any change to an agentic_
 
 Per-customization_artifact state is stored under the platform default state root (Linux `~/.local/state/agents-sync/`; Windows `%LOCALAPPDATA%\\agents-sync\\state\\`):
 
-- `state.json` — versioned envelope: `{"schema_version": 2, "customization_artifacts": {<customization_artifact_id>: {"customization_artifact": ..., "agentic_tools": {<name>: {"path": ..., "digests": ...}}}}}`.
+- `state.json` — versioned envelope: `{"schema_version": 3, "customization_artifacts": {<customization_artifact_id>: {"customization_artifact": ..., "agentic_tools": {<name>: {"path": ..., "digests": ...}}}}}`.
 - `canonical/<customization_artifact_id>.json` — one canonical document per customization_artifact, including `per_agentic_tool_only` and `per_agentic_tool_extra` passthrough bags per agentic_tool.
 - `archive/<customization_artifact_id>/<agentic_tool_name>/<filename>.<ISO-timestamp>` — preserved prior bytes.
 

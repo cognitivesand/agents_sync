@@ -1,6 +1,7 @@
 # Amendment 005 — Documentation coherence: docs describe shipped v0.6 behaviour
 
-- status: applied (non-governance docs); one governance line pending user validation
+- status: applied (governance line — project_description schema_version 2→3 —
+  validated and applied 2026-05-31)
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-31
 - relates to: v0.6 architecture audit (finding B), amendments 002/003/004

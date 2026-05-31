@@ -1,6 +1,6 @@
 # Amendment 006 — Broaden MCP secret value-shape detection; document the residual
 
-- status: applied (code); NFR-15 clarification (2b) pending user validation
+- status: applied (NFR-15 clarification validated and applied 2026-05-31)
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-31
 - relates to: v0.6 safety audit (finding D), NFR-15
