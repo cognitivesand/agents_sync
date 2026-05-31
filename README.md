@@ -186,7 +186,7 @@ After installation, there is nothing else to start manually:
 
 Use Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
 
-> ⚠️ **Delete customizations one at a time.** A single removal is treated as a deliberate deletion and propagates to your other tools (each copy is archived first, so it stays recoverable). **Do not bulk-delete** — removing several customizations from one tool at once is not a reliable way to clear your library: today it removes them from every tool (still recoverable from the archive), and a planned safeguard will instead treat a simultaneous bulk disappearance as a glitch (e.g. a tool uninstalled, a drive unmounted) and restore the files from the canonical. Make each deletion an individual, intentional action.
+> ⚠️ **Delete customizations one at a time.** A single removal is treated as a deliberate deletion and propagates to your other tools (each copy is archived first, so it stays recoverable). **Do not bulk-delete** — removing several customizations from one tool at once is not a reliable way to clear your library: a simultaneous bulk disappearance from one available tool is treated as a glitch (e.g. a tool uninstalled, a drive unmounted) and the files are re-projected from the canonical rather than removed everywhere (US-11 AC-9). A partial disappearance still propagates as a removal. Make each deletion an individual, intentional action.
 
 ---
 
@@ -311,7 +311,7 @@ agents-sync export ~/my-library.zip
 agents-sync import ~/my-library.zip
 ```
 
-The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, every artifact is rendered onto every locally enabled, supporting, and available agentic_tool before the command returns; the daemon does not need to be running.
+The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only** — its canonical document plus a `state.json` stub — and no agentic_tool file is touched by `import` itself; the next daemon `sync_once` projects every imported artifact onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
 
 When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), `import` consults the `import_collision_strategy` setting:
 
@@ -420,6 +420,21 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
+### 0.5.6 (v0.6 canonical-as-truth)
+
+**Canonical store is the source of truth**
+
+- Inverted the model (NFR-16): the canonical document under `state_dir/canonical/` is authoritative and every tool-side file is a projection of it.
+- `import` is now **canonical-only** (Decision A, US-12 AC-5): it writes canonical documents plus `state.json` stubs and touches no agentic_tool file; the next daemon `sync_once` projects them. This **supersedes** the 0.4.3 render-on-import behaviour below.
+- Added canonical-change detection (FR-14): a canonical edited out of band is re-projected onto every supporting tool, displaced bytes archived.
+- Import may run **while the daemon is active** (FR-15). (Known gap: the "identical to sequential" guarantee is not yet enforced by a cross-process lock on the shared state record.)
+- Added cross-machine merge: same-(kind, name) canonicals minted on two hosts reconcile to one managed artifact, newest winning, the loser archived (US-12 AC-17/19).
+
+**Safety**
+
+- A simultaneous bulk disappearance of an available tool's recorded artifacts is now treated as a glitch (frozen, re-projected from canonical), not a mass user deletion (US-11 AC-9).
+- Import archives a displaced canonical before overwriting it, and a corrupt `state.json` that cannot be quarantined fails closed instead of being overwritten (amendment 004).
+
 ### 0.5.0
 
 **New agentic tools**
@@ -453,7 +468,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - Added portable library snapshot: `agents-sync export <file.zip>` serialises every managed agent and skill into a single zip, and `agents-sync import <file.zip>` restores or merges that zip into a local install. See [Backup, Restore, Share](#backup-restore-share).
 - Added `import_collision_strategy` config key (`skip` / `mtime_wins` / `overwrite`, default `mtime_wins`) controlling how an imported artifact reconciles with a locally-managed one. CLI flag `--collision-strategy` overrides per invocation.
 - Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp (the source of truth for the `mtime_wins` collision rule). Pre-1.0 cutover: v2 state files are regenerated on first boot.
-- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01.
+- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in v0.6 / 0.5.6: import is now canonical-only and the next `sync_once` projects — see above.)*
 
 ### 0.4.1
 

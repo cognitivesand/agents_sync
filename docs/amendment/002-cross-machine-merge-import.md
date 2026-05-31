@@ -1,8 +1,9 @@
 # Amendment 002 — Cross-machine config merge: slug-reconciling, atomic import
 
-- status: reqs-validated (all governance applied; code deferred to a focused pass)
+- status: applied (governance + code both landed; the deferred pass shipped across
+  commits P1–P5 / v0.5.2–v0.5.6 — b5dae90, 763de4d, 3b7036a, b67c262, 921aa7b)
 - governance applied: US-12 AC-5/17/18, FR-12, FR-13, NFR-16, US-11 AC-8, US-05 AC-5;
-  architecture §6.1 marked planned-not-built
+  architecture §6.1 now marked BUILT (re-stamped 2026-05-31, amendment 004 coherence pass)
 
 ## Validated decisions (2026-05-30)
 

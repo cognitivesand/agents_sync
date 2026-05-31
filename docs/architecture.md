@@ -6,7 +6,9 @@ It is intended to be useful as both a reader's map of the code and a
 governance artefact: any future change should leave this document either
 true or amended.
 
-- **Status**: current as of v0.5.
+- **Status**: current as of v0.6 (v0.5.6). The Layer-1 canonical store is the
+  source of truth (NFR-16); import is canonical-only and per-artifact atomic
+  (FR-12/13). The §4 module map predates the v0.6 package split — see the note there.
 - **Sources of truth**: the code under `src/agents_sync/`,
   `docs/project_description.md`, `docs/project_requirements.md`, and the
   user stories under `docs/stories/`.
@@ -254,9 +256,15 @@ outside.
 | `__main__.py` | 3 | 4 | `python -m agents_sync` entry | `cli` |
 | `__init__.py` | 1 | — | Empty | — |
 
-Totals: 19 modules, 2 852 lines. Use-case classes (Layer 2) account for
-1 074 lines; adapters (Layer 3) account for 1 277 lines; entities and
-frameworks together make up the remaining 501.
+Totals (v0.5 snapshot): 19 modules, 2 852 lines.
+
+> **Note (v0.6):** this table predates the v0.6 split. `adoption.py` became the
+> `adoption/` package (`engine`, `_host`, `removal_propagator`, `privacy_gate`),
+> `discovery.py` became the `discovery/` package (`walker`, `enumerator`,
+> `collision_blocker`, …), and `portable_archive.py` (canonical export/import,
+> FR-12/13) was added. The current tree is ~65 modules; the layer assignments and
+> dependency rules above still hold. A full per-module re-tabulation is tracked as
+> doc-debt and intentionally not done in this coherence pass.
 
 ---
 
@@ -308,7 +316,7 @@ Five rules every adapter must obey (US-10 AC-1, AC-4, AC-5, AC-6):
 
 `state.load_state(state_dir) -> dict[pair_id, CustomizationArtifactState]`
 and `state.save_state(state_dir, state) -> None` are the only entry
-points. `state.json` is schema-versioned (`schema_version=2`); any other
+points. `state.json` is schema-versioned (`schema_version=3`); any other
 shape is treated as missing (the project is pre-1.0, hence the cutover
 without a migration reader — see `state.load_state` docstring).
 
@@ -355,7 +363,7 @@ persisted state, log lines)`.
 sync_once
 ├── validate_config(config)                 ─ fail-closed structural check
 ├── tool_status.refresh()                   ─ US-11 per-poll status probe
-├── load_state(state_dir)                   ─ schema_version=2 envelope
+├── load_state(state_dir)                   ─ schema_version=3 envelope
 ├── discovery.discover(state)               ─ walk available tools, group by pair_id
 ├── _reconcile_new_groups(discovery, state) ─ v0.4 plan §5.5 multi-tool dedup
 ├── discovery.block_target_collisions(…)    ─ refuse to clobber unmanaged paths
@@ -388,15 +396,16 @@ Properties this control flow gives us:
 | **FR-02** fault isolation | `sync_once` wraps each `process_pair` and each `propagate_orphan_state` in `try / except Exception` + `logging.exception(...)` — one bad artifact does not halt the loop. |
 | **FR-04** trusted removal source | `_propagate_removal` only fires when an **available** tool's view is missing the artifact; entries owned only by **unavailable** tools are preserved (`propagate_orphan_state` short-circuit). |
 
-### 6.1 Import as a merge — PLANNED (amendment 002, not yet implemented)
+### 6.1 Import as a merge — BUILT (amendments 002–004; v0.5.2–v0.5.6)
 
-> **Status: designed, not built.** The sections below describe the target design
-> per `docs/amendment/002-cross-machine-merge-import.md` (NFR-16, FR-12/13, US-12
-> AC-5/17/18, US-11 AC-8, US-05 AC-5). The **current** code does the opposite of
-> the source-of-truth inversion: the daemon projects from on-disk tool files
-> (canonical = cache), and `import_from_zip` renders directly to tool roots and is
-> not atomic across tool-side writes. This subsection is the roadmap, not a
-> description of running behaviour, until the implementation lands.
+> **Status: implemented and shipping.** The sections below describe running
+> behaviour as of the v0.6 canonical-as-truth work (amendment 002 design;
+> amendments 003–004 follow-ups), landed across commits P1–P5 (v0.5.2–v0.5.6):
+> NFR-16, FR-12/13/14/15, US-12 AC-5/17/18/19, US-11 AC-8/AC-9, US-05 AC-5. The
+> canonical store is the source of truth; `import_from_zip` is canonical-only and
+> per-artifact atomic. (One known gap remains open: FR-15's "identical to
+> sequential" guarantee is not yet enforced by a cross-process lock on the shared
+> state record — see amendment 003 follow-up.)
 
 The inversion: **the canonical store becomes the source of truth** (NFR-16); every
 tool-side file is a projection. `sync_once` gains a step that projects any managed
