@@ -1,4 +1,5 @@
 """Secret detection and policy handling for ``mcp_server`` artifacts."""
+
 from __future__ import annotations
 
 import copy
@@ -50,14 +51,26 @@ SECRET_FIELD_RE = re.compile(
     r"passphrase|credentials?|token|secret|password|dsn|cookie|"
     r"session|jwt|(?:^|[_-])pat(?:$|[_-]))"
 )
+# A menu of high-confidence credential prefixes. Each shape is distinctive
+# enough that a literal match is almost never a false positive. This is the
+# value-shape leg of detection; literals under env/headers/auth fields and under
+# secret-named fields are caught by SECRET_FIELD_RE and the path checks
+# regardless of shape. A literal of an arbitrary shape outside all of those is
+# the documented residual (NFR-15) — place such credentials in env/headers.
 HIGH_CONFIDENCE_SECRET_VALUE_RE = re.compile(
     r"("
-    r"sk-[A-Za-z0-9_-]{8,}|"
-    r"ghp_[A-Za-z0-9_]{8,}|"
-    r"github_pat_[A-Za-z0-9_]{16,}|"
-    r"AKIA[0-9A-Z]{16}|"
-    r"xoxb-[A-Za-z0-9-]{16,}|"
-    r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+    r"sk-[A-Za-z0-9_-]{8,}|"  # OpenAI / Anthropic-style
+    r"sk_live_[A-Za-z0-9]{16,}|"  # Stripe secret key
+    r"rk_live_[A-Za-z0-9]{16,}|"  # Stripe restricted key
+    r"ghp_[A-Za-z0-9_]{8,}|"  # GitHub PAT (classic)
+    r"github_pat_[A-Za-z0-9_]{16,}|"  # GitHub PAT (fine-grained)
+    r"glpat-[A-Za-z0-9_-]{16,}|"  # GitLab PAT
+    r"npm_[A-Za-z0-9]{36}|"  # npm token
+    r"AKIA[0-9A-Z]{16}|"  # AWS access key id
+    r"xox[baprs]-[A-Za-z0-9-]{16,}|"  # Slack bot/user/app/refresh/workspace
+    r"AIza[0-9A-Za-z_-]{35}|"  # Google API key
+    r"ya29\.[A-Za-z0-9_-]{20,}|"  # Google OAuth access token
+    r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"  # JWT
     r")"
 )
 _PERMISSIVE_WARNING_CACHE: set[tuple[str, tuple[str, ...]]] = set()
@@ -112,8 +125,7 @@ class McpSecretLeakError(ValueError):
         fields = [finding.field_path for finding in findings]
         location = f" artifact={artifact}" if artifact else ""
         super().__init__(
-            "MCP server secret policy refused literal secret values:"
-            f"{location} fields={fields}"
+            f"MCP server secret policy refused literal secret values:{location} fields={fields}"
         )
 
 
@@ -154,8 +166,7 @@ def normalize_secret_policy(
             )
         return new_value
     raise ValueError(
-        "secret_policy must be "
-        f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {policy!r}"
+        f"secret_policy must be {'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {policy!r}"
     )
 
 
@@ -207,6 +218,7 @@ def format_env_reference(name: str, *, style: str = "canonical") -> str:
 
 def convert_env_references(value: str, *, style: str) -> str:
     """Convert every supported env-reference token in ``value`` to ``style``."""
+
     def replace(match: re.Match[str]) -> str:
         name = next(group for group in match.groups() if group is not None)
         return format_env_reference(name, style=style)
@@ -318,7 +330,9 @@ def reset_mcp_secret_warning_cache() -> None:
 
 
 def _is_secret_literal(
-    path: tuple[str | int, ...], key: str, value: str,
+    path: tuple[str | int, ...],
+    key: str,
+    value: str,
 ) -> bool:
     normalized_path = _normalize_path(path)
     normalized_key = _normalize_key(key)
@@ -341,10 +355,7 @@ def _normalize_key(key: str) -> str:
 
 def _normalize_path(path: tuple[str | int, ...]) -> tuple[str | int, ...]:
     """Apply NFKC + casefold to dict-key elements; list indices unchanged."""
-    return tuple(
-        _normalize_key(part) if isinstance(part, str) else part
-        for part in path
-    )
+    return tuple(_normalize_key(part) if isinstance(part, str) else part for part in path)
 
 
 def _expects_env_var_name(normalized_path: tuple[str | int, ...]) -> bool:
