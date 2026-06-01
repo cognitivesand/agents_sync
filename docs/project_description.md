@@ -116,13 +116,17 @@ Each entry pairs the technical identifier used in code, configs, ACs, and schema
 - **Participating `agentic_tools` for a customization_artifact** — agentic_tools whose `supported_customization_types` include the customization_artifact's `customization_type` AND whose status is `available`. Denoted **N** (N ≥ 1 for the customization_artifact to exist; N ≥ 2 for any cross-tool sync to happen; ≥ 2 changed simultaneously for a conflict).
 - **Changed `agentic_tools` for a customization_artifact at the current poll** — the subset of participating agentic_tools whose current digest differs from the `last_written` digest recorded in state. ≥ 2 changed = conflict; exactly 1 = one-way propagation; 0 = no-op.
 - **Available `agentic_tools` at a given poll** — registered, enabled agentic_tools whose status is `available` (root reachable, readable, writable).
-- **Canonical** — per-customization_artifact JSON document storing the union of fields from every agentic_tool; the lossless intermediate that drives every renderer.
+- **Canonical** — per-customization_artifact JSON document storing the union of fields from every agentic_tool; the lossless intermediate that drives every renderer. It carries the canonical content itself as well as a nested `metadata` block.
+- **`last_modified`** — POSIX timestamp (float) of when a customization_artifact's user content was last changed, not when its files were last written. Carried in the canonical's `metadata` block.
+- **`generation`** — host-local monotonic counter, incremented on each content change of a customization_artifact. Carried in the canonical's `metadata` block.
 - **Render / parse** — project the canonical onto an agentic_tool's native format; or fold the native format back into the canonical.
 - **Archive** — directory under the state root where prior versions of files are preserved before any destructive overwrite.
 - **New customization_artifact** — a customization_artifact whose artifact metadata does not yet contain a `customization_artifact_id`, awaiting adoption or reconciliation. See US-03.
 - **Artifact metadata** — the structured block on a customization_artifact that declares its identifying fields (`name`, `customization_artifact_id`, `description`, and any agentic_tool-specific fields). Physical form varies per agentic_tool: a YAML block delimited by `---` for `.md` files, the whole TOML document for `.toml` files, etc. Each agentic_tool module's `parse` and `render` functions are responsible for reading and writing it.
 - **Reconciliation key** — `(customization_type, target_slug(name))`, used to group new customization_artifacts that represent the same logical user_customization across agentic_tools.
 - **Slug** — the filesystem-friendly form of a customization_artifact's `name`; determines the basename of a rendered file. Agents and skills live in separate roots, so generated counterparts use the bare slug (e.g. `formatter/SKILL.md`).
+- **Customization library** — the full set of canonical documents the daemon manages.
+- **Customization library export** — the full canonical set packaged as a single transportable file (today a `.zip`) that another install can import.
 
 ## References
 

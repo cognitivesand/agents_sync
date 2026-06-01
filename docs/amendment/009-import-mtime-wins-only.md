@@ -1,6 +1,8 @@
 # Amendment 009 — Import reconciliation is mtime_wins only (remove configurable collision strategy)
 
-- status: proposed
+- status: US-12 AC governance applied via amendment 010 (2026-06-01); the rule is
+  renamed `mtime_wins` → `last_modified_wins` (amendment 010); strategy-removal code
+  (config.py / cli.py / portable_archive.py) pending
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-06-01
 - supersedes / relates to: US-12 AC-6/AC-7/AC-8/AC-11/AC-18, the
@@ -26,8 +28,9 @@ rule and the only one any user needs.
 
 ## Principle / decision
 
-Import reconciliation is a single, non-configurable rule: **`mtime_wins`**. There
-is no `import_collision_strategy` config key and no `--collision-strategy` CLI flag.
+Import reconciliation is a single, non-configurable rule: **`mtime_wins`** (renamed
+**`last_modified_wins`** in amendment 010; behaviour unchanged). There is no
+`import_collision_strategy` config key and no `--collision-strategy` CLI flag.
 
 ## Proposed governance edits (require user validation)
 

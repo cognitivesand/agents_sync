@@ -1,8 +1,10 @@
 # Amendment 008 — Single-writer state: import is canonical-only, daemon adopts orphan canonicals (resolves finding A)
 
-- status: reqs-validated; IMPLEMENTATION EXPANDED (see §"Canonical metadata model"
-  below) — AC-5 + FR-16 applied 2026-05-31; architecture edits skipped per user
-  instruction; code in progress (WIP, 515/516)
+- status: reqs-validated; metadata model applied at governance level — G1/G2/G3
+  (Canonical `metadata` glossary + FR-14) applied 2026-06-01, AC-5 + FR-16 applied
+  2026-05-31; the US-12 G4/G5/AC-3 drafts below are SUPERSEDED — see amendment 009
+  (single rule) and amendment 010 (DRY clean) for the applied US-12 text;
+  metadata-model code (C1–C4) in progress
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-31
 - supersedes / relates to: FR-15 (amendment 003), amendment 004 (import archive),
@@ -129,7 +131,7 @@ forbade putting them in the canonical. Resolution, per the user:
 - **Future:** the `metadata` block is the home for the change-history and per-tool
   file timestamps the user proposed — deferred, not built in this pass.
 
-### Governance edits (exact text — awaiting user validation)
+### Governance edits (G1–G3 applied 2026-06-01; G4, G5, AC-3 superseded by amendments 009 and 010)
 
 KISS: minimal, plain, INCOSE-style; no defensive cross-references. They are
 **proposed**; apply only after user validation. Objectives/vision unchanged.
