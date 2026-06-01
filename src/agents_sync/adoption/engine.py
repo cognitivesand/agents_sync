@@ -13,6 +13,7 @@ operations are kept as composed mixins:
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,13 @@ from agents_sync.agentic_tool_spec import (
     SharedKeyedMapLayout,
     is_reserved_customization_name,
 )
-from agents_sync.canonical import load_canonical, save_canonical
+from agents_sync.canonical import (
+    canonical_digest,
+    canonical_metadata,
+    load_canonical,
+    save_canonical,
+    set_canonical_metadata,
+)
 from agents_sync.config import expand_path
 from agents_sync.rendering import (
     read_artifact_text,
@@ -151,6 +158,29 @@ class AdoptionEngine(
         name = str(canonical.get("name", ""))
         return is_reserved_customization_name(io, name)
 
+    def _stamp_canonical_content_change(
+        self,
+        canonical: dict[str, Any],
+        *,
+        previous: dict[str, Any] | None,
+    ) -> None:
+        if previous is not None and canonical_digest(canonical) == canonical_digest(previous):
+            previous_metadata = canonical_metadata(previous)
+            if previous_metadata and not canonical_metadata(canonical):
+                canonical["metadata"] = previous_metadata
+            return
+        metadata = canonical_metadata(previous) if previous is not None else {}
+        prior_generation = metadata.get("generation", 0)
+        try:
+            generation = int(prior_generation) + 1
+        except (TypeError, ValueError):
+            generation = 1
+        set_canonical_metadata(
+            canonical,
+            last_modified=time.time(),
+            generation=generation,
+        )
+
     # ------------------------------------------------------------------ #
     # Adopt + N-way sync
     #
@@ -194,6 +224,7 @@ class AdoptionEngine(
         if self._skip_private_canonical(pair_id, source_tool, canonical):
             return False
         canonical["pair_id"] = pair_id
+        self._stamp_canonical_content_change(canonical, previous=None)
 
         # Persist canonical + source state entry before mutating any on-disk
         # bytes, so a crash mid-adoption leaves a recoverable state entry
@@ -206,7 +237,6 @@ class AdoptionEngine(
             info.kind,
             {source_tool: source_result},
             self.agentic_tools,
-            bump=False,
         )
         save_state(self.state_dir, state)
 
@@ -230,7 +260,6 @@ class AdoptionEngine(
                 info.kind,
                 {source_tool: source_result},
                 self.agentic_tools,
-                bump=False,
             )
             save_state(self.state_dir, state)
 
@@ -310,6 +339,7 @@ class AdoptionEngine(
         if self._skip_private_canonical(pair_id, source_tool, canonical):
             return False
         canonical["pair_id"] = pair_id
+        self._stamp_canonical_content_change(canonical, previous=prior_canonical)
         save_canonical(self.state_dir, pair_id, canonical)
         if not source_info.pair_id_present:
             self._archive_source_before_write(

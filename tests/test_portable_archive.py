@@ -17,6 +17,12 @@ import pytest
 pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
 import agents_sync
+from agents_sync.canonical import (
+    canonical_metadata,
+    load_canonical,
+    save_canonical,
+    set_canonical_metadata,
+)
 from agents_sync.portable_archive import (
     CANONICAL_PREFIX,
     MANIFEST_NAME,
@@ -49,6 +55,21 @@ def _seed_and_export(syncer: Syncer, tmp_path: Path, *names: str) -> Path:
     zip_path = tmp_path / "snapshot.zip"
     export_to_zip(syncer.state_dir, zip_path)
     return zip_path
+
+
+def _set_local_canonical_metadata(
+    syncer: Syncer, pair_id: str, *, last_modified: float, generation: int = 1
+) -> None:
+    canonical = load_canonical(syncer.state_dir, pair_id)
+    assert canonical is not None
+    set_canonical_metadata(canonical, last_modified=last_modified, generation=generation)
+    save_canonical(syncer.state_dir, pair_id, canonical)
+
+
+def _canonical_metadata_for(syncer: Syncer, pair_id: str) -> dict[str, object]:
+    canonical = load_canonical(syncer.state_dir, pair_id)
+    assert canonical is not None
+    return canonical_metadata(canonical)
 
 
 def _fresh_syncer(tmp_path: Path, label: str) -> Syncer:
@@ -170,19 +191,18 @@ def test_export_does_not_mutate_state_dir(syncer: Syncer, tmp_path: Path):
 # ---------------- AC-3: last_modified ----------------
 
 
-def test_export_attaches_last_modified_from_state(syncer: Syncer, tmp_path: Path):
+def test_export_carries_canonical_metadata(syncer: Syncer, tmp_path: Path):
     _write_claude_skill(syncer, "foo")
     syncer.sync_once()
     state = load_state(syncer.state_dir)
-    (pair_id, ps) = next(iter(state.items()))
+    pair_id = next(iter(state))
 
     zip_path = tmp_path / "snapshot.zip"
     export_to_zip(syncer.state_dir, zip_path)
 
     with zipfile.ZipFile(zip_path) as zf:
         doc = json.loads(zf.read(f"{CANONICAL_PREFIX}{pair_id}.json"))
-    assert doc["last_modified"] == ps.last_modified
-    assert doc["generation"] == ps.generation
+    assert doc["metadata"] == _canonical_metadata_for(syncer, pair_id)
 
 
 def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tmp_path: Path):
@@ -193,11 +213,7 @@ def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tm
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
     # Local clock is far in the future but generation is at the export value (1).
-    state[pair_id].last_modified = 9_999_999_999.0
-    state[pair_id].generation = 1
-    from agents_sync.state import save_state
-
-    save_state(syncer.state_dir, state)
+    _set_local_canonical_metadata(syncer, pair_id, last_modified=9_999_999_999.0)
 
     # Rewrite the exported zip's canonical to bump generation to 2 so the
     # imported snapshot represents "two edits later, on the same host".
@@ -207,8 +223,10 @@ def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tm
         members = {n: zf.read(n) for n in names}
     canonical_name = next(n for n in names if n.startswith(CANONICAL_PREFIX))
     doc = json.loads(members[canonical_name])
-    doc["generation"] = 2
-    doc["last_modified"] = 0.5  # *older* wall-clock than local
+    doc["metadata"] = {
+        "generation": 2,
+        "last_modified": 0.5,  # *older* wall-clock than local
+    }
     members[canonical_name] = (
         json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
     ).encode("utf-8")
@@ -228,8 +246,7 @@ def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tm
     # Generation is ignored cross-host; the newer local wall-clock wins.
     assert report.accepted == []
     assert report.skipped == [pair_id]
-    state_after = load_state(syncer.state_dir)
-    assert state_after[pair_id].generation == 1  # local kept; import lost
+    assert _canonical_metadata_for(syncer, pair_id)["generation"] == 1
 
 
 # ---------------- AC-4: export failure ----------------
@@ -334,24 +351,14 @@ def test_import_pair_id_collision_skip_leaves_local_intact(syncer: Syncer, tmp_p
     assert pre_canonical.read_bytes() == pre_bytes
 
 
-@pytest.mark.xfail(
-    reason="Pending amendment 008 canonical metadata model: under single-writer "
-    "state, import conveys last_modified via canonical metadata (not yet built). "
-    "The archive assertion also needs revising for content-only digest. Tracked in "
-    "docs/amendment/008 and the backlog.",
-    strict=True,
-)
 def test_import_pair_id_collision_mtime_wins_import_newer_overwrites(
     syncer: Syncer, tmp_path: Path
 ):
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
-    # Make the local state's last_modified older than what's in the zip.
+    # Make the local canonical metadata older than what's in the zip.
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
-    state[pair_id].last_modified = 1.0
-    from agents_sync.state import save_state
-
-    save_state(syncer.state_dir, state)
+    _set_local_canonical_metadata(syncer, pair_id, last_modified=1.0)
 
     report = import_from_zip(
         syncer.state_dir,
@@ -364,12 +371,11 @@ def test_import_pair_id_collision_mtime_wins_import_newer_overwrites(
     assert report.accepted == [pair_id]
     assert report.skipped == []
     # Canonical-only import (AC-5): import overwrites the canonical but does NOT
-    # write state.json. The recorded last_modified is unchanged until the next
-    # sync_once re-projects the changed canonical (FR-14), archiving displaced
-    # bytes (NFR-01) and updating state.
-    assert load_state(syncer.state_dir)[pair_id].last_modified == 1.0
+    # write state.json. The imported metadata is visible immediately; the next
+    # sync_once re-projects the changed content (FR-14), archiving displaced
+    # bytes (NFR-01) and refreshing state digests.
+    assert _canonical_metadata_for(syncer, pair_id)["last_modified"] != 1.0
     syncer.sync_once()
-    assert load_state(syncer.state_dir)[pair_id].last_modified != 1.0
     assert any((syncer.state_dir / "archive").rglob("*"))
 
 
@@ -380,10 +386,7 @@ def test_import_pair_id_collision_mtime_wins_local_newer_keeps_local(
     # Force the local last_modified to the future.
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
-    state[pair_id].last_modified = 9_999_999_999.0
-    from agents_sync.state import save_state
-
-    save_state(syncer.state_dir, state)
+    _set_local_canonical_metadata(syncer, pair_id, last_modified=9_999_999_999.0)
 
     report = import_from_zip(
         syncer.state_dir,
@@ -395,8 +398,7 @@ def test_import_pair_id_collision_mtime_wins_local_newer_keeps_local(
 
     assert report.accepted == []
     assert report.skipped == [pair_id]
-    state_after = load_state(syncer.state_dir)
-    assert state_after[pair_id].last_modified == 9_999_999_999.0
+    assert _canonical_metadata_for(syncer, pair_id)["last_modified"] == 9_999_999_999.0
 
 
 def test_import_pair_id_collision_mtime_wins_tie_keeps_local(syncer: Syncer, tmp_path: Path):
@@ -511,12 +513,8 @@ def test_import_slug_collision_different_pair_id_uses_strategy(syncer: Syncer, t
     zip_path = tmp_path / "other.zip"
     export_to_zip(target.state_dir, zip_path)
 
-    # Force the source install's local entry to be older so import wins.
-    state = load_state(syncer.state_dir)
-    state[local_pair_id].last_modified = 1.0
-    from agents_sync.state import save_state
-
-    save_state(syncer.state_dir, state)
+    # Force the source install's local canonical metadata to be older so import wins.
+    _set_local_canonical_metadata(syncer, local_pair_id, last_modified=1.0)
 
     report = import_from_zip(
         syncer.state_dir,

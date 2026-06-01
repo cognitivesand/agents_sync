@@ -18,7 +18,7 @@ import pytest
 
 pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
-from agents_sync.canonical import canonical_path, save_canonical
+from agents_sync.canonical import canonical_path, save_canonical, set_canonical_metadata
 from agents_sync.identity import validate_pair_id
 from agents_sync.portable_archive import (
     CANONICAL_PREFIX,
@@ -82,12 +82,11 @@ def _write_canonical_and_state(
     """
     validate_pair_id(pair_id)
     canonical = {**canonical, "pair_id": pair_id}
+    set_canonical_metadata(canonical, last_modified=0.0, generation=1)
     save_canonical(state_dir, pair_id, canonical)
     state = load_state(state_dir)
     state[pair_id] = CustomizationArtifactState(
         kind="mcp_server",
-        last_modified=0.0,
-        generation=1,
         agentic_tools={
             "claude": AgenticToolState(
                 path=state_dir / "tools" / "claude" / f"{canonical['name']}.json",

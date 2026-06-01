@@ -37,8 +37,7 @@ def _canonical(pair_id: str, name: str, body: str, last_modified: float) -> dict
         "body": body,
         "per_agentic_tool_only": {},
         "per_agentic_tool_extra": {},
-        "last_modified": last_modified,
-        "generation": 1,
+        "metadata": {"last_modified": last_modified, "generation": 1},
     }
 
 
@@ -126,13 +125,13 @@ def test_import_onto_populated_host_reuses_local_id(tmp_path: Path) -> None:
     (d / "SKILL.md").write_text(skill_md("demo", body="local-old"))
     syncer.sync_once()
     local_id = next(iter(load_state(syncer.state_dir)))
-    # Make the local entry older so the import wins.
-    from agents_sync.state import load_state as _ls
-    from agents_sync.state import save_state
+    # Make the local canonical metadata older so the import wins.
+    from agents_sync.canonical import load_canonical, save_canonical, set_canonical_metadata
 
-    st = _ls(syncer.state_dir)
-    st[local_id].last_modified = 1.0
-    save_state(syncer.state_dir, st)
+    canonical = load_canonical(syncer.state_dir, local_id)
+    assert canonical is not None
+    set_canonical_metadata(canonical, last_modified=1.0, generation=1)
+    save_canonical(syncer.state_dir, local_id, canonical)
 
     zip_path = _build_zip(tmp_path / "lib.zip", [_canonical(I1, "demo", "imported-new", 999.0)])
     _import(syncer, zip_path)

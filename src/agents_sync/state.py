@@ -1,4 +1,4 @@
-"""State store — pair_id-keyed index + filesystem helpers."""
+﻿"""State store â€” pair_id-keyed index + filesystem helpers."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class StateQuarantineError(RuntimeError):
 
     The corrupt file is still at its original path, so the caller must NOT
     proceed to rebuild-and-overwrite (that would destroy the operator's only
-    recovery source). Fail closed instead — the daemon's poll loop catches this,
+    recovery source). Fail closed instead â€” the daemon's poll loop catches this,
     logs it, and retries without writing (NFR-01).
     """
 
@@ -68,7 +68,7 @@ class AgenticToolState:
     is the per-file artifact path as it has been since v0.2.
 
     ``path`` is a :class:`Path` in memory (it is one everywhere else in
-    the engine — Phase 3.4 removes the legacy ``str`` exception that
+    the engine â€” Phase 3.4 removes the legacy ``str`` exception that
     forced every caller to wrap reads in ``Path(...)``). On-disk
     serialisation still uses the string form so the JSON schema is
     unchanged.
@@ -103,48 +103,23 @@ class AgenticToolState:
 class CustomizationArtifactState:
     """One managed customization artifact, projected across N agentic tools.
 
-    ``last_modified`` is a wall-clock POSIX timestamp (seconds, float) updated
-    every time the daemon writes new bytes for this pair. ``generation`` is a
-    monotonic in-process counter that the daemon bumps on every write to this
-    pair; it is the primary discriminator for the ``mtime_wins`` collision
-    strategy at import time (US-12), with ``last_modified`` as the tiebreaker
-    when comparing entries from different hosts. (Planned — amendment 002 /
-    US-12 AC-17: the *cross-host* import comparison switches to wall-clock
-    ``last_modified`` as the primary key, since ``generation`` is host-local and
-    not comparable across machines; ``generation`` stays the intra-host runtime
-    discriminator. This docstring describes the current pre-amendment behaviour.)
-    A ``None`` ``last_modified``
-    predates the field; ``generation`` defaults to ``0`` and is treated as
-    "no edits seen yet" for comparison.
-
-    Cross-host clock skew (NTP rewind, VM resume, Windows local-time bug)
-    therefore cannot, on its own, cause ``mtime_wins`` to overwrite a newer
-    same-host edit with an older import — the local entry's generation always
-    advances on each write and the import snapshot carries the generation it
-    had at export time. Mixing edits across hosts whose clocks disagree is
-    still the user's responsibility for the wall-clock tiebreaker.
+    Runtime metadata now lives in the canonical document's nested
+    ``metadata`` block. Legacy state entries may still carry
+    ``last_modified`` / ``generation`` keys on disk, but deserialization
+    ignores them.
     """
 
-    kind: str  # "agent" | "skill" — serialized as "customization_type"
+    kind: str  # serialized as "customization_type"
     agentic_tools: dict[str, AgenticToolState] = field(default_factory=dict)
-    last_modified: float | None = None
-    generation: int = 0
     # Digest of the canonical at its last projection (FR-14). ``None`` predates
     # the field and is migrated on load. A mismatch against the current canonical
     # means the canonical changed out of band (e.g. an import) and must be
     # re-projected onto the tools.
     canonical_digest: str | None = None
 
-    def bump(self, *, now: float) -> None:
-        """Record a write to this pair: advance generation, set last_modified."""
-        self.generation += 1
-        self.last_modified = now
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "customization_type": self.kind,
-            "last_modified": self.last_modified,
-            "generation": self.generation,
             "canonical_digest": self.canonical_digest,
             "agentic_tools": {name: at.to_dict() for name, at in self.agentic_tools.items()},
         }
@@ -154,20 +129,6 @@ class CustomizationArtifactState:
         raw_tools = data.get("agentic_tools") or {}
         if not isinstance(raw_tools, dict):
             raise ValueError("agentic_tools must be a mapping")
-        raw_last_modified = data.get("last_modified")
-        last_modified: float | None
-        if raw_last_modified is None:
-            last_modified = None
-        else:
-            try:
-                last_modified = float(raw_last_modified)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("last_modified must be a number") from exc
-        raw_generation = data.get("generation", 0)
-        try:
-            generation = int(raw_generation) if raw_generation is not None else 0
-        except (TypeError, ValueError) as exc:
-            raise ValueError("generation must be an integer") from exc
         raw_canonical_digest = data.get("canonical_digest")
         canonical_digest = str(raw_canonical_digest) if raw_canonical_digest is not None else None
         return cls(
@@ -177,10 +138,9 @@ class CustomizationArtifactState:
                 for name, entry in raw_tools.items()
                 if isinstance(entry, dict)
             },
-            last_modified=last_modified,
-            generation=generation,
             canonical_digest=canonical_digest,
         )
+
 
 
 def slugify(value: str) -> str:
@@ -199,7 +159,7 @@ def target_slug(value: str) -> str:
     """Return the filesystem-friendly form of an artifact `name`.
 
     The slug is the basename a daemon-projected counterpart will use on every
-    agentic tool — sync is symmetric across tools, so an artifact named X
+    agentic tool â€” sync is symmetric across tools, so an artifact named X
     lives at <root>/X (skill) or <root>/X.<ext> (agent) regardless of which
     tool currently holds the source. Agents and skills live in distinct
     config-keyed roots, so no kind-suffix is needed to disambiguate them.
@@ -308,7 +268,7 @@ def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
 
     v0.4.1 introduced schema v3 (per-pair ``last_modified`` + per-tool
     ``slot``); v0.5 added the monotonic ``generation`` field. Older
-    envelopes (v1, v2) are not migrated — v0.x was a pre-1.0 cutover and
+    envelopes (v1, v2) are not migrated â€” v0.x was a pre-1.0 cutover and
     state-rebuild was always the documented recovery. This function only
     accepts the current schema_version constant; mismatches log at INFO
     and return an empty state.
@@ -382,7 +342,7 @@ def _migrate_canonical_digests(
     Computing it from the on-disk canonical establishes the canonical as the
     recorded source of truth without a spurious re-projection on the next poll.
     """
-    # Lazy import — canonical.py imports state.py, so this avoids an import cycle.
+    # Lazy import â€” canonical.py imports state.py, so this avoids an import cycle.
     from agents_sync.canonical import canonical_digest, load_canonical
 
     for pair_id, ps in state.items():
@@ -396,7 +356,7 @@ def _migrate_canonical_digests(
 def _read_text_for_recovery(path: Path) -> str | None:
     """Read ``path`` as UTF-8, returning ``None`` on read or decode failure
     or when the file exceeds :data:`parser_bounds.MAX_PARSE_BYTES`."""
-    # Lazy import — parser_bounds depends on markdown_yaml_metadata_block at module load
+    # Lazy import â€” parser_bounds depends on markdown_yaml_metadata_block at module load
     # time, and state.py is imported early in the chain.
     from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded
 
@@ -415,7 +375,7 @@ def _quarantine_corrupt(state_dir: Path, source: Path, *, reason: str) -> None:
 
     On a successful move the corrupt file is preserved under ``quarantine/`` and
     the caller may safely rebuild from empty. If the move **fails** the corrupt
-    file is still at ``source`` — rebuilding would overwrite it — so this fails
+    file is still at ``source`` â€” rebuilding would overwrite it â€” so this fails
     closed by raising :class:`StateQuarantineError` rather than swallowing the
     error (the daemon poll loop catches it and retries without writing).
     """
@@ -438,7 +398,7 @@ def _quarantine_corrupt(state_dir: Path, source: Path, *, reason: str) -> None:
     except OSError as exc:
         logging.exception(
             "Quarantine failed for %s (%s); leaving the file in place and "
-            "failing closed so it is not overwritten — please remove or fix it by hand.",
+            "failing closed so it is not overwritten â€” please remove or fix it by hand.",
             source,
             reason,
         )

@@ -24,7 +24,12 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agents_sync.canonical import load_canonical
+from agents_sync.canonical import (
+    canonical_metadata,
+    load_canonical,
+    save_canonical,
+    set_canonical_metadata,
+)
 from agents_sync.rendering import render_to_agentic_tool, update_state_n_way
 from agents_sync.state import CustomizationArtifactState
 from agents_sync.sync_types import CustomizationArtifactInfo, RenderResult
@@ -39,6 +44,12 @@ else:
 
 class CanonicalProjectionMixin(_AdoptionHostBase):
     """Heal / extend / re-project a managed pair from its canonical document."""
+
+    def _ensure_canonical_metadata(self, pair_id: str, canonical: dict[str, Any]) -> None:
+        if canonical_metadata(canonical):
+            return
+        set_canonical_metadata(canonical, last_modified=0.0, generation=0)
+        save_canonical(self.state_dir, pair_id, canonical)
 
     def _render_canonical_one(
         self,
@@ -87,6 +98,7 @@ class CanonicalProjectionMixin(_AdoptionHostBase):
         if canonical is None:
             logging.error("Cannot extend pair_id=%s: canonical document missing", pair_id)
             return False
+        self._ensure_canonical_metadata(pair_id, canonical)
 
         source_dir: Path | None = None
         if info.kind == "skill":
@@ -134,6 +146,7 @@ class CanonicalProjectionMixin(_AdoptionHostBase):
         if canonical is None:
             logging.error("Cannot project pair_id=%s: canonical document missing", pair_id)
             return False
+        self._ensure_canonical_metadata(pair_id, canonical)
         kind = ps.kind
         if target_tools is None:
             target_tools = [
@@ -171,6 +184,7 @@ class CanonicalProjectionMixin(_AdoptionHostBase):
         if canonical is None:
             logging.error("Cannot re-project pair_id=%s: canonical missing", pair_id)
             return False
+        self._ensure_canonical_metadata(pair_id, canonical)
         present = [
             t for t in self._available_participating_tools(info.kind) if t in info.agentic_tools
         ]

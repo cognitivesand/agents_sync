@@ -44,7 +44,14 @@ from typing import Any, Literal
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.archive import archive_canonical
-from agents_sync.canonical import canonical_path, list_canonical_ids, load_canonical
+from agents_sync.canonical import (
+    canonical_last_modified,
+    canonical_metadata,
+    canonical_path,
+    list_canonical_ids,
+    load_canonical,
+    set_canonical_metadata,
+)
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.mcp_secret_policy import (
     find_mcp_secret_literals,
@@ -137,7 +144,7 @@ def export_to_zip(
     canonicals: dict[str, dict[str, Any]] = {}
     skipped_secret_artifacts: list[str] = []
     secret_bearing_artifacts: list[str] = []
-    for pair_id, ps in state.items():
+    for pair_id in state:
         canonical = load_canonical(state_dir, pair_id)
         if canonical is None:
             logging.warning(
@@ -160,10 +167,7 @@ def export_to_zip(
                 continue
             # secrets_accepted — include verbatim, summary warning emitted below
             secret_bearing_artifacts.append(pair_id)
-        entry = dict(canonical)
-        entry["last_modified"] = ps.last_modified if ps.last_modified is not None else 0.0
-        entry["generation"] = ps.generation
-        canonicals[pair_id] = entry
+        canonicals[pair_id] = dict(canonical)
 
     if secret_bearing_artifacts:
         logging.warning(
@@ -274,14 +278,10 @@ def _validate_manifest_version(manifest: dict[str, Any]) -> None:
 def _local_last_modified(
     state: dict[str, CustomizationArtifactState], state_dir: Path, pair_id: str
 ) -> float:
-    """The local last_modified for a pair: from state when managed, else from the
-    on-disk canonical (a prior import the daemon has not yet adopted, FR-16)."""
-    ps = state.get(pair_id)
-    if ps is not None and ps.last_modified is not None:
-        return ps.last_modified
+    """The local last_modified for a pair, read from canonical metadata."""
     canonical = load_canonical(state_dir, pair_id)
     if canonical is not None:
-        return float(canonical.get("last_modified", 0.0))
+        return canonical_last_modified(canonical) or 0.0
     return 0.0
 
 
@@ -353,8 +353,17 @@ def _classify(
     meta: dict[str, tuple[dict[str, Any], float]] = {}
     for imported_pair_id in sorted(canonicals):
         doc_copy = dict(canonicals[imported_pair_id])
-        last_modified = float(doc_copy.pop("last_modified", 0.0))
-        doc_copy.pop("generation", None)
+        metadata = canonical_metadata(doc_copy)
+        if metadata:
+            last_modified = canonical_last_modified(doc_copy) or 0.0
+        else:
+            last_modified = float(doc_copy.pop("last_modified", 0.0))
+            generation = int(doc_copy.pop("generation", 0))
+            set_canonical_metadata(
+                doc_copy,
+                last_modified=last_modified,
+                generation=generation,
+            )
         kind = doc_copy["kind"]
         slug = target_slug(doc_copy["name"])
         meta[imported_pair_id] = (doc_copy, last_modified)

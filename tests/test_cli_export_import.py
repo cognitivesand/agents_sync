@@ -5,6 +5,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+from agents_sync.canonical import load_canonical, save_canonical, set_canonical_metadata
 from agents_sync.cli import main
 from agents_sync.portable_archive import CANONICAL_PREFIX, MANIFEST_NAME
 from agents_sync.sync import Syncer
@@ -12,6 +13,13 @@ from agents_sync.sync import Syncer
 
 def _skill_md(name: str) -> str:
     return f"---\nname: {name}\ndescription: x\n---\nbody\n"
+
+
+def _set_local_canonical_metadata(syncer: Syncer, pair_id: str, last_modified: float) -> None:
+    canonical = load_canonical(syncer.state_dir, pair_id)
+    assert canonical is not None
+    set_canonical_metadata(canonical, last_modified=last_modified, generation=1)
+    save_canonical(syncer.state_dir, pair_id, canonical)
 
 
 def _render_toml(cfg: dict) -> str:
@@ -166,14 +174,13 @@ def test_cli_import_collision_strategy_flag_overrides_config(syncer: Syncer, tmp
     out_zip = tmp_path / "snapshot.zip"
     assert main(["--config", str(cfg_path), "export", str(out_zip)]) == 0
 
-    # Make local last_modified ancient so mtime_wins would accept the import.
+    # Make local canonical metadata ancient so mtime_wins would accept the import.
     # If --collision-strategy=skip works, the import is rejected anyway.
-    from agents_sync.state import load_state, save_state
+    from agents_sync.state import load_state
 
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
-    state[pair_id].last_modified = 1.0
-    save_state(syncer.state_dir, state)
+    _set_local_canonical_metadata(syncer, pair_id, 1.0)
     canonical_before = (syncer.state_dir / "canonical" / f"{pair_id}.json").read_bytes()
 
     exit_code = main(
@@ -207,14 +214,12 @@ def test_cli_import_requires_force_when_mtime_wins_would_overwrite(syncer: Synce
     out_zip = tmp_path / "snapshot.zip"
     assert main(["--config", str(cfg_path), "export", str(out_zip)]) == 0
 
-    # Force the local last_modified backward so mtime_wins would accept.
-    from agents_sync.state import load_state, save_state
+    # Force the local canonical metadata backward so mtime_wins would accept.
+    from agents_sync.state import load_state
 
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
-    state[pair_id].last_modified = 1.0
-    state[pair_id].generation = 0
-    save_state(syncer.state_dir, state)
+    _set_local_canonical_metadata(syncer, pair_id, 1.0)
 
     # No --force → refuse with exit 2.
     exit_code = main(
