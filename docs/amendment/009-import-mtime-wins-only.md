@@ -1,8 +1,8 @@
 # Amendment 009 — Import reconciliation is mtime_wins only (remove configurable collision strategy)
 
-- status: US-12 AC governance applied via amendment 010 (2026-06-01); the rule is
-  renamed `mtime_wins` → `last_modified_wins` (amendment 010); strategy-removal code
-  (config.py / cli.py / portable_archive.py) pending
+- status: applied 2026-06-01 — strategy-removal code (config.py / cli.py /
+  portable_archive.py) and test adaptations landed in Stream 2 (91a8265);
+  rule renamed `last_modified_wins` throughout; full suite green on merge.
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-06-01
 - supersedes / relates to: US-12 AC-6/AC-7/AC-8/AC-11/AC-18, the

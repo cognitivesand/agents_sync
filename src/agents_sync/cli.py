@@ -292,19 +292,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_parser.add_argument("input", type=Path, help="Source zip file path.")
     import_parser.add_argument(
-        "--collision-strategy",
-        choices=["skip", "mtime_wins", "overwrite"],
-        default=None,
-        help=("Override the config's import_collision_strategy for this invocation only."),
-    )
-    import_parser.add_argument(
         "--force",
         action="store_true",
         help=(
-            "Required for the 'overwrite' strategy (and for 'mtime_wins' "
-            "when the snapshot would replace local pairs). Without --force "
-            "those strategies abort and print the pairs they would overwrite "
-            "so you can confirm before running again with --force."
+            "Required when the import would replace local pairs under the "
+            "last_modified_wins rule. Without --force the import aborts and "
+            "prints the pairs it would overwrite so you can confirm before "
+            "running again with --force."
         ),
     )
 
@@ -353,19 +347,13 @@ def _run_export(args: argparse.Namespace, config: dict[str, Any]) -> int:
 def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
-    strategy = args.collision_strategy or config["import_collision_strategy"]
     force = bool(getattr(args, "force", False))
 
-    # Audit slice 08 · CQ-07: ``mtime_wins`` and ``overwrite`` can silently
-    # replace local user content. Compute a preview of the displacements
-    # before committing to disk; require --force if any local pair would
-    # be overwritten so the user has a chance to confirm.
+    # Compute a preview before committing to disk; require --force if any
+    # local pair would be overwritten under last_modified_wins so the user
+    # has a chance to confirm (audit slice 08 · CQ-07).
     try:
-        would_overwrite, _would_skip = preview_import(
-            state_dir,
-            args.input,
-            strategy=strategy,
-        )
+        would_overwrite, _would_skip = preview_import(state_dir, args.input)
     except PortableArchiveError:
         logging.exception("Import rejected")
         return 1
@@ -374,10 +362,9 @@ def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
         return 1
     if would_overwrite and not force:
         logging.error(
-            "Import would overwrite %d local pair(s) under strategy=%s. "
+            "Import would overwrite %d local pair(s) under last_modified_wins. "
             "Re-run with --force to proceed. Affected pair_ids: %s",
             len(would_overwrite),
-            strategy,
             ", ".join(sorted(set(would_overwrite))),
         )
         return 2
@@ -387,7 +374,6 @@ def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
         report = import_from_zip(
             state_dir,
             args.input,
-            strategy=strategy,
             config=config,
             agentic_tools=agentic_tools,
         )

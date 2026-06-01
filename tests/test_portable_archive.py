@@ -18,6 +18,7 @@ pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
 import agents_sync
 from agents_sync.canonical import (
+    canonical_last_modified,
     canonical_metadata,
     load_canonical,
     save_canonical,
@@ -35,6 +36,19 @@ from agents_sync.state import load_state
 from agents_sync.sync import Syncer
 
 # ---------------- helpers ----------------
+
+
+def _set_canonical_lm(
+    state_dir: Path,
+    pair_id: str,
+    last_modified: float,
+    generation: int = 0,
+) -> None:
+    """Write last_modified/generation into the canonical metadata block on disk."""
+    canonical = load_canonical(state_dir, pair_id)
+    assert canonical is not None
+    set_canonical_metadata(canonical, last_modified=last_modified, generation=generation)
+    save_canonical(state_dir, pair_id, canonical)
 
 
 def _skill_md(name: str, description: str = "x", body: str = "body") -> str:
@@ -120,7 +134,6 @@ def _fresh_syncer(tmp_path: Path, label: str) -> Syncer:
             "opencode_skills_dir": str(base / "os"),
             "opencode_rules_dir": str(base / "or"),
             "opencode_enabled": True,
-            "import_collision_strategy": "mtime_wins",
         }
     )
 
@@ -191,42 +204,47 @@ def test_export_does_not_mutate_state_dir(syncer: Syncer, tmp_path: Path):
 # ---------------- AC-3: last_modified ----------------
 
 
-def test_export_carries_canonical_metadata(syncer: Syncer, tmp_path: Path):
+def test_export_attaches_last_modified_from_canonical_metadata(syncer: Syncer, tmp_path: Path):
+    """Export reads last_modified from canonical metadata (Phase 2.2), falling back
+    to PairState for canonicals that predate Phase 1.2 stamping."""
     _write_claude_skill(syncer, "foo")
     syncer.sync_once()
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state))
+    # Seed the canonical metadata block so the export reads from it.
+    _set_canonical_lm(syncer.state_dir, pair_id, last_modified=1_234_567.0, generation=3)
 
     zip_path = tmp_path / "snapshot.zip"
     export_to_zip(syncer.state_dir, zip_path)
 
     with zipfile.ZipFile(zip_path) as zf:
         doc = json.loads(zf.read(f"{CANONICAL_PREFIX}{pair_id}.json"))
-    assert doc["metadata"] == _canonical_metadata_for(syncer, pair_id)
+    assert doc["metadata"]["last_modified"] == 1_234_567.0
+    assert doc["metadata"]["generation"] == 3
 
 
-def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tmp_path: Path):
+def test_import_last_modified_wins_ignores_generation_uses_wall_clock(
+    syncer: Syncer,
+    tmp_path: Path,
+):
     """FR-12/AC-17: the host-local generation is NOT a cross-host discriminator;
     wall-clock last_modified decides. An import with a higher generation but an
     OLDER clock must lose to a newer local artifact."""
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
-    state = load_state(syncer.state_dir)
-    pair_id = next(iter(state.keys()))
-    # Local clock is far in the future but generation is at the export value (1).
-    _set_local_canonical_metadata(syncer, pair_id, last_modified=9_999_999_999.0)
+    pair_id = next(iter(load_state(syncer.state_dir).keys()))
 
-    # Rewrite the exported zip's canonical to bump generation to 2 so the
-    # imported snapshot represents "two edits later, on the same host".
+    # Set the local canonical metadata: clock far in the future, generation=1.
+    _set_canonical_lm(syncer.state_dir, pair_id, last_modified=9_999_999_999.0, generation=1)
 
+    # Rewrite the exported zip's canonical: bump generation to 2 but use an
+    # *older* clock (0.5), representing "more edits but on a stale clock".
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
         members = {n: zf.read(n) for n in names}
     canonical_name = next(n for n in names if n.startswith(CANONICAL_PREFIX))
     doc = json.loads(members[canonical_name])
-    doc["metadata"] = {
-        "generation": 2,
-        "last_modified": 0.5,  # *older* wall-clock than local
-    }
+    doc.setdefault("metadata", {})["generation"] = 2
+    doc["metadata"]["last_modified"] = 0.5  # *older* wall-clock than local
     members[canonical_name] = (
         json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
     ).encode("utf-8")
@@ -238,7 +256,6 @@ def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tm
     report = import_from_zip(
         syncer.state_dir,
         bumped_zip,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
@@ -246,7 +263,10 @@ def test_import_mtime_wins_ignores_generation_uses_wall_clock(syncer: Syncer, tm
     # Generation is ignored cross-host; the newer local wall-clock wins.
     assert report.accepted == []
     assert report.skipped == [pair_id]
-    assert _canonical_metadata_for(syncer, pair_id)["generation"] == 1
+    # Local canonical metadata is unchanged (import did not overwrite).
+    local_canonical = load_canonical(syncer.state_dir, pair_id)
+    assert local_canonical is not None
+    assert canonical_last_modified(local_canonical) == 9_999_999_999.0
 
 
 # ---------------- AC-4: export failure ----------------
@@ -276,7 +296,6 @@ def test_import_into_empty_install_creates_canonicals_and_projects(syncer: Synce
     report = import_from_zip(
         target.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=target.config,
         agentic_tools=target.agentic_tools,
     )
@@ -310,7 +329,6 @@ def test_import_then_first_sync_projects_second_is_noop(syncer: Syncer, tmp_path
     import_from_zip(
         target.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=target.config,
         agentic_tools=target.agentic_tools,
     )
@@ -330,87 +348,84 @@ def test_import_then_first_sync_projects_second_is_noop(syncer: Syncer, tmp_path
 # ---------------- AC-6: pair_id collision policies ----------------
 
 
-def test_import_pair_id_collision_skip_leaves_local_intact(syncer: Syncer, tmp_path: Path):
-    zip_path = _seed_and_export(syncer, tmp_path, "foo")
-    # Same install as source — pair_id collision on the same pair_id.
-    pre_canonical = (
-        syncer.state_dir / "canonical" / next(iter(load_state(syncer.state_dir).keys()))
-    ).with_suffix(".json")
-    pre_bytes = pre_canonical.read_bytes()
-
-    report = import_from_zip(
-        syncer.state_dir,
-        zip_path,
-        strategy="skip",
-        config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
-    )
-
-    assert len(report.skipped) == 1
-    assert report.accepted == []
-    assert pre_canonical.read_bytes() == pre_bytes
-
-
-def test_import_pair_id_collision_mtime_wins_import_newer_overwrites(
+def test_import_pair_id_collision_last_modified_wins_import_newer_overwrites(
     syncer: Syncer, tmp_path: Path
 ):
+    """Import wins when its last_modified > local (AC-6).
+
+    With content-only digest (Phase 1.0), importing identical content with a
+    newer timestamp does NOT archive anything — only the canonical metadata
+    block is updated; the content hash is unchanged so the daemon sees no
+    reproject trigger (FR-14).
+    """
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
-    # Make the local canonical metadata older than what's in the zip.
-    state = load_state(syncer.state_dir)
-    pair_id = next(iter(state.keys()))
-    _set_local_canonical_metadata(syncer, pair_id, last_modified=1.0)
+    pair_id = next(iter(load_state(syncer.state_dir).keys()))
+    # Make the local canonical's last_modified older than what the zip carries.
+    _set_canonical_lm(syncer.state_dir, pair_id, last_modified=1.0, generation=0)
 
     report = import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
 
     assert report.accepted == [pair_id]
     assert report.skipped == []
-    # Canonical-only import (AC-5): import overwrites the canonical but does NOT
-    # write state.json. The imported metadata is visible immediately; the next
-    # sync_once re-projects the changed content (FR-14), archiving displaced
-    # bytes (NFR-01) and refreshing state digests.
-    assert _canonical_metadata_for(syncer, pair_id)["last_modified"] != 1.0
+    # The canonical metadata was updated to the imported timestamp (not 1.0).
+    promoted = load_canonical(syncer.state_dir, pair_id)
+    assert promoted is not None
+    assert canonical_last_modified(promoted) != 1.0
+
+    # Content is identical → content-only digest unchanged (Phase 1.0). In theory
+    # the daemon should see no reproject trigger and create no tool-side archive.
+    # In practice, FR-14 fires because the canonical file bytes changed on disk
+    # (metadata block updated), so a reproject + archive still occurs until Phase
+    # 1.2 (content-driven stamping) conditions reprojection on content equality.
     syncer.sync_once()
-    assert any((syncer.state_dir / "archive").rglob("*"))
+    # Verify the daemon converges: second poll is a no-op (NFR-05).
+    assert syncer.sync_once().changed == 0
 
 
-def test_import_pair_id_collision_mtime_wins_local_newer_keeps_local(
+def test_import_pair_id_collision_last_modified_wins_local_newer_keeps_local(
     syncer: Syncer, tmp_path: Path
 ):
     zip_path = _seed_and_export(syncer, tmp_path, "foo")
-    # Force the local last_modified to the future.
-    state = load_state(syncer.state_dir)
-    pair_id = next(iter(state.keys()))
-    _set_local_canonical_metadata(syncer, pair_id, last_modified=9_999_999_999.0)
+    pair_id = next(iter(load_state(syncer.state_dir).keys()))
+    # After exporting, set the local canonical's last_modified far in the future.
+    _set_canonical_lm(syncer.state_dir, pair_id, last_modified=9_999_999_999.0, generation=1)
 
     report = import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
 
     assert report.accepted == []
     assert report.skipped == [pair_id]
-    assert _canonical_metadata_for(syncer, pair_id)["last_modified"] == 9_999_999_999.0
+    local_canonical = load_canonical(syncer.state_dir, pair_id)
+    assert local_canonical is not None
+    assert canonical_last_modified(local_canonical) == 9_999_999_999.0
 
 
-def test_import_pair_id_collision_mtime_wins_tie_keeps_local(syncer: Syncer, tmp_path: Path):
+def test_import_pair_id_collision_last_modified_wins_tie_keeps_local(
+    syncer: Syncer,
+    tmp_path: Path,
+):
     """AC-6 tiebreak: ties favour the local artifact (default-deny on rewrite)."""
-    zip_path = _seed_and_export(syncer, tmp_path, "foo")
+    _write_claude_skill(syncer, "foo")
+    syncer.sync_once()
+    pair_id = next(iter(load_state(syncer.state_dir).keys()))
+    # Seed the canonical metadata before export so both local and zip carry
+    # the same last_modified → guaranteed tie on re-import.
+    _set_canonical_lm(syncer.state_dir, pair_id, last_modified=1_000_000.0, generation=1)
+    zip_path = syncer.state_dir.parent / "snapshot.zip"
+    export_to_zip(syncer.state_dir, zip_path)
 
-    # The export carries the local last_modified verbatim, so an
-    # immediate re-import is a tie.
     report = import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
@@ -419,87 +434,11 @@ def test_import_pair_id_collision_mtime_wins_tie_keeps_local(syncer: Syncer, tmp
     assert len(report.skipped) == 1
 
 
-def test_import_pair_id_collision_overwrite_archives_local(syncer: Syncer, tmp_path: Path):
-    zip_path = _seed_and_export(syncer, tmp_path, "foo")
-
-    report = import_from_zip(
-        syncer.state_dir,
-        zip_path,
-        strategy="overwrite",
-        config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
-    )
-
-    assert len(report.accepted) == 1
-    # Canonical-only: every local tool-side file is archived when the next
-    # sync_once re-projects the imported canonical (NFR-01).
-    syncer.sync_once()
-    assert any((syncer.state_dir / "archive").rglob("*"))
-
-
-def test_import_overwrite_archives_shared_map_slot_not_whole_file(syncer: Syncer, tmp_path: Path):
-    claude_file = syncer.tool_root("claude", "mcp_server")
-    claude_file.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "github": {
-                        "type": "stdio",
-                        "command": "gh-mcp",
-                    },
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    syncer.sync_once()
-    pair_id = next(iter(load_state(syncer.state_dir)))
-
-    zip_path = tmp_path / "mcp.zip"
-    export_to_zip(syncer.state_dir, zip_path)
-
-    cursor_file = syncer.tool_root("cursor", "mcp_server")
-    cursor_config = json.loads(cursor_file.read_text(encoding="utf-8"))
-    cursor_config["mcpServers"]["github"]["command"] = "local-change"
-    cursor_config["mcpServers"]["local-only"] = {
-        "type": "stdio",
-        "command": "local-server",
-    }
-    cursor_file.write_text(
-        json.dumps(cursor_config, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    # Absorb the local edit into the canonical first, so the overwrite-import
-    # genuinely differs from local and the post-import sync_once re-projects
-    # without a concurrent tool-edit conflict.
-    syncer.sync_once()
-
-    report = import_from_zip(
-        syncer.state_dir,
-        zip_path,
-        strategy="overwrite",
-        config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
-    )
-
-    assert report.accepted == [pair_id]
-    # Canonical-only: the next sync_once re-projects, archiving the displaced slot.
-    syncer.sync_once()
-    cursor_after = json.loads(cursor_file.read_text(encoding="utf-8"))
-    assert cursor_after["mcpServers"]["github"]["command"] == "gh-mcp"
-    assert cursor_after["mcpServers"]["local-only"]["command"] == "local-server"
-
-    archive_dir = syncer.state_dir / "archive" / pair_id / "cursor"
-    archived = [json.loads(path.read_text(encoding="utf-8")) for path in archive_dir.iterdir()]
-    assert any(obj.get("command") == "local-change" for obj in archived)
-    assert all("mcpServers" not in obj for obj in archived)
-
-
 # ---------------- AC-7: slug collision ----------------
 
 
-def test_import_slug_collision_different_pair_id_uses_strategy(syncer: Syncer, tmp_path: Path):
-    """Different pair_ids, same target_slug(name) — strategy applies identically."""
+def test_import_slug_collision_different_pair_id_last_modified_wins(syncer: Syncer, tmp_path: Path):
+    """Different pair_ids, same target_slug(name) — last_modified_wins applies."""
     _write_claude_skill(syncer, "shared")
     syncer.sync_once()
     local_pair_id = next(iter(load_state(syncer.state_dir).keys()))
@@ -513,19 +452,18 @@ def test_import_slug_collision_different_pair_id_uses_strategy(syncer: Syncer, t
     zip_path = tmp_path / "other.zip"
     export_to_zip(target.state_dir, zip_path)
 
-    # Force the source install's local canonical metadata to be older so import wins.
-    _set_local_canonical_metadata(syncer, local_pair_id, last_modified=1.0)
+    # Force the local canonical's last_modified to be older than the import.
+    _set_canonical_lm(syncer.state_dir, local_pair_id, last_modified=1.0, generation=0)
 
     report = import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
 
-    # AC-17 tweak: the winning content is written under the LOCAL id; the
-    # imported id is retired.
+    # AC-7: slug collision with different id reconciles to one artifact;
+    # winning content written under the LOCAL id, imported id retired (NFR-01).
     assert report.accepted == [local_pair_id]
     state_after = load_state(syncer.state_dir)
     assert local_pair_id in state_after
@@ -545,7 +483,6 @@ def test_import_rejects_missing_manifest(tmp_path: Path):
         import_from_zip(
             target.state_dir,
             bad,
-            strategy="mtime_wins",
             config=target.config,
             agentic_tools=target.agentic_tools,
         )
@@ -561,7 +498,6 @@ def test_import_rejects_future_schema_version(tmp_path: Path):
         import_from_zip(
             target.state_dir,
             bad,
-            strategy="mtime_wins",
             config=target.config,
             agentic_tools=target.agentic_tools,
         )
@@ -578,7 +514,6 @@ def test_import_rejects_invalid_pair_id_filename(tmp_path: Path):
         import_from_zip(
             target.state_dir,
             bad,
-            strategy="mtime_wins",
             config=target.config,
             agentic_tools=target.agentic_tools,
         )
@@ -596,7 +531,6 @@ def test_import_rejects_unparseable_canonical(tmp_path: Path):
         import_from_zip(
             target.state_dir,
             bad,
-            strategy="mtime_wins",
             config=target.config,
             agentic_tools=target.agentic_tools,
         )
@@ -618,23 +552,6 @@ def test_import_rejects_mismatched_pair_id(tmp_path: Path):
         import_from_zip(
             target.state_dir,
             bad,
-            strategy="mtime_wins",
-            config=target.config,
-            agentic_tools=target.agentic_tools,
-        )
-
-
-def test_import_rejects_unknown_strategy(tmp_path: Path):
-    target = _fresh_syncer(tmp_path, "t")
-    valid_zip = tmp_path / "v.zip"
-    with zipfile.ZipFile(valid_zip, "w") as zf:
-        zf.writestr(MANIFEST_NAME, json.dumps({"schema_version": 1}))
-
-    with pytest.raises(PortableArchiveError, match="Unknown collision strategy"):
-        import_from_zip(
-            target.state_dir,
-            valid_zip,
-            strategy="nonsense",  # type: ignore[arg-type]
             config=target.config,
             agentic_tools=target.agentic_tools,
         )
@@ -673,7 +590,6 @@ def test_import_failure_midway_leaves_state_json_unchanged(
         import_from_zip(
             target.state_dir,
             zip_path,
-            strategy="mtime_wins",
             config=target.config,
             agentic_tools=target.agentic_tools,
         )
@@ -693,7 +609,51 @@ def test_import_failure_midway_leaves_state_json_unchanged(
     assert leftover_pending == []
 
 
-# ---------------- AC-11: round-trip ----------------
+def test_import_partial_promotion_adopted_by_next_sync(syncer: Syncer, tmp_path: Path, monkeypatch):
+    """AC-10 regression: a failure during canonical promotion (Phase 2 of staging)
+    leaves a strict prefix promoted. Each promoted canonical is an orphan (state
+    has no entry) and is adopted by the next sync_once (FR-16). The non-promoted
+    canonical is simply absent; state is never half-written."""
+    zip_path = _seed_and_export(syncer, tmp_path, "alpha", "beta")
+    target = _fresh_syncer(tmp_path, "target")
+
+    import agents_sync.portable_archive as pa
+
+    real_replace = pa.os.replace
+    calls: dict[str, int] = {"n": 0}
+
+    def fail_on_second_promotion(src, dst):
+        # Only count promotions: destination is inside live canonical/, not pending.
+        dst_str = str(dst)
+        if "canonical" in dst_str and ".import_pending_" not in dst_str:
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise OSError("simulated promotion failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(pa.os, "replace", fail_on_second_promotion)
+
+    with pytest.raises(OSError, match="simulated"):
+        import_from_zip(
+            target.state_dir,
+            zip_path,
+            config=target.config,
+            agentic_tools=target.agentic_tools,
+        )
+
+    # Exactly one canonical promoted; state not written.
+    canonical_dir = target.state_dir / "canonical"
+    promoted = list(canonical_dir.iterdir()) if canonical_dir.exists() else []
+    assert len(promoted) == 1
+    assert not (target.state_dir / "state.json").exists()
+
+    # The promoted canonical is an orphan; sync_once adopts it and projects.
+    target.sync_once()
+    state_after = load_state(target.state_dir)
+    assert len(state_after) == 1  # only the promoted one adopted
+
+
+# ---------------- FR-12: no-op round-trip (AC-11 retired) ----------------
 
 
 def test_export_then_reimport_is_byte_identical_for_canonicals(syncer: Syncer, tmp_path: Path):
@@ -701,15 +661,21 @@ def test_export_then_reimport_is_byte_identical_for_canonicals(syncer: Syncer, t
     _write_claude_skill(syncer, "bar")
     syncer.sync_once()
 
-    canonical_dir = syncer.state_dir / "canonical"
-    before = {p.name: p.read_bytes() for p in canonical_dir.glob("*.json")}
+    # Seed each canonical with a metadata block before exporting so both the
+    # zip and the local canonical carry the same last_modified → guaranteed tie
+    # on re-import → local kept, canonical bytes unchanged (FR-12 AC-11).
+    state = load_state(syncer.state_dir)
+    for pair_id in state:
+        _set_canonical_lm(syncer.state_dir, pair_id, last_modified=1_000_000.0, generation=1)
 
+    canonical_dir = syncer.state_dir / "canonical"
     zip_path = tmp_path / "snapshot.zip"
     export_to_zip(syncer.state_dir, zip_path)
+
+    before = {p.name: p.read_bytes() for p in canonical_dir.glob("*.json")}
     import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="overwrite",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
@@ -721,19 +687,10 @@ def test_export_then_reimport_is_byte_identical_for_canonicals(syncer: Syncer, t
 # ---------------- config validation ----------------
 
 
-def test_validate_config_rejects_unknown_strategy(syncer: Syncer):
-    from agents_sync.config import ConfigError, validate_config
-
-    config = dict(syncer.config)
-    config["import_collision_strategy"] = "wat"
-    with pytest.raises(ConfigError, match="import_collision_strategy"):
-        validate_config(config)
-
-
-def test_validate_config_accepts_each_known_strategy(syncer: Syncer):
+def test_validate_config_ignores_stray_import_collision_strategy(syncer: Syncer):
+    """A stray import_collision_strategy in a config file must be silently ignored."""
     from agents_sync.config import validate_config
 
-    for strategy in ("skip", "mtime_wins", "overwrite"):
-        config = dict(syncer.config)
-        config["import_collision_strategy"] = strategy
-        validate_config(config)  # must not raise
+    config = dict(syncer.config)
+    config["import_collision_strategy"] = "mtime_wins"
+    validate_config(config)  # must not raise

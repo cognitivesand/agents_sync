@@ -67,7 +67,6 @@ def _import(syncer, zip_path: Path):
     return import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )

@@ -11,19 +11,14 @@ Two operations:
   - `export_to_zip`: writes the export. Read-only against the source
     state directory; the zip is materialised atomically (write to a
     sibling temp file, then `os.replace`).
-  - `import_from_zip`: reads an export and synchronously projects every
-    accepted customization_artifact onto every locally enabled,
-    supporting, and `available` agentic_tool. Reuses `render_to_agentic_tool`
-    and `update_state_n_way` from `rendering` — no new sync-engine
-    code. Collision strategy is one of `skip`, `mtime_wins` (the
-    default, mirroring US-06), or `overwrite`. Decisions are made fully
-    in memory before any disk write, so a mid-import failure cannot
-    leave `state.json` half-updated (AC-10).
+  - `import_from_zip`: reads an export and writes only the canonical store
+    + state stubs. Decisions are made fully in memory before any disk write,
+    so a mid-import failure cannot leave `state.json` half-updated (AC-10).
 
-`last_modified` is a wall-clock POSIX timestamp persisted in state by
-Phase 0 (US-12). It is the source of truth for the `mtime_wins`
-comparison. Wall-clock is not monotonic across hosts; clock skew is
-tie-broken in favour of the local artifact (AC-6 tie rule).
+`last_modified` is a wall-clock POSIX timestamp in the canonical metadata.
+It is the source of truth for the `last_modified_wins` rule. Wall-clock is
+not monotonic across hosts; clock skew is tie-broken lexicographically by
+`customization_artifact_id` in favour of the local artifact (AC-6 tie rule).
 """
 
 from __future__ import annotations
@@ -40,11 +35,12 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
 from agents_sync.archive import archive_canonical
 from agents_sync.canonical import (
+    canonical_content,
     canonical_last_modified,
     canonical_metadata,
     canonical_path,
@@ -58,7 +54,6 @@ from agents_sync.mcp_secret_policy import (
     normalize_secret_policy,
 )
 from agents_sync.state import (
-    CustomizationArtifactState,
     load_state,
     target_slug,
 )
@@ -67,9 +62,6 @@ from agents_sync.tool_status import ToolStatusTracker
 PORTABLE_ARCHIVE_SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
 CANONICAL_PREFIX = "canonical/"
-
-CollisionStrategy = Literal["skip", "mtime_wins", "overwrite"]
-ALLOWED_STRATEGIES: frozenset[CollisionStrategy] = frozenset({"skip", "mtime_wins", "overwrite"})
 
 
 class PortableArchiveError(ValueError):
@@ -275,13 +267,17 @@ def _validate_manifest_version(manifest: dict[str, Any]) -> None:
         )
 
 
-def _local_last_modified(
-    state: dict[str, CustomizationArtifactState], state_dir: Path, pair_id: str
-) -> float:
-    """The local last_modified for a pair, read from canonical metadata."""
+def _local_last_modified(state_dir: Path, pair_id: str) -> float:
+    """The local last_modified for a pair: from the nested canonical metadata block.
+
+    Reads the on-disk canonical (managed or orphan import, FR-16). Returns 0.0
+    when no canonical exists or no metadata block is present (old canonical).
+    """
     canonical = load_canonical(state_dir, pair_id)
     if canonical is not None:
-        return canonical_last_modified(canonical) or 0.0
+        lm = canonical_last_modified(canonical)
+        if lm is not None:
+            return lm
     return 0.0
 
 
@@ -296,6 +292,7 @@ class _ImportDecision:
     accepted: bool
     displaces_local_pair_id: str | None  # local pair whose bytes the next poll archives
     surviving_pair_id: str  # id the winning content is written under (local-id reuse)
+    lost_intra_import: bool = False  # True when retired by another imported artifact (not local)
 
 
 def _build_slug_index(state_dir: Path) -> dict[tuple[str, str], str]:
@@ -316,30 +313,23 @@ def _build_slug_index(state_dir: Path) -> dict[tuple[str, str], str]:
     return slug_index
 
 
-def _decide_collision(
+def _last_modified_wins(
     *,
     imported_last_modified: float,
     local_last_modified: float,
-    strategy: CollisionStrategy,
 ) -> bool:
     """Whether the import wins against a colliding local artifact (US-12 AC-6).
 
-    ``mtime_wins`` uses wall-clock ``last_modified`` (FR-12 / AC-17); ties favour
-    the local artifact (default-deny on rewrite). The host-local ``generation``
+    ``last_modified_wins``: higher wall-clock timestamp wins; ties favour the
+    local artifact (default-deny on rewrite). The host-local ``generation``
     counter is not a cross-host discriminator.
     """
-    if strategy == "skip":
-        return False
-    if strategy == "overwrite":
-        return True
     return imported_last_modified > local_last_modified
 
 
 def _classify(
     canonicals: dict[str, dict[str, Any]],
-    state: dict[str, CustomizationArtifactState],
     state_dir: Path,
-    strategy: CollisionStrategy,
 ) -> list[_ImportDecision]:
     """Reconcile imported candidates by ``(kind, target_slug(name))`` — across the
     imported set (AC-17) and against local state (AC-6/AC-7) — to one winner per
@@ -350,23 +340,22 @@ def _classify(
 
     # Group imported candidates by slug (sorted ids → stable lexicographic tie).
     groups: dict[tuple[str, str], list[str]] = {}
-    meta: dict[str, tuple[dict[str, Any], float]] = {}
+    meta: dict[str, tuple[dict[str, Any], float, int]] = {}
     for imported_pair_id in sorted(canonicals):
         doc_copy = dict(canonicals[imported_pair_id])
-        metadata = canonical_metadata(doc_copy)
-        if metadata:
-            last_modified = canonical_last_modified(doc_copy) or 0.0
+        # Phase 2.2: read from nested metadata block; fall back to top-level
+        # last_modified for archives produced before Phase 2.2.
+        lm = canonical_last_modified(doc_copy)
+        if lm is None:
+            lm = float(doc_copy.pop("last_modified", 0.0))
         else:
-            last_modified = float(doc_copy.pop("last_modified", 0.0))
-            generation = int(doc_copy.pop("generation", 0))
-            set_canonical_metadata(
-                doc_copy,
-                last_modified=last_modified,
-                generation=generation,
-            )
+            doc_copy.pop("last_modified", None)
+        meta_block = canonical_metadata(doc_copy)
+        gen = int(meta_block.get("generation", 0))
+        doc_copy.pop("generation", None)  # remove stale top-level field if present
         kind = doc_copy["kind"]
         slug = target_slug(doc_copy["name"])
-        meta[imported_pair_id] = (doc_copy, last_modified)
+        meta[imported_pair_id] = (doc_copy, lm, gen)
         groups.setdefault((kind, slug), []).append(imported_pair_id)
 
     decisions: list[_ImportDecision] = []
@@ -374,17 +363,16 @@ def _classify(
         # Intra-import winner: highest last_modified; ties → lexicographically
         # first (candidate_ids is sorted), per AC-17.
         winner = max(candidate_ids, key=lambda pid: meta[pid][1])
-        winner_doc, winner_lm = meta[winner]
+        winner_doc, winner_lm, winner_gen = meta[winner]
 
         winner_has_canonical = canonical_path(state_dir, winner).exists()
         local_pair_id = winner if winner_has_canonical else slug_index.get((kind, slug))
         if local_pair_id is None:
             accepted, displaces, surviving = True, None, winner
         else:
-            accepted = _decide_collision(
+            accepted = _last_modified_wins(
                 imported_last_modified=winner_lm,
-                local_last_modified=_local_last_modified(state, state_dir, local_pair_id),
-                strategy=strategy,
+                local_last_modified=_local_last_modified(state_dir, local_pair_id),
             )
             displaces = local_pair_id if accepted else None
             surviving = local_pair_id  # reuse the local id (AC-17)
@@ -394,7 +382,7 @@ def _classify(
                 pair_id=winner,
                 canonical=winner_doc,
                 last_modified=winner_lm,
-                generation=0,
+                generation=winner_gen,
                 accepted=accepted,
                 displaces_local_pair_id=displaces,
                 surviving_pair_id=surviving,
@@ -404,15 +392,17 @@ def _classify(
         for loser in candidate_ids:
             if loser == winner:
                 continue
+            loser_doc, loser_lm, loser_gen = meta[loser]
             decisions.append(
                 _ImportDecision(
                     pair_id=loser,
-                    canonical=meta[loser][0],
-                    last_modified=meta[loser][1],
-                    generation=0,
+                    canonical=loser_doc,
+                    last_modified=loser_lm,
+                    generation=loser_gen,
                     accepted=False,
                     displaces_local_pair_id=None,
                     surviving_pair_id=loser,
+                    lost_intra_import=True,
                 )
             )
     return decisions
@@ -421,26 +411,26 @@ def _classify(
 def preview_import(
     state_dir: Path,
     zip_path: Path,
-    *,
-    strategy: CollisionStrategy,
 ) -> tuple[list[str], list[str]]:
     """Return (would_overwrite, would_skip) pair_ids without touching disk.
 
     ``would_overwrite`` lists every local pair_id that this import would
-    displace or rewrite. Useful for CLI gating: ``--force`` requirement
-    is only meaningful when this list is non-empty (audit slice 08 ·
-    CQ-07).
+    displace or rewrite under the last_modified_wins rule. Useful for CLI
+    gating: ``--force`` is only meaningful when this list is non-empty
+    (audit slice 08 · CQ-07).
     """
     manifest, canonicals = _read_zip_entries(zip_path)
     _validate_manifest_version(manifest)
-    state = load_state(state_dir)
-    decisions = _classify(canonicals, state, state_dir, strategy)
+    decisions = _classify(canonicals, state_dir)
     would_overwrite: list[str] = []
     would_skip: list[str] = []
     for decision in decisions:
         if decision.accepted and decision.displaces_local_pair_id is not None:
             would_overwrite.append(decision.displaces_local_pair_id)
-        elif not decision.accepted:
+        elif not decision.accepted and not decision.lost_intra_import:
+            # AC-18: only report collisions against the local library;
+            # intra-import losers (retired by another imported artifact) are
+            # implementation details of the merge, not user-visible skips.
             would_skip.append(decision.pair_id)
     return would_overwrite, would_skip
 
@@ -449,7 +439,6 @@ def import_from_zip(
     state_dir: Path,
     zip_path: Path,
     *,
-    strategy: CollisionStrategy,
     config: dict[str, Any],
     agentic_tools: dict[str, AgenticToolSpec],
 ) -> ImportReport:
@@ -472,17 +461,10 @@ def import_from_zip(
     tool files in place. Adding tool-side staging requires the
     polymorphic ``FileLayout`` from Phase 2; it is tracked separately.
     """
-    if strategy not in ALLOWED_STRATEGIES:
-        raise PortableArchiveError(
-            f"Unknown collision strategy: {strategy!r}; expected one of "
-            f"{sorted(ALLOWED_STRATEGIES)}"
-        )
-
     manifest, canonicals = _read_zip_entries(zip_path)
     _validate_manifest_version(manifest)
 
-    state = load_state(state_dir)
-    decisions = _classify(canonicals, state, state_dir, strategy)
+    decisions = _classify(canonicals, state_dir)
 
     skipped_secret_artifacts = _filter_secret_bearing_decisions(decisions, config)
 
@@ -498,7 +480,7 @@ def import_from_zip(
     # state.json solely the daemon's to write, so a concurrent poll cannot lose a
     # state update (FR-15).
     _stage_and_promote_canonicals(state_dir, accepted_decisions)
-    return _build_import_report(decisions, strategy, skipped_secret_artifacts)
+    return _build_import_report(decisions, skipped_secret_artifacts)
 
 
 def _filter_secret_bearing_decisions(
@@ -559,10 +541,18 @@ def _stage_and_promote_canonicals(
     pending_dir = state_dir / f".import_pending_{uuid.uuid4().hex[:8]}"
     pending_dir.mkdir(parents=True, exist_ok=True)
     try:
-        staged: list[tuple[Path, Path, str]] = []  # (pending_path, live_path, surviving_id)
+        # staged: (pending_path, live_path, surviving_id, incoming_canonical)
+        staged: list[tuple[Path, Path, str, dict[str, Any]]] = []
         for decision in accepted_decisions:
             canonical = dict(decision.canonical)
             canonical["pair_id"] = decision.surviving_pair_id
+            # Phase 2.2: preserve the imported last_modified in the canonical
+            # metadata block so cross-host last_modified_wins compares correctly.
+            set_canonical_metadata(
+                canonical,
+                last_modified=decision.last_modified,
+                generation=decision.generation,
+            )
             pending_path = pending_dir / f"{decision.surviving_pair_id}.json"
             save_canonical_to(pending_path, canonical)
             staged.append(
@@ -570,20 +560,24 @@ def _stage_and_promote_canonicals(
                     pending_path,
                     canonical_path(state_dir, decision.surviving_pair_id),
                     decision.surviving_pair_id,
+                    canonical,
                 )
             )
     except Exception:
         shutil.rmtree(pending_dir, ignore_errors=True)
         raise
     try:
-        for pending_path, live_path, surviving_id in staged:
+        for pending_path, live_path, surviving_id, incoming in staged:
             live_path.parent.mkdir(parents=True, exist_ok=True)
             if live_path.exists():
-                # Overwrite: preserve the displaced local canonical before it is
-                # replaced (NFR-01 archive-before-write for the canonical store;
-                # the import loser is archived per US-12 AC-17). Covers the
-                # stub-overwrite case where no tool-side files exist to recover from.
-                archive_canonical(state_dir, surviving_id)
+                # Archive the displaced local canonical (NFR-01) only when content
+                # actually changed. With the content-only digest (Phase 1.0), a
+                # metadata-only update (same content, newer last_modified) must not
+                # archive — the content hash is unchanged and the daemon will not
+                # trigger a reproject.
+                existing = load_canonical(state_dir, surviving_id)
+                if existing is None or canonical_content(existing) != canonical_content(incoming):
+                    archive_canonical(state_dir, surviving_id)
             os.replace(pending_path, live_path)
     finally:
         shutil.rmtree(pending_dir, ignore_errors=True)
@@ -591,7 +585,6 @@ def _stage_and_promote_canonicals(
 
 def _build_import_report(
     decisions: list[_ImportDecision],
-    strategy: str,
     skipped_secret_artifacts: list[str],
 ) -> ImportReport:
     """Build the import report. `import` writes canonical-only and never touches
@@ -603,9 +596,7 @@ def _build_import_report(
     for decision in decisions:
         if not decision.accepted:
             report.skipped.append(decision.pair_id)
-            logging.info(
-                "Import skipped/merged (strategy=%s): pair_id=%s", strategy, decision.pair_id
-            )
+            logging.info("Import skipped (last_modified_wins): pair_id=%s", decision.pair_id)
             continue
         report.accepted.append(decision.surviving_pair_id)
         logging.info("Import accepted (canonical-only): pair_id=%s", decision.surviving_pair_id)
