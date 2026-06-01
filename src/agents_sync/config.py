@@ -74,7 +74,6 @@ class AgentsSyncConfig(TypedDict, total=False):
     opencode_enabled: bool
     # Cross-cutting
     secret_policy: Literal["secrets_refused", "secrets_accepted"]
-    import_collision_strategy: Literal["skip", "mtime_wins", "overwrite"]
 
 
 def _home_dir(home: Path | None = None) -> Path:
@@ -196,7 +195,6 @@ def platform_defaults(
         "copilot_vscode_user_instructions_dir": None,
         "copilot_vscode_user_prompts_dir": None,
         "copilot_vscode_user_mcp_file": None,
-        "import_collision_strategy": "mtime_wins",
         "secret_policy": "secrets_refused",
     }
 
@@ -399,7 +397,7 @@ def validate_config(config: dict[str, Any]) -> None:
     This function fails closed on:
       - missing or non-numeric `poll_interval_seconds`;
       - missing required directory keys (well-formed paths required);
-      - malformed `state_path`, `secret_policy`, and import strategy values.
+      - malformed `state_path` and `secret_policy` values.
 
     It is intentionally read-only: it does not normalize config values,
     create directories, or probe filesystem permissions.
@@ -431,13 +429,6 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("missing required config key: state_path")
     if not isinstance(config["state_path"], (str, Path)):
         raise ConfigError("state_path must be a path string")
-
-    strategy = config.get("import_collision_strategy", "mtime_wins")
-    if strategy not in {"skip", "mtime_wins", "overwrite"}:
-        raise ConfigError(
-            f"import_collision_strategy must be skip|mtime_wins|overwrite, "
-            f"got {strategy!r}"
-        )
 
     # secret_policy validation: accept either the canonical key or the
     # deprecated alias, and accept either new or old value spellings without

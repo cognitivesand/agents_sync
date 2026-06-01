@@ -426,8 +426,15 @@ blind restore. `_classify` folds an **incremental** slug index — seeded from l
 state and updated as each candidate is accepted — so that two canonicals with the
 same slug but different `customization_artifact_id`s (the cross-machine case:
 the same artifact independently minted on two hosts) reconcile to **one** winner
-by the US-06 rule, the loser archived (FR-12, AC-17). This makes import idempotent
-and prevents it from manufacturing the slug collisions that US-03 AC-8 would block.
+by the `last_modified_wins` rule: the candidate with the higher `last_modified`
+timestamp in its canonical metadata wins; the loser is archived (FR-12, AC-7).
+Ties (equal `last_modified`) are broken deterministically by
+`customization_artifact_id` in lexicographic order, so the outcome is identical
+regardless of which host runs the import first. Note: `generation` is a
+host-local counter that tracks content changes on a single machine — it is not a
+cross-host discriminator and is not used in the collision comparison. This makes
+import idempotent and prevents it from manufacturing the slug collisions that
+US-03 AC-8 would block.
 
 Writes are **per-artifact atomic** (FR-13): each `(canonical + state stub)` lands
 as a unit or not at all, so a failure on one artifact leaves the rest intact and

@@ -1,15 +1,13 @@
-"""US-12 AC-5/17/19 (P5): canonical-only import + cross-machine merge.
+"""US-12 AC-5 / AC-7 / FR-12 (P5): canonical-only import + cross-machine merge.
 
 - import writes canonicals ONLY — neither state nor tool roots; the next sync_once
-  adopts each orphan canonical (FR-16) and projects it (AC-5, revised by
-  amendment 008 — single-writer state).
+  adopts each orphan canonical (FR-16) and projects it (AC-5, single-writer state).
 - two same-(kind,slug) canonicals with different ids reconcile to ONE managed
-  pair, the newest winning (AC-17).
+  pair, the newest winning (AC-7 / FR-12 last_modified_wins).
 - importing onto a populated host where the import wins reuses the local id and
-  the next sync_once re-projects the winning content (AC-17 tweak / AC-19).
+  the next sync_once re-projects the winning content (FR-12 / NFR-05).
 
-FROZEN test contract for v0.6 P5 (revised by amendment 008) — do not edit without
-user feedback.
+AC-17 merged into AC-7; AC-19 retired (covered by FR-12 / NFR-05 integration check).
 """
 
 from __future__ import annotations
@@ -37,8 +35,7 @@ def _canonical(pair_id: str, name: str, body: str, last_modified: float) -> dict
         "body": body,
         "per_agentic_tool_only": {},
         "per_agentic_tool_extra": {},
-        "last_modified": last_modified,
-        "generation": 1,
+        "metadata": {"last_modified": last_modified, "generation": 1},
     }
 
 
@@ -75,7 +72,6 @@ def _import(syncer, zip_path: Path):
     return import_from_zip(
         syncer.state_dir,
         zip_path,
-        strategy="mtime_wins",
         config=syncer.config,
         agentic_tools=syncer.agentic_tools,
     )
@@ -126,13 +122,13 @@ def test_import_onto_populated_host_reuses_local_id(tmp_path: Path) -> None:
     (d / "SKILL.md").write_text(skill_md("demo", body="local-old"))
     syncer.sync_once()
     local_id = next(iter(load_state(syncer.state_dir)))
-    # Make the local entry older so the import wins.
-    from agents_sync.state import load_state as _ls
-    from agents_sync.state import save_state
+    # Make the local canonical's last_modified older than the import so it wins.
+    from agents_sync.canonical import load_canonical, save_canonical, set_canonical_metadata
 
-    st = _ls(syncer.state_dir)
-    st[local_id].last_modified = 1.0
-    save_state(syncer.state_dir, st)
+    local_can = load_canonical(syncer.state_dir, local_id)
+    assert local_can is not None
+    set_canonical_metadata(local_can, last_modified=1.0, generation=0)
+    save_canonical(syncer.state_dir, local_id, local_can)
 
     zip_path = _build_zip(tmp_path / "lib.zip", [_canonical(I1, "demo", "imported-new", 999.0)])
     _import(syncer, zip_path)

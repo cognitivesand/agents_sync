@@ -313,28 +313,7 @@ agents-sync import ~/my-library.zip
 
 The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only** — its canonical document plus a `state.json` stub — and no agentic_tool file is touched by `import` itself; the next daemon `sync_once` projects every imported artifact onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
 
-When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), `import` consults the `import_collision_strategy` setting:
-
-| Strategy | Behaviour |
-|:---|:---|
-| `mtime_wins` (default) | The candidate with the higher `last_modified` wins. Ties favour the local artifact. |
-| `skip` | Imported artifact ignored; local artifact untouched. |
-| `overwrite` | Imported artifact replaces local unconditionally; local bytes archived first. |
-
-Override per invocation with `--collision-strategy`:
-
-```bash
-agents-sync import ~/my-library.zip --collision-strategy overwrite
-```
-
-Or set the default in `config.toml`:
-
-```toml
-[agents-sync]
-import_collision_strategy = "mtime_wins"
-```
-
-Every operation that would displace local bytes archives them first under `<state_dir>/archive/<pair_id>/<tool>/` (NFR-01), so an unwanted import is recoverable.
+When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), the `last_modified_wins` rule applies: the candidate with the higher `last_modified` timestamp wins, and ties favour the local artifact. Every operation that would displace local bytes archives them first under `<state_dir>/archive/<pair_id>/<tool>/` (NFR-01), so an unwanted import is recoverable.
 
 ---
 
@@ -476,8 +455,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ### 0.4.3
 
 - Added portable library snapshot: `agents-sync export <file.zip>` serialises every managed agent and skill into a single zip, and `agents-sync import <file.zip>` restores or merges that zip into a local install. See [Backup, Restore, Share](#backup-restore-share).
-- Added `import_collision_strategy` config key (`skip` / `mtime_wins` / `overwrite`, default `mtime_wins`) controlling how an imported artifact reconciles with a locally-managed one. CLI flag `--collision-strategy` overrides per invocation.
-- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp (the source of truth for the `mtime_wins` collision rule). Pre-1.0 cutover: v2 state files are regenerated on first boot.
+- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp (the source of truth for the `last_modified_wins` collision rule). Pre-1.0 cutover: v2 state files are regenerated on first boot.
 - Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in v0.6 / 0.5.6: import is now canonical-only and the next `sync_once` projects — see above.)*
 
 ### 0.4.1
