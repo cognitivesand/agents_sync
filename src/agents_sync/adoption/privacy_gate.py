@@ -21,10 +21,14 @@ from agents_sync.rendering import read_artifact_text
 
 
 class PrivacyGateMixin:
-    """Privacy detection. Relies on ``self.agentic_tools`` from
-    :class:`AdoptionEngine`."""
+    """Egress gate: refuse to read-from or write-over a protected artifact.
 
-    def _target_is_private(
+    An artifact is protected when the user marked it ``private`` or when its
+    content is framework-specific (US-15: it references a tool's own private
+    directory, so it must not propagate to other tools). Relies on
+    ``self.agentic_tools`` from :class:`AdoptionEngine`."""
+
+    def _target_is_protected(
         self,
         pair_id: str,
         tool_name: str,
@@ -34,7 +38,11 @@ class PrivacyGateMixin:
         prior_text: str | None,
         target_slot: str | None = None,
     ) -> bool:
-        """Decide whether ``target_path`` is privacy-protected."""
+        """Decide whether ``target_path`` must not be overwritten.
+
+        True when the existing target is privacy-protected or framework-specific
+        (US-15): either way the daemon leaves the file as the user authored it.
+        """
         target_io = target_spec.io[kind]
         text = prior_text
         if text is None:
@@ -65,6 +73,8 @@ class PrivacyGateMixin:
                 extra={"event": "privacy_gate_failed_closed_on_parse"},
             )
             return True
+        if self._skip_framework_specific(pair_id, tool_name, canonical):
+            return True
         return self._skip_private_canonical(pair_id, tool_name, canonical)
 
     def _skip_private_canonical(
@@ -80,5 +90,28 @@ class PrivacyGateMixin:
             pair_id,
             source_tool,
             canonical.get("kind"),
+        )
+        return True
+
+    def _skip_framework_specific(
+        self,
+        pair_id: str,
+        source_tool: str,
+        canonical: dict[str, Any],
+    ) -> bool:
+        """US-15: hold a framework-specific `rules` file back from other tools.
+
+        Detected at parse time (``framework_specific`` set when the effective
+        body references a tool-private directory). The whole file is neither
+        propagated from this tool nor written over on another."""
+        if not canonical.get("framework_specific"):
+            return False
+        logging.warning(
+            "Framework-specific rules held back (not propagated): "
+            "pair_id=%s tool=%s token=%s",
+            pair_id,
+            source_tool,
+            canonical.get("framework_specific_token"),
+            extra={"event": "rules_framework_specific_held_back"},
         )
         return True

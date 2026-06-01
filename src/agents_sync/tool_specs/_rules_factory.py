@@ -45,6 +45,7 @@ def build_global_rules_io(
             prior_canonical,
             agentic_tool_name=agentic_tool_name,
             artifact_path=artifact_path,
+            artifact_root=artifact_root,
             canonical_name=GLOBAL_RULE_NAME,
         )
 

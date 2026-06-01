@@ -22,17 +22,19 @@ This story covers **filename detection only**. It does NOT decompose the rules f
 
 ## Acceptance Criteria
 
-- [ ] AC-1 [Normal]: Given an agentic_tool in the global-rules family declares an ordered list of standard rules filenames, When the daemon enumerates that tool's `rules` artifacts under its rules root, Then it adopts the **highest-precedence filename that is present** as the tool's single `rules` artifact. Claude's precedence is (`AGENTS.md`, `CLAUDE.md`); codex's and opencode's is (`AGENTS.md`).
+> **Status: Done (v0.5).** All six criteria are implemented and verified by `tests/test_rules_filename_detection.py` and shipped via PR #39. Phase 2 (`@import` resolution; shared-vs-tool-specific section decomposition) is tracked separately in the follow-up story — this story remains whole-file detection only.
 
-- [ ] AC-2 [Normal]: Given Claude's rules root (`~/.claude`) contains BOTH `AGENTS.md` and `CLAUDE.md`, When the daemon enumerates `rules`, Then it selects `AGENTS.md` (higher precedence) and does not treat `CLAUDE.md` as a separate `rules` artifact; `CLAUDE.md` is left untouched on disk.
+- [x] AC-1 [Normal]: Given an agentic_tool in the global-rules family declares an ordered list of standard rules filenames, When the daemon enumerates that tool's `rules` artifacts under its rules root, Then it adopts the **highest-precedence filename that is present** as the tool's single `rules` artifact. Claude's precedence is (`AGENTS.md`, `CLAUDE.md`); codex's and opencode's is (`AGENTS.md`).
 
-- [ ] AC-3 [Normal]: Given Claude's rules root contains only `CLAUDE.md` (no `AGENTS.md`), When the daemon enumerates `rules`, Then it adopts `CLAUDE.md` (backward compatible with pre-v0.5.x installs).
+- [x] AC-2 [Normal]: Given Claude's rules root (`~/.claude`) contains BOTH `AGENTS.md` and `CLAUDE.md`, When the daemon enumerates `rules`, Then it selects `AGENTS.md` (higher precedence) and does not treat `CLAUDE.md` as a separate `rules` artifact; `CLAUDE.md` is left untouched on disk.
 
-- [ ] AC-4 [Normal]: Given a `rules` artifact was detected on a tool under filename N, When the daemon re-renders that tool's `rules` after a sync, Then it writes back to the same on-disk path (filename N), so `parse(render(c)) == c` over the agentic_tool-relevant subset (NFR-06). The non-selected sibling filename is never written.
+- [x] AC-3 [Normal]: Given Claude's rules root contains only `CLAUDE.md` (no `AGENTS.md`), When the daemon enumerates `rules`, Then it adopts `CLAUDE.md` (backward compatible with pre-v0.5.x installs).
 
-- [ ] AC-5 [Normal]: Given a `rules` artifact is propagated to a participating global-rules tool that currently has **no** rules file under any of its standard names, When the daemon renders it, Then the file is created under that tool's **create-name** (the lowest-precedence / legacy standard name: `CLAUDE.md` for claude, `AGENTS.md` for codex and opencode). Creating the file under a name the tool natively loads is preferred over the cross-tool standard for the from-scratch case.
+- [x] AC-4 [Normal]: Given a `rules` artifact was detected on a tool under filename N, When the daemon re-renders that tool's `rules` after a sync, Then it writes back to the same on-disk path (filename N), so `parse(render(c)) == c` over the agentic_tool-relevant subset (NFR-06). The non-selected sibling filename is never written.
 
-- [ ] AC-6 [Normal]: Given a tool's rules root contains a file whose name is not one of that tool's declared standard names (e.g. `INSTRUCTIONS.md`), When the daemon enumerates `rules`, Then that file is ignored: no `rules` artifact is adopted for it, and no error is logged. Only declared standard names are recognized — there is no wildcard.
+- [x] AC-5 [Normal]: Given a `rules` artifact is propagated to a participating global-rules tool that currently has **no** rules file under any of its standard names, When the daemon renders it, Then the file is created under that tool's **create-name** (the lowest-precedence / legacy standard name: `CLAUDE.md` for claude, `AGENTS.md` for codex and opencode). Creating the file under a name the tool natively loads is preferred over the cross-tool standard for the from-scratch case.
+
+- [x] AC-6 [Normal]: Given a tool's rules root contains a file whose name is not one of that tool's declared standard names (e.g. `INSTRUCTIONS.md`), When the daemon enumerates `rules`, Then that file is ignored: no `rules` artifact is adopted for it, and no error is logged. Only declared standard names are recognized — there is no wildcard.
 
 ## Notes
 
