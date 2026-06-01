@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -324,15 +323,9 @@ def update_state_n_way(
     kind: str,
     results: dict[str, RenderResult],
     agentic_tools: dict[str, AgenticToolSpec],
-    *,
-    bump: bool = True,
 ) -> None:
     """Record ``results`` (one per tool) into ``state[pair_id]``, computing
     digests.
-
-    Also stamps ``last_modified`` on the pair so cross-host export/import
-    comparisons (US-12 mtime_wins) have a persisted timestamp to consult.
-    Every render-and-record is treated as a meaningful change.
 
     For ``SharedKeyedMapLayout`` results the digest is over the slot text
     (re-read from the shared file via ``read_slots``); for per-file
@@ -340,8 +333,6 @@ def update_state_n_way(
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
-    if bump:
-        ps.bump(now=time.time())
     for tool_name, result in results.items():
         spec = agentic_tools[tool_name]
         io = spec.io[kind]

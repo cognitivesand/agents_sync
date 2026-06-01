@@ -1,8 +1,8 @@
-"""Phase 0 (US-12 prerequisite): state schema v3 with per-pair last_modified.
+"""State schema v3 with canonical-owned runtime metadata.
 
 These tests cover the schema bump itself: serialisation, deserialisation,
-the v2-or-older rebuild policy, and the rule that update_state_n_way
-stamps last_modified on every record-update.
+the v2-or-older rebuild policy, and the rule that content changes stamp
+canonical metadata instead of state.
 """
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-
+from agents_sync.canonical import canonical_metadata, load_canonical
 from agents_sync.state import (
     STATE_SCHEMA_VERSION,
     AgenticToolState,
@@ -26,10 +25,9 @@ def test_schema_version_is_three():
     assert STATE_SCHEMA_VERSION == 3
 
 
-def test_to_dict_serialises_last_modified():
+def test_to_dict_excludes_canonical_metadata():
     ps = CustomizationArtifactState(
         kind="skill",
-        last_modified=1234567890.5,
         agentic_tools={
             "claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d")
         },
@@ -37,26 +35,29 @@ def test_to_dict_serialises_last_modified():
 
     encoded = ps.to_dict()
 
-    assert encoded["last_modified"] == 1234567890.5
+    assert "last_modified" not in encoded
+    assert "generation" not in encoded
     assert encoded["customization_type"] == "skill"
     assert "claude" in encoded["agentic_tools"]
 
 
-def test_from_dict_round_trip_preserves_last_modified():
+def test_from_dict_round_trip_ignores_legacy_metadata_fields():
     original = CustomizationArtifactState(
         kind="agent",
-        last_modified=42.0,
         agentic_tools={"claude": AgenticToolState(path=Path("/a.md"))},
     )
+    encoded = original.to_dict()
+    encoded["last_modified"] = 42.0
+    encoded["generation"] = 7
 
-    decoded = CustomizationArtifactState.from_dict(original.to_dict())
+    decoded = CustomizationArtifactState.from_dict(encoded)
 
-    assert decoded.last_modified == 42.0
+    assert not hasattr(decoded, "last_modified")
+    assert not hasattr(decoded, "generation")
     assert decoded.kind == "agent"
 
 
-def test_from_dict_tolerates_missing_last_modified_for_forward_compat():
-    """An entry written by a future tool that drops the field still loads."""
+def test_from_dict_tolerates_missing_legacy_metadata_fields():
     encoded = {
         "customization_type": "skill",
         "agentic_tools": {"claude": {"path": "/x", "last_seen": "d", "last_written": "d"}},
@@ -64,7 +65,7 @@ def test_from_dict_tolerates_missing_last_modified_for_forward_compat():
 
     decoded = CustomizationArtifactState.from_dict(encoded)
 
-    assert decoded.last_modified is None
+    assert decoded.kind == "skill"
 
 
 def test_agentic_tool_state_omits_slot_when_none():
@@ -104,17 +105,6 @@ def test_agentic_tool_state_from_dict_tolerates_missing_slot():
     assert decoded.slot is None
 
 
-def test_from_dict_rejects_non_numeric_last_modified():
-    encoded = {
-        "customization_type": "skill",
-        "last_modified": "not-a-float",
-        "agentic_tools": {},
-    }
-
-    with pytest.raises(ValueError, match="last_modified must be a number"):
-        CustomizationArtifactState.from_dict(encoded)
-
-
 def test_load_state_rebuilds_when_schema_version_is_two(tmp_path: Path):
     """v2 → v3 cutover follows the existing policy: regenerate from scratch."""
     state_dir = tmp_path / "state"
@@ -145,7 +135,6 @@ def test_save_then_load_round_trip(tmp_path: Path):
     state = {
         pair_id: CustomizationArtifactState(
             kind="skill",
-            last_modified=99.5,
             agentic_tools={
                 "claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d"),
             },
@@ -156,12 +145,10 @@ def test_save_then_load_round_trip(tmp_path: Path):
     reloaded = load_state(state_dir)
 
     assert pair_id in reloaded
-    assert reloaded[pair_id].last_modified == 99.5
     assert reloaded[pair_id].kind == "skill"
 
 
-def test_update_state_n_way_stamps_last_modified(syncer):
-    """Every render-and-record bumps last_modified to wall-clock time."""
+def test_content_change_stamps_canonical_last_modified(syncer):
     skill_dir = syncer.tool_root("claude", "skill") / "foo"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text("---\nname: foo\ndescription: x\n---\nbody\n")
@@ -175,68 +162,43 @@ def test_update_state_n_way_stamps_last_modified(syncer):
     entries = raw["customization_artifacts"]
     assert entries, "adoption did not record any state"
     entry = next(iter(entries.values()))
-    assert entry["last_modified"] is not None
-    assert before <= entry["last_modified"] <= after
+    assert "last_modified" not in entry
+    assert "generation" not in entry
+    pair_id = next(iter(entries))
+    metadata = canonical_metadata(load_canonical(syncer.state_dir, pair_id) or {})
+    assert before <= metadata["last_modified"] <= after
+    assert metadata["generation"] == 1
 
 
-def test_update_state_n_way_advances_last_modified_on_subsequent_edit(syncer):
-    """A second sync that rewrites bytes updates last_modified strictly forward."""
+def test_content_change_advances_canonical_last_modified(syncer):
     skill_dir = syncer.tool_root("claude", "skill") / "foo"
     skill_dir.mkdir()
     md = skill_dir / "SKILL.md"
     md.write_text("---\nname: foo\ndescription: x\n---\ninitial\n")
     syncer.sync_once()
-    first = next(iter(
-        json.loads((syncer.state_dir / "state.json").read_text())[
-            "customization_artifacts"
-        ].values()
-    ))["last_modified"]
+    pair_id = next(iter(load_state(syncer.state_dir)))
+    first = canonical_metadata(load_canonical(syncer.state_dir, pair_id) or {})["last_modified"]
 
     # Edit and re-sync. Wall clock must move forward enough to observe.
     time.sleep(0.01)
     md.write_text(md.read_text().replace("initial", "second"))
     syncer.sync_once()
 
-    second = next(iter(
-        json.loads((syncer.state_dir / "state.json").read_text())[
-            "customization_artifacts"
-        ].values()
-    ))["last_modified"]
+    second = canonical_metadata(load_canonical(syncer.state_dir, pair_id) or {})[
+        "last_modified"
+    ]
     assert second > first
 
 
-def test_generation_defaults_to_zero_for_pre_field_entries():
-    """Legacy state entries without 'generation' deserialise as generation=0."""
+def test_legacy_state_generation_field_is_ignored():
     encoded = {
         "customization_type": "skill",
         "last_modified": 1.0,
+        "generation": 99,
         "agentic_tools": {},
     }
     decoded = CustomizationArtifactState.from_dict(encoded)
-    assert decoded.generation == 0
-
-
-def test_bump_advances_generation_and_sets_last_modified():
-    ps = CustomizationArtifactState(kind="skill", last_modified=None, generation=0)
-    ps.bump(now=100.0)
-    assert ps.generation == 1
-    assert ps.last_modified == 100.0
-    ps.bump(now=200.0)
-    assert ps.generation == 2
-    assert ps.last_modified == 200.0
-
-
-def test_to_dict_includes_generation_and_round_trips():
-    ps = CustomizationArtifactState(
-        kind="agent",
-        last_modified=99.5,
-        generation=7,
-    )
-    encoded = ps.to_dict()
-    assert encoded["generation"] == 7
-    decoded = CustomizationArtifactState.from_dict(encoded)
-    assert decoded.generation == 7
-    assert decoded.last_modified == 99.5
+    assert not hasattr(decoded, "generation")
 
 
 def test_load_state_quarantines_unparseable_json(tmp_path: Path):
@@ -329,25 +291,21 @@ def test_atomic_write_text_two_concurrent_writers_do_not_corrupt(tmp_path: Path)
     assert leftovers == []
 
 
-def test_sync_once_bumps_generation_on_first_write_and_on_edit(syncer):
-    """Every render-and-record advances generation by 1 in the persisted state."""
+def test_sync_once_bumps_canonical_generation_on_content_edit(syncer):
     skill_dir = syncer.tool_root("claude", "skill") / "foo"
     skill_dir.mkdir()
     md = skill_dir / "SKILL.md"
     md.write_text("---\nname: foo\ndescription: x\n---\ninitial\n")
     syncer.sync_once()
-    first_gen = next(iter(
-        json.loads(
-            (syncer.state_dir / "state.json").read_text()
-        )["customization_artifacts"].values()
-    ))["generation"]
+    pair_id = next(iter(load_state(syncer.state_dir)))
+    first_gen = canonical_metadata(load_canonical(syncer.state_dir, pair_id) or {})[
+        "generation"
+    ]
     assert first_gen == 1
 
     md.write_text(md.read_text().replace("initial", "second"))
     syncer.sync_once()
-    second_gen = next(iter(
-        json.loads(
-            (syncer.state_dir / "state.json").read_text()
-        )["customization_artifacts"].values()
-    ))["generation"]
+    second_gen = canonical_metadata(load_canonical(syncer.state_dir, pair_id) or {})[
+        "generation"
+    ]
     assert second_gen == 2

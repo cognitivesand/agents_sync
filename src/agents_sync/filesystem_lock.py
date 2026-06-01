@@ -30,6 +30,7 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 DEFAULT_LOCK_TIMEOUT_SECONDS = 5.0
 _RETRY_INTERVAL_SECONDS = 0.05
@@ -68,12 +69,13 @@ def lock_file(
 def _posix_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
     import fcntl
 
+    fcntl_module: Any = fcntl
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     deadline = time.monotonic() + timeout_seconds
     try:
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl_module.flock(fd, fcntl_module.LOCK_EX | fcntl_module.LOCK_NB)
                 break
             except OSError:
                 if time.monotonic() >= deadline:
@@ -86,7 +88,7 @@ def _posix_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
             yield
         finally:
             try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                fcntl_module.flock(fd, fcntl_module.LOCK_UN)
             except OSError:
                 logging.exception("flock(LOCK_UN) failed for %s", lock_path)
     finally:
@@ -112,7 +114,6 @@ def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
     try:
         while True:
             try:
-                # msvcrt is Windows-only; attrs are invisible to a POSIX type-check.
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                 break
             except OSError:

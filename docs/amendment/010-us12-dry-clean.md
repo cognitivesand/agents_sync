@@ -1,6 +1,8 @@
 # Amendment 010 — US-12 DRY clean: consolidate import ACs, rename the rule to `last_modified_wins`, resolve the AC-10/FR-16 contradiction
 
-- status: governance applied 2026-06-01 (US-12 + glossary + FR-14); architecture / README / code / test propagation pending
+- status: applied 2026-06-01 — architecture / README / code / test propagation
+  completed across Stream 1 (456e586, 3f36252) and Stream 2 (91a8265);
+  full suite green on merge.
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-06-01
 - supersedes / relates to: US-12 (all import ACs and Notes), amendment 008 (canonical

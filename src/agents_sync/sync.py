@@ -18,9 +18,12 @@ from agents_sync.agentic_tool_spec import (
 )
 from agents_sync.canonical import (
     canonical_digest,
+    canonical_metadata,
     is_private,
     list_canonical_ids,
     load_canonical,
+    save_canonical,
+    set_canonical_metadata,
 )
 from agents_sync.config import (
     expand_path,
@@ -166,11 +169,16 @@ class Syncer:
             canonical = load_canonical(self.state_dir, pair_id)
             if canonical is None:
                 continue
+            if not canonical_metadata(canonical):
+                set_canonical_metadata(
+                    canonical,
+                    last_modified=0.0,
+                    generation=0,
+                )
+                save_canonical(self.state_dir, pair_id, canonical)
             state[pair_id] = CustomizationArtifactState(
                 kind=canonical["kind"],
                 agentic_tools={},
-                last_modified=float(canonical.get("last_modified", 0.0)),
-                generation=int(canonical.get("generation", 1)),
                 canonical_digest=None,
             )
 

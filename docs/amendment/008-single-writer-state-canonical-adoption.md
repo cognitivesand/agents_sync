@@ -1,10 +1,8 @@
 # Amendment 008 — Single-writer state: import is canonical-only, daemon adopts orphan canonicals (resolves finding A)
 
-- status: reqs-validated; metadata model applied at governance level — G1/G2/G3
-  (Canonical `metadata` glossary + FR-14) applied 2026-06-01, AC-5 + FR-16 applied
-  2026-05-31; the US-12 G4/G5/AC-3 drafts below are SUPERSEDED — see amendment 009
-  (single rule) and amendment 010 (DRY clean) for the applied US-12 text;
-  metadata-model code (C1–C4) in progress
+- status: applied 2026-06-01 — canonical metadata model (C1–C4) landed in Stream 1
+  (456e586 canonical metadata helpers, 3f36252 runtime metadata into canonicals);
+  import/export accessors wired in Stream 2 (91a8265); full suite green on merge.
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-31
 - supersedes / relates to: FR-15 (amendment 003), amendment 004 (import archive),

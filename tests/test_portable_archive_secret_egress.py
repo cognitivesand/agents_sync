@@ -18,7 +18,7 @@ import pytest
 
 pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
 
-from agents_sync.canonical import canonical_path, save_canonical
+from agents_sync.canonical import canonical_path, save_canonical, set_canonical_metadata
 from agents_sync.identity import validate_pair_id
 from agents_sync.portable_archive import (
     CANONICAL_PREFIX,
@@ -82,12 +82,11 @@ def _write_canonical_and_state(
     """
     validate_pair_id(pair_id)
     canonical = {**canonical, "pair_id": pair_id}
+    set_canonical_metadata(canonical, last_modified=0.0, generation=1)
     save_canonical(state_dir, pair_id, canonical)
     state = load_state(state_dir)
     state[pair_id] = CustomizationArtifactState(
         kind="mcp_server",
-        last_modified=0.0,
-        generation=1,
         agentic_tools={
             "claude": AgenticToolState(
                 path=state_dir / "tools" / "claude" / f"{canonical['name']}.json",
@@ -133,7 +132,6 @@ def _build_test_config(state_dir: Path, *, secret_policy: str) -> dict[str, Any]
         "opencode_rules_dir": str(base / "or"),
         "opencode_config_file": str(base / "opencode.json"),
         "opencode_enabled": False,
-        "import_collision_strategy": "mtime_wins",
         "secret_policy": secret_policy,
     }
 
@@ -271,7 +269,6 @@ def test_ac15_import_under_secrets_refused_skips_literal_bearing_with_warning(
         report = import_from_zip(
             target_dir,
             zip_path,
-            strategy="mtime_wins",
             config=config,
             agentic_tools={},
         )
@@ -316,7 +313,6 @@ def test_ac16_import_under_secrets_accepted_takes_literals_verbatim_with_warning
         report = import_from_zip(
             target_dir,
             zip_path,
-            strategy="mtime_wins",
             config=config,
             agentic_tools={},
         )

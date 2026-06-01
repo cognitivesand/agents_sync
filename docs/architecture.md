@@ -104,16 +104,22 @@ no daemon, no CLI, and no filesystem:
 - **The canonical document** — a JSON object with `pair_id`, `kind`,
   `name`, `description`, `body`, `tools`, `disallowed_tools`,
   `permission_mode`, `model`, `effort`, and the two passthrough bags
-  `per_agentic_tool_only` and `per_agentic_tool_extra`. Schema constants
-  and the empty-document factory live in `canonical.py`.
+  `per_agentic_tool_only` and `per_agentic_tool_extra`. Runtime facts live
+  under `metadata = {"last_modified": float, "generation": int}`. The
+  content digest deliberately excludes `metadata`, so timestamp/generation
+  stamping is not treated as a user-content edit. Schema constants, metadata
+  helpers, the content-only digest, and the empty-document factory live in
+  `canonical.py`.
 - **`pair_id`** — a canonical UUIDv4 string, validated by
   `identity.validate_pair_id`. The artifact's identity across tools.
 - **`target_slug(name)`** — the rule that turns an artifact name into a
   filesystem-friendly basename, including the Windows reserved-name
   guard. Pure function in `state.py`.
 - **`CustomizationArtifactState` / `AgenticToolState`** — the in-memory
-  shape of the cross-poll persisted view of one artifact (no I/O methods,
-  just `to_dict` / `from_dict`).
+  shape of the cross-poll persisted view of one artifact: tool locations,
+  per-tool digests, and the last projected content digest. It does not carry
+  canonical metadata; `last_modified` / `generation` have a single source of
+  truth in the canonical document.
 - **`CustomizationArtifactInfo` / `AgenticToolInfo`** — the in-memory
   shape of the per-poll observation of one artifact (`sync_types.py`).
 
@@ -319,6 +325,9 @@ and `state.save_state(state_dir, state) -> None` are the only entry
 points. `state.json` is schema-versioned (`schema_version=3`); any other
 shape is treated as missing (the project is pre-1.0, hence the cutover
 without a migration reader — see `state.load_state` docstring).
+Schema-v3 entries may contain legacy `last_modified` / `generation` fields
+from older builds; readers ignore those keys because the canonical metadata
+block is now authoritative.
 
 ### 5.3 Use case → archive (the preservation gateway)
 
@@ -343,6 +352,11 @@ writing canonical content out to a tool. It encapsulates:
 
 `rendering.read_artifact_text` is the symmetric read-side helper used by
 discovery and adoption.
+
+`update_state_n_way` records projection paths and per-tool digests only.
+It does not stamp content time. Adoption/sync code stamps
+`canonical["metadata"]` only when parsed canonical content actually changes;
+heal, extend, and unchanged reproject paths leave metadata stable.
 
 ### 5.5 CLI → use case
 
@@ -387,6 +401,10 @@ sync_once
 
 Properties this control flow gives us:
 
+Before discovery, `sync_once` adopts orphan canonical documents (canonical-only
+imports) into empty state stubs. At the end of the poll it records a
+content-only canonical digest baseline for each managed pair.
+
 | Property | How |
 |---|---|
 | **NFR-01** data preservation | Every destructive branch — adoption pair-id injection, sync-onto-target, conflict-loser-overwrite, removal-of-survivors — goes through `archive_copy` or `archive_move` *first*. |
@@ -395,6 +413,7 @@ Properties this control flow gives us:
 | **NFR-02** latency ≤ 2× interval | One poll catches a change; the next poll's discovery sees the digest delta on the now-projected counterparts and writes nothing further. |
 | **FR-02** fault isolation | `sync_once` wraps each `process_pair` and each `propagate_orphan_state` in `try / except Exception` + `logging.exception(...)` — one bad artifact does not halt the loop. |
 | **FR-04** trusted removal source | `_propagate_removal` only fires when an **available** tool's view is missing the artifact; entries owned only by **unavailable** tools are preserved (`propagate_orphan_state` short-circuit). |
+| **FR-14** content-only canonical detection | `canonical_digest(canonical_content(...))` excludes `metadata`; imports or external canonical content edits reproject, while metadata-only stamps do not. |
 
 ### 6.1 Import as a merge — BUILT (amendments 002–004; v0.5.2–v0.5.6)
 
@@ -426,8 +445,15 @@ blind restore. `_classify` folds an **incremental** slug index — seeded from l
 state and updated as each candidate is accepted — so that two canonicals with the
 same slug but different `customization_artifact_id`s (the cross-machine case:
 the same artifact independently minted on two hosts) reconcile to **one** winner
-by the US-06 rule, the loser archived (FR-12, AC-17). This makes import idempotent
-and prevents it from manufacturing the slug collisions that US-03 AC-8 would block.
+by the `last_modified_wins` rule: the candidate with the higher `last_modified`
+timestamp in its canonical metadata wins; the loser is archived (FR-12, AC-7).
+Ties (equal `last_modified`) are broken deterministically by
+`customization_artifact_id` in lexicographic order, so the outcome is identical
+regardless of which host runs the import first. Note: `generation` is a
+host-local counter that tracks content changes on a single machine — it is not a
+cross-host discriminator and is not used in the collision comparison. This makes
+import idempotent and prevents it from manufacturing the slug collisions that
+US-03 AC-8 would block.
 
 Writes are **per-artifact atomic** (FR-13): each `(canonical + state stub)` lands
 as a unit or not at all, so a failure on one artifact leaves the rest intact and

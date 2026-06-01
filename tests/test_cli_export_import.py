@@ -5,6 +5,9 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+import pytest
+
+from agents_sync.canonical import load_canonical, save_canonical, set_canonical_metadata
 from agents_sync.cli import main
 from agents_sync.portable_archive import CANONICAL_PREFIX, MANIFEST_NAME
 from agents_sync.sync import Syncer
@@ -12,6 +15,13 @@ from agents_sync.sync import Syncer
 
 def _skill_md(name: str) -> str:
     return f"---\nname: {name}\ndescription: x\n---\nbody\n"
+
+
+def _set_local_canonical_metadata(syncer: Syncer, pair_id: str, last_modified: float) -> None:
+    canonical = load_canonical(syncer.state_dir, pair_id)
+    assert canonical is not None
+    set_canonical_metadata(canonical, last_modified=last_modified, generation=1)
+    save_canonical(syncer.state_dir, pair_id, canonical)
 
 
 def _render_toml(cfg: dict) -> str:
@@ -129,7 +139,6 @@ def _build_target_install(tmp_path: Path, label: str) -> tuple[Path, Path]:
         "copilot_cli_agents_dir": str(root / "copa"),
         "copilot_cli_skills_dir": str(root / "cops"),
         "copilot_cli_mcp_config_file": str(root / "copilot-mcp.json"),
-        "import_collision_strategy": "mtime_wins",
     }
     cfg_path = tmp_path / f"{label}.toml"
     cfg_path.write_text(_render_toml(cfg))
@@ -155,48 +164,35 @@ def test_cli_export_then_import_roundtrip(syncer: Syncer, tmp_path: Path):
         assert (target_root / sub / "foo" / "SKILL.md").exists()
 
 
-def test_cli_import_collision_strategy_flag_overrides_config(syncer: Syncer, tmp_path: Path):
-    """CLI --collision-strategy must take precedence over config (AC-8)."""
-    skill_dir = syncer.tool_root("claude", "skill") / "foo"
-    skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(_skill_md("foo"))
-    syncer.sync_once()
-
+def test_cli_import_rejects_unknown_collision_strategy_flag(syncer: Syncer, tmp_path: Path):
+    """--collision-strategy is no longer a valid flag; argparse must reject it."""
     cfg_path = _write_config(syncer, tmp_path)
     out_zip = tmp_path / "snapshot.zip"
-    assert main(["--config", str(cfg_path), "export", str(out_zip)]) == 0
+    with zipfile.ZipFile(out_zip, "w") as zf:
+        zf.writestr("manifest.json", '{"schema_version": 1}')
 
-    # Make local last_modified ancient so mtime_wins would accept the import.
-    # If --collision-strategy=skip works, the import is rejected anyway.
-    from agents_sync.state import load_state, save_state
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "--config",
+                str(cfg_path),
+                "import",
+                str(out_zip),
+                "--collision-strategy",
+                "mtime_wins",
+            ]
+        )
 
-    state = load_state(syncer.state_dir)
-    pair_id = next(iter(state.keys()))
-    state[pair_id].last_modified = 1.0
-    save_state(syncer.state_dir, state)
-    canonical_before = (syncer.state_dir / "canonical" / f"{pair_id}.json").read_bytes()
-
-    exit_code = main(
-        [
-            "--config",
-            str(cfg_path),
-            "import",
-            str(out_zip),
-            "--collision-strategy",
-            "skip",
-        ]
-    )
-
-    assert exit_code == 0
-    canonical_after = (syncer.state_dir / "canonical" / f"{pair_id}.json").read_bytes()
-    assert canonical_after == canonical_before  # skip → local untouched
+    assert exc_info.value.code != 0
 
 
-def test_cli_import_requires_force_when_mtime_wins_would_overwrite(syncer: Syncer, tmp_path: Path):
+def test_cli_import_requires_force_when_last_modified_wins_would_overwrite(
+    syncer: Syncer, tmp_path: Path
+):
     """Audit slice 08 · CQ-07: silent-overwrite gate.
 
-    When mtime_wins would displace a local pair, the import refuses to
-    proceed without --force and lists the affected pair_ids.
+    When last_modified_wins would displace a local pair, the import refuses
+    to proceed without --force and lists the affected pair_ids.
     """
     skill_dir = syncer.tool_root("claude", "skill") / "foo"
     skill_dir.mkdir()
@@ -207,40 +203,19 @@ def test_cli_import_requires_force_when_mtime_wins_would_overwrite(syncer: Synce
     out_zip = tmp_path / "snapshot.zip"
     assert main(["--config", str(cfg_path), "export", str(out_zip)]) == 0
 
-    # Force the local last_modified backward so mtime_wins would accept.
-    from agents_sync.state import load_state, save_state
+    # Force the local last_modified backward so last_modified_wins accepts the import.
+    from agents_sync.state import load_state
 
     state = load_state(syncer.state_dir)
     pair_id = next(iter(state.keys()))
-    state[pair_id].last_modified = 1.0
-    state[pair_id].generation = 0
-    save_state(syncer.state_dir, state)
+    _set_local_canonical_metadata(syncer, pair_id, 1.0)
 
     # No --force → refuse with exit 2.
-    exit_code = main(
-        [
-            "--config",
-            str(cfg_path),
-            "import",
-            str(out_zip),
-            "--collision-strategy",
-            "mtime_wins",
-        ]
-    )
+    exit_code = main(["--config", str(cfg_path), "import", str(out_zip)])
     assert exit_code == 2
 
-    # With --force → proceeds and overwrites.
-    exit_code = main(
-        [
-            "--config",
-            str(cfg_path),
-            "import",
-            str(out_zip),
-            "--collision-strategy",
-            "mtime_wins",
-            "--force",
-        ]
-    )
+    # With --force → proceeds.
+    exit_code = main(["--config", str(cfg_path), "import", str(out_zip), "--force"])
     assert exit_code == 0
 
 

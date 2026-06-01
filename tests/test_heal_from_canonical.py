@@ -13,7 +13,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from agents_sync.canonical import empty_canonical, save_canonical
+from agents_sync.canonical import empty_canonical, save_canonical, set_canonical_metadata
 from agents_sync.state import CustomizationArtifactState, load_state, save_state
 
 from ._helpers import make_syncer
@@ -27,11 +27,10 @@ def _write_stub(syncer, pair_id: str = PAIR_ID, kind: str = "skill", name: str =
     canon["name"] = name
     canon["description"] = "d"
     canon["body"] = "hello body"
+    set_canonical_metadata(canon, last_modified=1.0, generation=1)
     save_canonical(syncer.state_dir, pair_id, canon)
     state = load_state(syncer.state_dir)
-    state[pair_id] = CustomizationArtifactState(
-        kind=kind, agentic_tools={}, last_modified=1.0, generation=1
-    )
+    state[pair_id] = CustomizationArtifactState(kind=kind, agentic_tools={})
     save_state(syncer.state_dir, state)
 
 
