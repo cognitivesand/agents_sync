@@ -16,9 +16,9 @@ from agents_sync.tool_specs._rules_factory import build_global_rules_io
 
 
 def build_opencode_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:
+    from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
     from agents_sync.mcp_server_io import McpServerDialect
     from agents_sync.opencode_io import (
-        extract_pair_id_from_md,
         opencode_skill_slug,
         parse_opencode_agent_md,
         parse_opencode_skill_md,

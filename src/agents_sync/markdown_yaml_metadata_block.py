@@ -245,6 +245,12 @@ def frontmatter_for_render(prior_text: str | None) -> Any:
     yml = make_yaml()
     if prior_text is None:
         return yml.load("{}\n")
+    from agents_sync.parser_bounds import enforce_text_bound
+
+    prior_text = enforce_text_bound(
+        prior_text,
+        label="render-time Markdown frontmatter",
+    )
     prior_text = normalize_markdown_text(prior_text)
     prior_match = FRONTMATTER_RE.match(prior_text)
     if prior_match is None:
@@ -265,6 +271,9 @@ def extract_pair_id_from_md(text: str) -> str | None:
     shaped adapter (Claude, Antigravity, opencode, Codex skill) uses the
     same convention of a string ``pair_id`` field in YAML frontmatter.
     """
+    from agents_sync.parser_bounds import enforce_text_bound
+
+    text = enforce_text_bound(text, label="Markdown pair_id extraction")
     text = normalize_markdown_text(text)
     match = FRONTMATTER_RE.match(text)
     if not match:

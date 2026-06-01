@@ -17,11 +17,13 @@ from agents_sync.canonical import (
     empty_canonical,
     new_pair_id,
 )
-from agents_sync.codex_io import _normalize_toml_text
+from agents_sync.formats.toml_format import normalize_toml_text
 from agents_sync.markdown_yaml_metadata_block import (
     as_string_list,
     extract_pair_id_from_md,
+    frontmatter_for_render,
     render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
     split_frontmatter,
 )
 from agents_sync.state import target_slug
@@ -182,22 +184,23 @@ def render_slash_command_markdown(
     agentic_tool_name: str,
 ) -> str:
     """Render a canonical slash command as Markdown with YAML frontmatter."""
-    frontmatter: dict[str, Any] = {
-        "pair_id": canonical["pair_id"],
-    }
-    if canonical.get("description"):
-        frontmatter["description"] = canonical["description"]
-    if canonical.get("argument_hint"):
-        frontmatter["argument-hint"] = canonical["argument_hint"]
-    if canonical.get("allowed_tools"):
-        frontmatter["allowed-tools"] = canonical["allowed_tools"]
-    if canonical.get("model") is not None:
-        frontmatter["model"] = canonical["model"]
+    frontmatter = frontmatter_for_render(prior_text)
+    frontmatter.pop("name", None)
+    frontmatter["pair_id"] = canonical["pair_id"]
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    set_or_remove_empty_metadata_field(
+        frontmatter, "argument-hint", canonical.get("argument_hint"),
+    )
+    set_or_remove_empty_metadata_field(
+        frontmatter, "allowed-tools", canonical.get("allowed_tools"),
+    )
+    set_or_remove_empty_metadata_field(frontmatter, "model", canonical.get("model"))
 
     tool_only = canonical.get("per_agentic_tool_only", {}).get(agentic_tool_name, {})
     for key in ("agent", "mode"):
-        if key in tool_only:
-            frontmatter[key] = tool_only[key]
+        set_or_remove_empty_metadata_field(frontmatter, key, tool_only.get(key))
 
     for key, value in canonical.get("per_agentic_tool_extra", {}).get(
         agentic_tool_name, {}
@@ -212,7 +215,7 @@ def render_slash_command_markdown(
 
 
 def extract_pair_id_from_slash_command_toml(text: str) -> str | None:
-    text = _normalize_toml_text(text)
+    text = normalize_toml_text(text)
     match = PAIR_ID_TOML_RE.search(text)
     return match.group(1) if match else None
 
@@ -233,7 +236,7 @@ def parse_slash_command_toml(
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
     """Parse a Gemini-style TOML slash command into the canonical form."""
-    data = tomllib.loads(_normalize_toml_text(text))
+    data = tomllib.loads(normalize_toml_text(text))
     if not isinstance(data, dict):
         raise ValueError("slash_command TOML must be a table at root")
 

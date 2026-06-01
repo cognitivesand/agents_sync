@@ -4,8 +4,9 @@ import argparse
 import logging
 import os
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from agents_sync.mcp_secret_policy import (
     ALLOWED_SECRET_POLICIES,
@@ -136,7 +137,7 @@ def platform_defaults(
     os_name: str | None = None,
     env: dict[str, str] | None = None,
     home: Path | None = None,
-) -> dict[str, Any]:
+) -> AgentsSyncConfig:
     platform_name = os.name if os_name is None else os_name
     home_dir = _home_dir(home)
     cursor_root = home_dir / ".cursor"
@@ -149,7 +150,7 @@ def platform_defaults(
         ) / "opencode"
     else:
         opencode_root = home_dir / ".config" / "opencode"
-    return {
+    return cast(AgentsSyncConfig, {
         "poll_interval_seconds": 2.0,
         "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
         "claude_agents_dir": str(home_dir / ".claude" / "agents"),
@@ -198,10 +199,10 @@ def platform_defaults(
         "copilot_vscode_user_mcp_file": None,
         "import_collision_strategy": "mtime_wins",
         "secret_policy": "secrets_refused",
-    }
+    })
 
 
-DEFAULTS: dict[str, Any] = platform_defaults()
+DEFAULTS: AgentsSyncConfig = platform_defaults()
 
 
 class ConfigError(ValueError):
@@ -287,7 +288,7 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
 )
 
 
-def merged_config(args: argparse.Namespace) -> dict[str, Any]:
+def merged_config(args: argparse.Namespace) -> AgentsSyncConfig:
     config = dict(DEFAULTS)
     config_path = args.config if args.config is not None else default_config_path()
     config.update(load_external_config(config_path))
@@ -298,11 +299,11 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def normalize_config(
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     *,
     source: str = "config",
     warn_deprecated: bool = True,
-) -> dict[str, Any]:
+) -> AgentsSyncConfig:
     """Return a copy with config aliases and values normalized.
 
     This is the config-boundary mutation point: callers get a fresh dict with
@@ -337,7 +338,7 @@ def normalize_config(
     normalized["secret_policy"] = normalize_secret_policy(
         str(raw_policy), source=source, warn_deprecated=warn_deprecated,
     )
-    return normalized
+    return cast(AgentsSyncConfig, normalized)
 
 
 REQUIRED_DIR_KEYS: tuple[str, ...] = (

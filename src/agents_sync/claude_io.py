@@ -14,21 +14,13 @@ from typing import Any
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.field_names import CanonicalField, ClaudeField
 from agents_sync.markdown_yaml_metadata_block import (
-    FRONTMATTER_RE,
-    extract_pair_id_from_md,
     frontmatter_for_render,
     split_frontmatter,
     yaml_dump,
 )
 
-# ``FRONTMATTER_RE`` and ``extract_pair_id_from_md`` are re-exported here because
-# ``tool_specs.claude`` and the copilot test import them from ``claude_io`` rather
-# than the underlying primitive module. Listed in ``__all__`` so the re-export is
-# explicit (and mypy-strict treats it as a valid re-export).
 __all__ = [
-    "FRONTMATTER_RE",
     "KNOWN_CLAUDE_FIELDS",
-    "extract_pair_id_from_md",
     "parse_claude_md",
     "render_claude_md",
 ]

@@ -574,11 +574,7 @@ def import_from_zip(
     # secrets_refused, secret-bearing canonicals are skipped with one
     # structured WARNING each; under secrets_accepted, all are imported
     # verbatim and one summary WARNING is emitted.
-    raw_policy = str(
-        config.get("secret_policy")
-        or config.get("mcp_server_secret_policy")
-        or "secrets_refused"
-    )
+    raw_policy = str(config.get("secret_policy", "secrets_refused"))
     normalized_policy = normalize_secret_policy(
         raw_policy, source="import_from_zip", warn_deprecated=False,
     )

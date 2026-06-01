@@ -4,10 +4,15 @@ import argparse
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
 from agents_sync.agentic_tool_spec import default_agentic_tools
-from agents_sync.config import ConfigError, expand_path, merged_config, validate_config
+from agents_sync.config import (
+    AgentsSyncConfig,
+    ConfigError,
+    expand_path,
+    merged_config,
+    validate_config,
+)
 from agents_sync.daemon import watch
 from agents_sync.portable_archive import (
     PortableArchiveError,
@@ -327,14 +332,10 @@ def _check_legacy_install() -> int | None:
     return 2
 
 
-def _run_export(args: argparse.Namespace, config: dict[str, Any]) -> int:
+def _run_export(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
-    secret_policy = str(
-        config.get("secret_policy")
-        or config.get("mcp_server_secret_policy")
-        or "secrets_refused"
-    )
+    secret_policy = str(config["secret_policy"])
     try:
         report = export_to_zip(state_dir, args.output, secret_policy=secret_policy)
     except OSError:
@@ -356,7 +357,7 @@ def _run_export(args: argparse.Namespace, config: dict[str, Any]) -> int:
     return 0
 
 
-def _run_import(args: argparse.Namespace, config: dict[str, Any]) -> int:
+def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
     strategy = args.collision_strategy or config["import_collision_strategy"]

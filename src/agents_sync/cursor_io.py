@@ -97,7 +97,6 @@ def parse_cursor_agent_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    del artifact_root
     frontmatter, body = split_frontmatter(text, label="Cursor agent")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("agent")
     canonical["body"] = body
@@ -172,7 +171,6 @@ def parse_cursor_skill_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    del artifact_root
     frontmatter, body = split_frontmatter(text, label="Cursor SKILL.md")
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
@@ -245,7 +243,6 @@ def parse_cursor_rule_mdc(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    del artifact_root
     return parse_rules_md(
         text,
         prior_canonical,
@@ -317,9 +314,11 @@ def render_cursor_command_md(
     canonical: dict[str, Any],
     prior_text: str | None = None,
 ) -> str:
-    del prior_text
+    newline = "\n"
+    if prior_text is not None and prior_text.partition("\n")[0].endswith("\r"):
+        newline = "\r\n"
     return (
-        f"<!-- agents_sync:pair_id={canonical['pair_id']} -->\n"
+        f"<!-- agents_sync:pair_id={canonical['pair_id']} -->{newline}"
         f"{canonical.get('body', '')}"
     )
 

@@ -7,6 +7,7 @@ from agents_sync.markdown_yaml_metadata_block import (
     extract_pair_id_from_md,
     frontmatter_for_render,
 )
+from agents_sync.parser_bounds import MAX_PARSE_BYTES, ParserBoundsExceeded
 from agents_sync.rules_io import parse_rules_md, render_rules_md
 
 PAIR_ID = "11111111-2222-4333-8444-555555555555"
@@ -63,3 +64,13 @@ def test_extract_pair_id_returns_none_when_malformed_and_no_id_tag():
     # a raise (architecture §5.1 point 3).
     text = "---\nname: demo\ndescription: a: b: c\n---\nbody\n"
     assert extract_pair_id_from_md(text) is None
+
+
+def test_extract_pair_id_enforces_global_parse_bound():
+    with pytest.raises(ParserBoundsExceeded):
+        extract_pair_id_from_md("x" * (MAX_PARSE_BYTES + 1))
+
+
+def test_frontmatter_for_render_enforces_global_parse_bound():
+    with pytest.raises(ParserBoundsExceeded):
+        frontmatter_for_render("x" * (MAX_PARSE_BYTES + 1))

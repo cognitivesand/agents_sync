@@ -8,10 +8,10 @@ import pytest
 
 from agents_sync.artifact_names import CANONICAL_NAME_FIELD
 from agents_sync.canonical import empty_canonical
+from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
 from agents_sync.opencode_io import (
     KNOWN_OPENCODE_AGENT_FIELDS,
     KNOWN_OPENCODE_SKILL_FIELDS,
-    extract_pair_id_from_md,
     opencode_skill_slug,
     parse_opencode_agent_md,
     parse_opencode_skill_md,

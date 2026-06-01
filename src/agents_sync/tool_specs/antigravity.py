@@ -13,10 +13,10 @@ from agents_sync.agentic_tool_spec import (
 
 def build_antigravity_spec() -> AgenticToolSpec:
     from agents_sync.antigravity_io import (
-        extract_pair_id_from_md,
         parse_antigravity_skill_md,
         render_antigravity_skill_md,
     )
+    from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
 
     def parse_skill(
         text: str,

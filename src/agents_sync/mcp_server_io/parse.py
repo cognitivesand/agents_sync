@@ -43,7 +43,6 @@ def parse_mcp_server_json(
     secret_policy: str = "secrets_refused",
 ) -> dict[str, Any]:
     """Parse one JSON slot into the canonical ``mcp_server`` shape."""
-    del artifact_root
     obj = loads_slot(slot_text, slot_format=slot_format)
     obj = _apply_secret_policy(obj, dialect, artifact_path, secret_policy)
     canonical = _extract_canonical(obj, prior_canonical, dialect)

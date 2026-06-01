@@ -229,6 +229,7 @@ class AdoptionEngine(
         results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,
+            prior_canonical=None,
             info=info,
             source_tool=source_tool,
             source_dir=source_dir,
@@ -319,6 +320,7 @@ class AdoptionEngine(
         results = self._project_to_other_tools(
             pair_id=pair_id,
             canonical=canonical,
+            prior_canonical=prior_canonical,
             info=info,
             source_tool=source_tool,
             source_dir=source_dir,
@@ -335,6 +337,7 @@ class AdoptionEngine(
         *,
         pair_id: str,
         canonical: dict[str, Any],
+        prior_canonical: dict[str, Any] | None,
         info: CustomizationArtifactInfo,
         source_tool: str,
         source_dir: Path | None,
@@ -361,16 +364,24 @@ class AdoptionEngine(
                 kind=info.kind,
                 read_prior_text=read_prior_text,
             )
-            if target_info is not None and self._target_is_private(
-                pair_id,
-                tool_name,
-                target_spec,
-                info.kind,
-                target_info.path,
-                prior_text,
-                target_slot=target_info.slot,
-            ):
-                continue
+            target_root = expand_path(self.config[target_spec.config_dir_keys[info.kind]])
+            if target_info is not None:
+                target_canonical = self._load_target_canonical_for_privacy(
+                    pair_id,
+                    target_spec,
+                    info.kind,
+                    target_info.path,
+                    prior_text,
+                    prior_canonical,
+                    artifact_root=target_root,
+                    target_slot=target_info.slot,
+                )
+                if target_canonical is None:
+                    continue
+                if self._skip_private_canonical(
+                    pair_id, tool_name, target_canonical,
+                ):
+                    continue
             if self._is_reserved_target_name(target_spec, info.kind, canonical):
                 logging.warning(
                     "Reserved slash_command name skipped: pair_id=%s tool=%s name=%s",
@@ -472,7 +483,12 @@ class AdoptionEngine(
     ) -> bool:
         """Pick argmax(mtime) over changed tools; archive losers' bytes; project."""
         winner = self._pick_winner(changed_tools, info)
-        if self._winner_is_private(pair_id, winner, info):
+        winner_canonical = self._load_winner_canonical_for_privacy(
+            pair_id, winner, info,
+        )
+        if winner_canonical is None:
+            return False
+        if self._skip_private_canonical(pair_id, winner, winner_canonical):
             return False
         for tool in changed_tools:
             if tool == winner:
@@ -508,22 +524,47 @@ class AdoptionEngine(
             return
         archive.archive_copy(self.state_dir, pair_id, tool, tool_info.path)
 
-    def _winner_is_private(
+    def _load_winner_canonical_for_privacy(
         self,
         pair_id: str,
         winner: str,
         info: CustomizationArtifactInfo,
-    ) -> bool:
+    ) -> dict[str, Any] | None:
         prior_canonical = load_canonical(self.state_dir, pair_id)
         tool_info = info.agentic_tools[winner]
-        tool_io = self.agentic_tools[winner].io[info.kind]
-        text = read_artifact_text(tool_io, tool_info.path, slot=tool_info.slot)
-        canonical = tool_io.parse(
-            text,
-            prior_canonical,
-            artifact_path=tool_info.path,
-        )
-        return self._skip_private_canonical(pair_id, winner, canonical)
+        tool_spec = self.agentic_tools[winner]
+        tool_io = tool_spec.io[info.kind]
+        try:
+            text = read_artifact_text(tool_io, tool_info.path, slot=tool_info.slot)
+        except (OSError, UnicodeDecodeError) as exc:
+            logging.warning(
+                "Could not inspect conflict winner at %s for pair_id=%s; "
+                "treating as private (fail-closed) (%s: %s)",
+                tool_info.path,
+                pair_id,
+                type(exc).__name__,
+                exc,
+                extra={"event": "privacy_gate_failed_closed_on_winner_read"},
+            )
+            return None
+        try:
+            return tool_io.parse(
+                text,
+                prior_canonical,
+                artifact_path=tool_info.path,
+                artifact_root=expand_path(self.config[tool_spec.config_dir_keys[info.kind]]),
+            )
+        except (OSError, UnicodeDecodeError, ValueError, KeyError) as exc:
+            logging.warning(
+                "Could not inspect conflict winner canonical at %s for pair_id=%s; "
+                "treating as private (fail-closed) (%s: %s)",
+                tool_info.path,
+                pair_id,
+                type(exc).__name__,
+                exc,
+                extra={"event": "privacy_gate_failed_closed_on_winner_parse"},
+            )
+            return None
 
     # ------------------------------------------------------------------ #
     # Extend an existing canonical to newly-available tools (v0.4 plan §5).

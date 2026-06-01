@@ -86,7 +86,7 @@ def test_gemini_agent_adopts_and_projects_to_agent_capable_tools(tmp_path: Path)
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_gemini_agent_md(source.read_text(encoding="utf-8"))
     assert pair_id is not None
@@ -114,7 +114,7 @@ def test_agent_from_another_tool_projects_to_gemini_subagent(tmp_path: Path):
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     gemini_agent = syncer.tool_root("gemini_cli", "agent") / "debugger.md"
     text = gemini_agent.read_text(encoding="utf-8")
@@ -142,7 +142,7 @@ def test_gemini_skill_syncs_auxiliary_files_without_sharing_antigravity_root(
     )
     (source_dir / "notes.md").write_text("extra context\n", encoding="utf-8")
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     claude_dir = syncer.tool_root("claude", "skill") / "release-checklist"
     antigravity_dir = (
@@ -168,7 +168,7 @@ def test_gemini_rules_file_projects_to_global_rules_files(tmp_path: Path):
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     claude_rules = syncer.tool_root("claude", "rules") / "CLAUDE.md"
     codex_rules = syncer.tool_root("codex", "rules") / "AGENTS.md"
@@ -192,7 +192,7 @@ def test_gemini_command_toml_syncs_to_markdown_slash_commands(tmp_path: Path):
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_gemini_command_toml(
         source.read_text(encoding="utf-8")

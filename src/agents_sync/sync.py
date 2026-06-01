@@ -18,6 +18,7 @@ from agents_sync.agentic_tool_spec import (
 )
 from agents_sync.canonical import is_private
 from agents_sync.config import (
+    AgentsSyncConfig,
     expand_path,
     normalize_config,
     prepare_state_storage,
@@ -56,16 +57,7 @@ class SyncResult:
         object.__setattr__(self, "failed", tuple(self.failed))
         object.__setattr__(self, "blocked", tuple(self.blocked))
 
-    def __bool__(self) -> bool:
-        """A poll counts as truthy when something changed (back-compat)."""
-        return self.changed != 0
-
-    def __int__(self) -> int:
-        """Legacy callers comparing the return as an int still work."""
-        return self.changed
-
     def __eq__(self, other: object) -> bool:
-        """Back-compat for older tests/callers that compared sync_once() to int."""
         if isinstance(other, SyncResult):
             return (
                 self.changed,
@@ -76,8 +68,6 @@ class SyncResult:
                 other.failed,
                 other.blocked,
             )
-        if isinstance(other, int):
-            return self.changed == other
         return NotImplemented
 
     def __hash__(self) -> int:
@@ -90,7 +80,9 @@ class Syncer:
         config: dict[str, Any],
         agentic_tools: dict[str, AgenticToolSpec] | None = None,
     ) -> None:
-        self.config = normalize_config(config, source="syncer", warn_deprecated=False)
+        self.config: AgentsSyncConfig = normalize_config(
+            config, source="syncer", warn_deprecated=False,
+        )
         validate_config(self.config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (
             agentic_tools if agentic_tools is not None else default_agentic_tools(self.config)

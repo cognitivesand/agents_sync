@@ -6,6 +6,7 @@ file-walking and shared-keyed-map slot iteration that produce a
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,9 +27,8 @@ from agents_sync.rendering import (
 from agents_sync.shared_keyed_map_io import read_slots
 from agents_sync.state import (
     CustomizationArtifactState,
-    sha256_file,
+    is_ignored_tree_path,
     sha256_text,
-    sha256_tree,
 )
 from agents_sync.sync_types import (
     AgenticToolInfo,
@@ -218,9 +218,9 @@ class EnumeratorMixin(_WalkerHostBase):
                 return
         layout = io.file_layout
         if isinstance(layout, SingleFileLayout):
-            digest = sha256_file(path)
+            digest = sha256_text(text)
         elif isinstance(layout, DirectorySkillLayout):
-            digest = sha256_tree(path)
+            digest = _sha256_skill_tree_with_metadata_snapshot(path, text)
         else:
             raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         info = AgenticToolInfo(path, digest, path.stat().st_mtime, present)
@@ -294,3 +294,29 @@ class EnumeratorMixin(_WalkerHostBase):
                 for tool_state in pair_state.agentic_tools.values()
             ):
                 blocked_pair_ids.add(pair_id)
+
+
+def _sha256_skill_tree_with_metadata_snapshot(root: Path, skill_md_text: str) -> str:
+    """Hash a skill tree using the already-read ``SKILL.md`` text snapshot."""
+    digest = hashlib.sha256()
+    for path in sorted(
+        p for p in root.rglob("*") if p.is_file() and not is_ignored_tree_path(p)
+    ):
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        if relative == "SKILL.md":
+            file_digest = sha256_text(skill_md_text)
+        else:
+            file_digest = _sha256_file_once(path)
+        digest.update(file_digest.encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _sha256_file_once(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()

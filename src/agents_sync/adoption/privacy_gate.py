@@ -24,17 +24,22 @@ class PrivacyGateMixin:
     """Privacy detection. Relies on ``self.agentic_tools`` from
     :class:`AdoptionEngine`."""
 
-    def _target_is_private(
+    def _load_target_canonical_for_privacy(
         self,
         pair_id: str,
-        tool_name: str,
         target_spec: AgenticToolSpec,
         kind: str,
         target_path: Path,
         prior_text: str | None,
+        prior_canonical: dict[str, Any] | None,
+        artifact_root: Path | None = None,
         target_slot: str | None = None,
-    ) -> bool:
-        """Decide whether ``target_path`` is privacy-protected."""
+    ) -> dict[str, Any] | None:
+        """Read and parse ``target_path`` for privacy inspection.
+
+        Returns ``None`` when the target cannot be inspected; callers treat
+        that as fail-closed private content.
+        """
         target_io = target_spec.io[kind]
         text = prior_text
         if text is None:
@@ -51,9 +56,14 @@ class PrivacyGateMixin:
                     exc,
                     extra={"event": "privacy_gate_failed_closed_on_read"},
                 )
-                return True
+                return None
         try:
-            canonical = target_io.parse(text, None, artifact_path=target_path)
+            return target_io.parse(
+                text,
+                prior_canonical,
+                artifact_path=target_path,
+                artifact_root=artifact_root,
+            )
         except (OSError, UnicodeDecodeError, ValueError, KeyError) as exc:
             logging.warning(
                 "Could not inspect prior canonical at %s for pair_id=%s; "
@@ -64,8 +74,7 @@ class PrivacyGateMixin:
                 exc,
                 extra={"event": "privacy_gate_failed_closed_on_parse"},
             )
-            return True
-        return self._skip_private_canonical(pair_id, tool_name, canonical)
+            return None
 
     def _skip_private_canonical(
         self,
