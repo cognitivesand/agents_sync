@@ -141,6 +141,43 @@ def canonical_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return canonicalize(a) == canonicalize(b)
 
 
+def canonical_content(canonical: dict[str, Any]) -> dict[str, Any]:
+    """Return the canonical content payload, excluding metadata.
+
+    ``metadata`` carries sync/runtime facts such as ``last_modified`` and
+    ``generation``. Those facts must travel with the canonical document, but
+    they are not user content and must not affect content-change detection.
+    """
+    content = dict(canonical)
+    content.pop("metadata", None)
+    return content
+
+
+def canonical_metadata(canonical: dict[str, Any]) -> dict[str, Any]:
+    metadata = canonical.get("metadata")
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
+def canonical_last_modified(canonical: dict[str, Any]) -> float | None:
+    metadata = canonical_metadata(canonical)
+    raw_last_modified = metadata.get("last_modified")
+    if raw_last_modified is None:
+        return None
+    try:
+        return float(raw_last_modified)
+    except (TypeError, ValueError):
+        return None
+
+
+def set_canonical_metadata(
+    canonical: dict[str, Any], *, last_modified: float, generation: int
+) -> None:
+    canonical["metadata"] = {
+        "last_modified": float(last_modified),
+        "generation": int(generation),
+    }
+
+
 def canonical_path(state_dir: Path, pair_id: str) -> Path:
     validate_pair_id(pair_id)
     return state_dir / "canonical" / f"{pair_id}.json"
@@ -167,13 +204,12 @@ def list_canonical_ids(state_dir: Path) -> list[str]:
 
 
 def canonical_digest(canonical: dict[str, Any]) -> str:
-    """Stable SHA-256 digest of a canonical document (FR-14 change detection).
+    """Stable SHA-256 digest of canonical content (FR-14 change detection).
 
-    Hashed over a deterministic JSON serialisation so the same canonical always
-    yields the same digest across hosts and runs. A mismatch against a pair's
-    recorded ``canonical_digest`` means the canonical changed out of band.
+    Runtime metadata is excluded, so stamping ``last_modified`` / ``generation``
+    does not look like a user-content edit.
     """
-    payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+    payload = json.dumps(canonical_content(canonical), sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
