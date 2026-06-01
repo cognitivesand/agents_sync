@@ -9,6 +9,7 @@ operations are kept as composed mixins:
 - ``privacy_gate``       — fail-closed private-canonical detection (host-free)
 - ``removal_propagator`` — archive-then-delete survivors + orphan handling
 """
+
 from __future__ import annotations
 
 import logging
@@ -75,18 +76,22 @@ class AdoptionEngine(
         available = self._available_participating_tools(info.kind)
         present = [t for t in available if t in info.agentic_tools]
         missing_from_state = [
-            t for t in available
-            if t in ps.agentic_tools and t not in info.agentic_tools
+            t for t in available if t in ps.agentic_tools and t not in info.agentic_tools
         ]
         if missing_from_state:
             return self._propagate_removal(
-                pair_id, info, state, missing_from_state, survivors=present,
+                pair_id,
+                info,
+                state,
+                missing_from_state,
+                survivors=present,
             )
         if not present:
             return False
 
         missing_pair_id_tools = [
-            t for t in present
+            t
+            for t in present
             if t in ps.agentic_tools and not info.agentic_tools[t].pair_id_present
         ]
         if missing_pair_id_tools:
@@ -94,15 +99,15 @@ class AdoptionEngine(
             return self._sync_from_agentic_tool(pair_id, source, info, state)
 
         changed = [
-            t for t in present
+            t
+            for t in present
             if info.agentic_tools[t].digest
             != (ps.agentic_tools[t].last_written if t in ps.agentic_tools else None)
         ]
         # Available tools that are newly participating (in neither state nor
         # info) — extend the canonical to them per v0.4 plan §5 first bullet.
         to_extend = [
-            t for t in available
-            if t not in ps.agentic_tools and t not in info.agentic_tools
+            t for t in available if t not in ps.agentic_tools and t not in info.agentic_tools
         ]
         if not changed:
             if to_extend:
@@ -123,8 +128,7 @@ class AdoptionEngine(
         but with no VS Code `rules` root — and crashed render on `Path(None)`.)
         """
         return [
-            name for name in self.agentic_tools
-            if self.tool_status.is_kind_available(name, kind)
+            name for name in self.agentic_tools if self.tool_status.is_kind_available(name, kind)
         ]
 
     def _is_reserved_target_name(
@@ -180,6 +184,8 @@ class AdoptionEngine(
         )
         if self._skip_private_canonical(pair_id, source_tool, canonical):
             return False
+        if self._skip_framework_specific(pair_id, source_tool, canonical):
+            return False
         canonical["pair_id"] = pair_id
 
         # Persist canonical + source state entry before mutating any on-disk
@@ -222,9 +228,7 @@ class AdoptionEngine(
             save_state(self.state_dir, state)
 
         source_dir = (
-            source_info.path
-            if isinstance(source_io.file_layout, DirectorySkillLayout)
-            else None
+            source_info.path if isinstance(source_io.file_layout, DirectorySkillLayout) else None
         )
         results = self._project_to_other_tools(
             pair_id=pair_id,
@@ -299,11 +303,17 @@ class AdoptionEngine(
         )
         if self._skip_private_canonical(pair_id, source_tool, canonical):
             return False
+        if self._skip_framework_specific(pair_id, source_tool, canonical):
+            return False
         canonical["pair_id"] = pair_id
         save_canonical(self.state_dir, pair_id, canonical)
         if not source_info.pair_id_present:
             self._archive_source_before_write(
-                pair_id, source_tool, source_io, source_info, text,
+                pair_id,
+                source_tool,
+                source_io,
+                source_info,
+                text,
             )
             write_artifact_inplace(
                 source_io,
@@ -313,9 +323,7 @@ class AdoptionEngine(
             )
 
         source_dir = (
-            source_info.path
-            if isinstance(source_io.file_layout, DirectorySkillLayout)
-            else None
+            source_info.path if isinstance(source_io.file_layout, DirectorySkillLayout) else None
         )
         results = self._project_to_other_tools(
             pair_id=pair_id,
@@ -378,8 +386,16 @@ class AdoptionEngine(
                 )
                 if target_canonical is None:
                     continue
+                if self._skip_framework_specific(
+                    pair_id,
+                    tool_name,
+                    target_canonical,
+                ):
+                    continue
                 if self._skip_private_canonical(
-                    pair_id, tool_name, target_canonical,
+                    pair_id,
+                    tool_name,
+                    target_canonical,
                 ):
                     continue
             if self._is_reserved_target_name(target_spec, info.kind, canonical):
@@ -484,9 +500,13 @@ class AdoptionEngine(
         """Pick argmax(mtime) over changed tools; archive losers' bytes; project."""
         winner = self._pick_winner(changed_tools, info)
         winner_canonical = self._load_winner_canonical_for_privacy(
-            pair_id, winner, info,
+            pair_id,
+            winner,
+            info,
         )
         if winner_canonical is None:
+            return False
+        if self._skip_framework_specific(pair_id, winner, winner_canonical):
             return False
         if self._skip_private_canonical(pair_id, winner, winner_canonical):
             return False
@@ -496,7 +516,8 @@ class AdoptionEngine(
             self._archive_existing_tool_bytes(pair_id, info.kind, tool, info)
         logging.warning(
             "Conflict resolved (%s wins): pair_id=%s mtimes=%s",
-            winner, pair_id,
+            winner,
+            pair_id,
             {t: info.agentic_tools[t].mtime for t in changed_tools},
         )
         return self._sync_from_agentic_tool(pair_id, winner, info, state)
@@ -513,10 +534,14 @@ class AdoptionEngine(
         tool_io = self.agentic_tools[tool].io[kind]
         if isinstance(tool_io.file_layout, SharedKeyedMapLayout):
             prior_text = read_artifact_text(
-                tool_io, tool_info.path, slot=tool_info.slot,
+                tool_io,
+                tool_info.path,
+                slot=tool_info.slot,
             )
             archive.archive_text(
-                self.state_dir, pair_id, tool,
+                self.state_dir,
+                pair_id,
+                tool,
                 slot_name=str(tool_info.slot),
                 extension=tool_io.file_layout.file_suffix,
                 content=prior_text,
@@ -579,9 +604,7 @@ class AdoptionEngine(
     ) -> bool:
         canonical = load_canonical(self.state_dir, pair_id)
         if canonical is None:
-            logging.error(
-                "Cannot extend pair_id=%s: canonical document missing", pair_id
-            )
+            logging.error("Cannot extend pair_id=%s: canonical document missing", pair_id)
             return False
 
         source_dir: Path | None = None
@@ -615,6 +638,7 @@ class AdoptionEngine(
         update_state_n_way(state, pair_id, info.kind, results, self.agentic_tools)
         logging.info(
             "Extended to newly available tools: pair_id=%s tools=%s",
-            pair_id, target_tools,
+            pair_id,
+            target_tools,
         )
         return True
