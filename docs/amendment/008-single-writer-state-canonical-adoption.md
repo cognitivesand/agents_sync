@@ -129,6 +129,108 @@ forbade putting them in the canonical. Resolution, per the user:
 - **Future:** the `metadata` block is the home for the change-history and per-tool
   file timestamps the user proposed — deferred, not built in this pass.
 
+### Governance edits (exact text — awaiting user validation)
+
+KISS: minimal, plain, INCOSE-style; no defensive cross-references. They are
+**proposed**; apply only after user validation. Objectives/vision unchanged.
+
+**G1 — `project_description.md` glossary: `Canonical` entry.**
+
+Original:
+> - **Canonical** — per-customization_artifact JSON document storing the union of
+>   fields from every agentic_tool; the lossless intermediate that drives every renderer.
+
+Proposed:
+> - **Canonical** — per-customization_artifact JSON document storing the union of
+>   fields from every agentic_tool; the lossless intermediate that drives every
+>   renderer. It carries the canonical content itself as well as a nested `metadata`
+>   block.
+
+**G2 — `project_description.md` glossary: two new entries (after `Canonical`).**
+
+> - **`last_modified`** — POSIX timestamp (float) of when a customization_artifact's
+>   user content was last changed, not when its files were last written. Carried in
+>   the canonical's `metadata` block.
+> - **`generation`** — host-local monotonic counter, incremented on each content
+>   change of a customization_artifact. Carried in the canonical's `metadata` block.
+
+**G3 — `project_requirements.md` FR-14 (revise).**
+
+Original:
+> - **FR-14** (Canonical-change detection): The daemon **shall** detect when a
+>   customization_artifact's canonical record has changed independently of its
+>   tool-side files and **shall** re-project the canonical onto every supporting
+>   available tool, preserving any displaced bytes.
+
+Proposed:
+> - **FR-14** (Canonical-change detection): The daemon **shall** detect when a
+>   customization_artifact's canonical content has changed independently of its
+>   tool-side files and **shall** re-project the canonical onto every supporting
+>   available tool, preserving any displaced bytes. Change detection **shall** be
+>   computed over canonical content only, not on the metadata.
+
+**G4 — `US-12` AC-6 (revise the `mtime_wins` and `overwrite` bullets).**
+
+Original (`mtime_wins` bullet):
+> `mtime_wins` (default): … If the import wins, the local canonical is overwritten
+> and every agentic_tool's tool-side file is archived (NFR-01) before re-projection
+> on the next poll. If the local wins, the imported artifact is ignored.
+
+Proposed (`mtime_wins` bullet):
+> `mtime_wins` (default): … If the import wins and its content differs, the local
+> canonical is overwritten and every agentic_tool's tool-side file is archived
+> (NFR-01) before re-projection on the next poll. If the content is identical, only
+> the metadata is updated. If the local wins, the imported artifact is ignored.
+
+Original (`overwrite` bullet):
+> `overwrite`: the imported canonical replaces the local one unconditionally; every
+> local tool-side file is archived (NFR-01) before re-projection.
+
+Proposed (`overwrite` bullet):
+> `overwrite`: the imported canonical replaces the local one unconditionally; when
+> its content differs, every local tool-side file is archived (NFR-01) before
+> re-projection.
+
+**G5 — `US-12` AC-11.** No change. The existing "bit-identical … no-op round trip"
+already holds once metadata is written symmetrically; adding a parenthetical would
+over-explain. Dropped per KISS.
+
+**AC-3 — `US-12` (DRY: read `last_modified` from canonical metadata, not state).**
+
+Per the single-source-of-truth refinement below, `last_modified` lives **only** in
+the canonical `metadata` block; the export carries it from there, not from state.
+
+Original:
+> Then the in-archive copy carries a `last_modified` field whose value equals the
+> artifact's `last_modified` stored in the local `state.json` (a floating-point POSIX
+> timestamp set every time the canonical for that pair is updated by the daemon). The
+> local canonical and `state.json` are not modified by the export.
+
+Proposed:
+> Then the in-archive canonical carries the `last_modified` value from its `metadata`
+> block (a floating-point POSIX timestamp set every time that pair's content is
+> changed by the daemon). The local canonical and `state.json` are not modified by
+> the export.
+
+### DRY refinement — `last_modified` / `generation` leave the state schema
+
+Single source of truth: `last_modified` and `generation` live **only** in the
+canonical `metadata` block, **not** in `state.json`. This supersedes the earlier
+plan to mirror them into state and sync per poll — there is now nothing in state to
+sync. Confirmed feasible: `engine.py` (runtime US-06 conflict resolution) does not
+read them; the only readers are export, import-collision compare, and adoption,
+each of which has the canonical on disk.
+
+- `state.py` `PairState`: remove the `last_modified` and `generation` fields,
+  `bump()`, and their (de)serialization. Backward-compatible — old `state.json`
+  files simply have the fields ignored on load.
+- `rendering.update_state_n_way`: the content-changed stamp writes the canonical
+  `metadata` block (`last_modified=now`, `++generation`), not a state field.
+- `portable_archive` export/import-collision: read `last_modified` from the
+  canonical `metadata` block (local and imported sides) instead of `PairState`.
+- `sync._adopt_orphan_canonicals`: keep reading from canonical metadata (just the
+  nested block); do not write the values into state.
+
 ### Test impact
 - `test_export_then_reimport_is_byte_identical_for_canonicals` (AC-11) passes once
   metadata is written symmetrically (no-op round trip unchanged).
