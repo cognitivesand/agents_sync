@@ -30,18 +30,9 @@ def build_mcp_server_io(
     mcp_dialect = dialect or DEFAULT_MCP_SERVER_DIALECT
 
     def secret_policy() -> str:
-        # Tolerant read: prefer the canonical ``secret_policy`` key but
-        # accept the deprecated ``mcp_server_secret_policy`` as a fall-back
-        # for callers that construct config dicts directly (e.g. tests).
-        # ``apply_mcp_secret_policy`` normalizes the value at entry, so
-        # both old and new spellings reach the policy engine intact.
         if config is None:
             return "secrets_refused"
-        return str(
-            config.get("secret_policy")
-            or config.get("mcp_server_secret_policy")
-            or "secrets_refused"
-        )
+        return str(config.get("secret_policy", "secrets_refused"))
 
     def parse_mcp_server(
         text: str,

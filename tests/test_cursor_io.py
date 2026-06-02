@@ -183,6 +183,20 @@ def test_cursor_command_uses_html_identity_comment_and_preserves_body(
     assert "pair_id:" not in canonical["body"]
 
 
+def test_cursor_command_render_uses_prior_text_newline_style():
+    canonical = {
+        "pair_id": PAIR_ID,
+        "kind": "slash_command",
+        "name": "deploy",
+        "body": "Run $ARGUMENTS\r\n",
+    }
+    prior = f"<!-- agents_sync:pair_id={PAIR_ID} -->\r\nold\r\n"
+
+    rendered = render_cursor_command_md(canonical, prior)
+
+    assert rendered.startswith(f"<!-- agents_sync:pair_id={PAIR_ID} -->\r\n")
+
+
 def test_cursor_mcp_defaults_bare_url_slots_to_streamable_http():
     slot = json.dumps({
         "pair_id": PAIR_ID,

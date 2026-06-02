@@ -11,8 +11,10 @@ It is imported only under ``TYPE_CHECKING`` and used purely as a
 type-checking base (``_WalkerHostBase = _WalkerHost if TYPE_CHECKING else
 object``), so it never alters the mixins' runtime bases or metaclass.
 """
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -25,7 +27,7 @@ from agents_sync.tool_status import ToolStatusTracker
 class _WalkerHost(Protocol):
     """Attributes and methods the discovery mixins read from their host."""
 
-    config: dict[str, Any]
+    config: Mapping[str, Any]
     agentic_tools: dict[str, AgenticToolSpec]
     tool_status: ToolStatusTracker
 
@@ -36,6 +38,4 @@ class _WalkerHost(Protocol):
         slot: str | None = None,
     ) -> str | None: ...
 
-    def _planned_adoption_targets(
-        self, info: CustomizationArtifactInfo
-    ) -> list[PlannedTarget]: ...
+    def _planned_adoption_targets(self, info: CustomizationArtifactInfo) -> list[PlannedTarget]: ...

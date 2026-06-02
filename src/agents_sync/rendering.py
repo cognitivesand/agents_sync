@@ -6,12 +6,14 @@ instance state and do not mutate the caller's objects (other than the
 ``state`` dict explicitly passed to ``update_state_n_way``). Keeping them
 out of the Syncer class lets the orchestrator stay focused on control flow.
 """
+
 from __future__ import annotations
 
 import os
 import shutil
 import sys
 import unicodedata
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -30,14 +32,14 @@ from agents_sync.state import (
     CustomizationArtifactState,
     atomic_write_text,
     ignored_tree_names,
-    sha256_file,
+    sha256_skill_tree_snapshot,
     sha256_text,
-    sha256_tree,
     target_slug,
 )
 from agents_sync.sync_types import RenderResult
 
 # ---------- path identity ----------
+
 
 def path_collision_key(path: Path) -> str:
     """Normalise a path so that two visually-different strings that point to
@@ -72,6 +74,7 @@ def assert_target_available(target: Path, existing_path: Path | None) -> None:
 
 
 # ---------- directory-skill atomic staging ----------
+
 
 def _clear_stale_paths(*paths: Path) -> None:
     """Remove leftover staging siblings (`.tmp` / `.old`) before atomic-swap."""
@@ -126,8 +129,11 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
 
 # ---------- artifact rendering ----------
 
+
 def read_artifact_text(
-    io: CustomizationTypeIO, path: Path, slot: str | None = None,
+    io: CustomizationTypeIO,
+    path: Path,
+    slot: str | None = None,
 ) -> str:
     """Read the artifact-metadata text for an artifact at `path`.
 
@@ -194,7 +200,7 @@ class UnconfiguredRootError(RuntimeError):
 
 
 def render_to_agentic_tool(
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     spec: AgenticToolSpec,
     kind: str,
     canonical: dict[str, Any],
@@ -220,7 +226,10 @@ def render_to_agentic_tool(
     layout = io.file_layout
     if isinstance(layout, SharedKeyedMapLayout):
         return _render_keyed_map_slot(
-            config, io, canonical, slug,
+            config,
+            io,
+            canonical,
+            slug,
             existing_slot=existing_slot,
             allow_unpaired_existing_slot=allow_unpaired_existing_slot,
             prior_text=prior_text,
@@ -234,17 +243,28 @@ def render_to_agentic_tool(
     root = expand_path(raw_root)
     if isinstance(layout, SingleFileLayout):
         return _render_single_file(
-            io, canonical, root, slug, existing_path, prior_text,
+            io,
+            canonical,
+            root,
+            slug,
+            existing_path,
+            prior_text,
         )
     if isinstance(layout, DirectorySkillLayout):
         return _render_directory_skill(
-            io, canonical, root, slug, existing_path, prior_text, source_dir,
+            io,
+            canonical,
+            root,
+            slug,
+            existing_path,
+            prior_text,
+            source_dir,
         )
     raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
 
 def _render_keyed_map_slot(
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     io: CustomizationTypeIO,
     canonical: dict[str, Any],
     slug: str,
@@ -268,7 +288,9 @@ def _render_keyed_map_slot(
         allow_unpaired_existing=allow_unpaired_existing_slot,
     )
     return RenderResult(
-        path=shared_path, slot=slot_key, prior_slot_text=prior_slot_text,
+        path=shared_path,
+        slot=slot_key,
+        prior_slot_text=prior_slot_text,
     )
 
 
@@ -317,6 +339,7 @@ def single_file_target(root: Path, io: CustomizationTypeIO, slug: str) -> Path:
 
 # ---------- state update ----------
 
+
 def update_state_n_way(
     state: dict[str, CustomizationArtifactState],
     pair_id: str,
@@ -327,9 +350,13 @@ def update_state_n_way(
     """Record ``results`` (one per tool) into ``state[pair_id]``, computing
     digests.
 
-    For ``SharedKeyedMapLayout`` results the digest is over the slot text
-    (re-read from the shared file via ``read_slots``); for per-file
-    results it is the existing ``sha256_file`` / ``sha256_tree``.
+    The recorded digest must be computed the same way the discovery walker
+    computes it (``enumerator``), or a poll would see a phantom change: both
+    hash the universal-newline-normalized text the daemon reads, so a CRLF
+    artifact and its LF form are the same content. ``SharedKeyedMapLayout``
+    hashes the slot text (re-read via ``read_slots``); ``SingleFileLayout``
+    hashes the read artifact text; ``DirectorySkillLayout`` hashes the tree
+    with ``SKILL.md`` taken from its read-text snapshot.
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
@@ -342,9 +369,9 @@ def update_state_n_way(
             slot_text = slots.get(result.slot or "", "")
             digest = sha256_text(slot_text)
         elif isinstance(layout, SingleFileLayout):
-            digest = sha256_file(result.path)
+            digest = sha256_text(read_artifact_text(io, result.path))
         elif isinstance(layout, DirectorySkillLayout):
-            digest = sha256_tree(result.path)
+            digest = sha256_skill_tree_snapshot(result.path, read_artifact_text(io, result.path))
         else:
             raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         ps.agentic_tools[tool_name] = AgenticToolState(

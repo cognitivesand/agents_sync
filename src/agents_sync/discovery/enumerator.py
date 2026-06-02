@@ -4,6 +4,7 @@ Mixin consumed by :class:`DiscoveryWalker`. Encapsulates the
 file-walking and shared-keyed-map slot iteration that produce a
 ``{pair_id -> CustomizationArtifactInfo}`` dict.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,9 +27,8 @@ from agents_sync.rendering import (
 from agents_sync.shared_keyed_map_io import read_slots
 from agents_sync.state import (
     CustomizationArtifactState,
-    sha256_file,
+    sha256_skill_tree_snapshot,
     sha256_text,
-    sha256_tree,
 )
 from agents_sync.sync_types import (
     AgenticToolInfo,
@@ -72,10 +72,14 @@ class EnumeratorMixin(_WalkerHostBase):
         except Exception:
             logging.exception(
                 "Cannot read shared keyed-map file: tool=%s type=%s path=%s",
-                tool_name, customization_type, shared_path,
+                tool_name,
+                customization_type,
+                shared_path,
             )
             self._block_state_owners_for_path(
-                shared_path, state, blocked_pair_ids,
+                shared_path,
+                state,
+                blocked_pair_ids,
             )
             return
         if absent_reason is not None:
@@ -86,9 +90,16 @@ class EnumeratorMixin(_WalkerHostBase):
             mtime = 0.0
         for slot_key, slot_text in slots.items():
             self._add_keyed_map_slot_artifact(
-                tool_name, customization_type, io,
-                shared_path, slot_key, slot_text, mtime,
-                pairs, blocked_pair_ids, state,
+                tool_name,
+                customization_type,
+                io,
+                shared_path,
+                slot_key,
+                slot_text,
+                mtime,
+                pairs,
+                blocked_pair_ids,
+                state,
             )
 
     def _add_keyed_map_slot_artifact(
@@ -110,10 +121,16 @@ class EnumeratorMixin(_WalkerHostBase):
         except Exception:
             logging.exception(
                 "Cannot extract pair_id from %s %s slot: path=%s slot=%s",
-                tool_name, customization_type, shared_path, slot_key,
+                tool_name,
+                customization_type,
+                shared_path,
+                slot_key,
             )
             self._block_state_owner_slot(
-                shared_path, slot_key, state, blocked_pair_ids,
+                shared_path,
+                slot_key,
+                state,
+                blocked_pair_ids,
             )
             return
         present = pair_id is not None
@@ -127,24 +144,36 @@ class EnumeratorMixin(_WalkerHostBase):
             except InvalidPairId:
                 logging.error(
                     "Invalid pair_id in %s %s slot: path=%s slot=%s",
-                    tool_name, customization_type, shared_path, slot_key,
+                    tool_name,
+                    customization_type,
+                    shared_path,
+                    slot_key,
                 )
                 self._block_state_owner_slot(
-                    shared_path, slot_key, state, blocked_pair_ids,
+                    shared_path,
+                    slot_key,
+                    state,
+                    blocked_pair_ids,
                 )
                 return
         digest = sha256_text(slot_text)
         info = AgenticToolInfo(
-            shared_path, digest, mtime, present, slot=slot_key,
+            shared_path,
+            digest,
+            mtime,
+            present,
+            slot=slot_key,
         )
         self._insert_agentic_tool(
-            pair_id, customization_type, tool_name, info,
-            pairs, blocked_pair_ids,
+            pair_id,
+            customization_type,
+            tool_name,
+            info,
+            pairs,
+            blocked_pair_ids,
         )
 
-    def _enumerate_artifacts(
-        self, root: Path, io: CustomizationTypeIO
-    ) -> list[Path]:
+    def _enumerate_artifacts(self, root: Path, io: CustomizationTypeIO) -> list[Path]:
         """Return the on-disk artifact paths under ``root`` for this IO cell.
 
         For single-file layouts, returns the matching files. For
@@ -162,13 +191,13 @@ class EnumeratorMixin(_WalkerHostBase):
                 return []
             walker = root.rglob if io.recursive else root.glob
             return sorted(
-                p for p in walker(f"*{layout.file_suffix}")
+                p
+                for p in walker(f"*{layout.file_suffix}")
                 if p.is_file() and not p.name.startswith(".")
             )
         if isinstance(layout, DirectorySkillLayout):
             return sorted(
-                p.parent for p in root.glob("*/SKILL.md")
-                if not p.parent.name.startswith(".")
+                p.parent for p in root.glob("*/SKILL.md") if not p.parent.name.startswith(".")
             )
         raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
@@ -188,7 +217,9 @@ class EnumeratorMixin(_WalkerHostBase):
         except Exception:
             logging.exception(
                 "Cannot read %s %s: path=%s",
-                tool_name, customization_type, path,
+                tool_name,
+                customization_type,
+                path,
             )
             self._block_state_owner(path, state, blocked_pair_ids)
             return
@@ -197,7 +228,9 @@ class EnumeratorMixin(_WalkerHostBase):
         except Exception:
             logging.exception(
                 "Cannot extract pair_id from %s %s: path=%s",
-                tool_name, customization_type, path,
+                tool_name,
+                customization_type,
+                path,
             )
             self._block_state_owner(path, state, blocked_pair_ids)
             return
@@ -212,15 +245,17 @@ class EnumeratorMixin(_WalkerHostBase):
             except InvalidPairId:
                 logging.error(
                     "Invalid pair_id in %s %s: path=%s",
-                    tool_name, customization_type, path,
+                    tool_name,
+                    customization_type,
+                    path,
                 )
                 self._block_state_owner(path, state, blocked_pair_ids)
                 return
         layout = io.file_layout
         if isinstance(layout, SingleFileLayout):
-            digest = sha256_file(path)
+            digest = sha256_text(text)
         elif isinstance(layout, DirectorySkillLayout):
-            digest = sha256_tree(path)
+            digest = sha256_skill_tree_snapshot(path, text)
         else:
             raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         info = AgenticToolInfo(path, digest, path.stat().st_mtime, present)
@@ -252,7 +287,8 @@ class EnumeratorMixin(_WalkerHostBase):
         if tool_name in pair.agentic_tools:
             logging.error(
                 "duplicate pair_id on %s agentic tool: pair_id=%s",
-                tool_name, pair_id,
+                tool_name,
+                pair_id,
             )
             pairs.pop(pair_id, None)
             blocked_pair_ids.add(pair_id)

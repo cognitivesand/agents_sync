@@ -4,6 +4,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 from agents_sync.daemon import _register_signal_if_available, watch
 from agents_sync.sync import SyncResult
 
@@ -35,8 +37,10 @@ def test_sync_result_compares_by_value_and_is_hashable():
     assert first_result != different_result
     assert hash(first_result) == hash(second_result)
     assert {first_result: "seen"}[second_result] == "seen"
-    assert first_result == 1
-    assert 1 == first_result
+    assert first_result != 1
+    with pytest.raises(TypeError):
+        int(first_result)
+    assert "__bool__" not in SyncResult.__dict__
     assert first_result.failed == ("p1",)
     assert first_result.blocked == ("p2",)
 

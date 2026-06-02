@@ -4,8 +4,9 @@ import argparse
 import logging
 import os
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from agents_sync.mcp_secret_policy import (
     ALLOWED_SECRET_POLICIES,
@@ -135,71 +136,77 @@ def platform_defaults(
     os_name: str | None = None,
     env: dict[str, str] | None = None,
     home: Path | None = None,
-) -> dict[str, Any]:
+) -> AgentsSyncConfig:
     platform_name = os.name if os_name is None else os_name
     home_dir = _home_dir(home)
     cursor_root = home_dir / ".cursor"
     if platform_name == "nt":
-        opencode_root = _windows_data_dir(
-            "APPDATA",
-            ("AppData", "Roaming"),
-            env=env,
-            home=home,
-        ) / "opencode"
+        opencode_root = (
+            _windows_data_dir(
+                "APPDATA",
+                ("AppData", "Roaming"),
+                env=env,
+                home=home,
+            )
+            / "opencode"
+        )
     else:
         opencode_root = home_dir / ".config" / "opencode"
-    return {
-        "poll_interval_seconds": 2.0,
-        "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
-        "claude_agents_dir": str(home_dir / ".claude" / "agents"),
-        "claude_commands_dir": str(home_dir / ".claude" / "commands"),
-        "claude_skills_dir": str(home_dir / ".claude" / "skills"),
-        "claude_rules_dir": str(home_dir / ".claude"),
-        "claude_mcp_servers_file": str(home_dir / ".claude.json"),
-        "codex_agents_dir": str(home_dir / ".codex" / "agents"),
-        "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
-        "codex_skills_dir": str(home_dir / ".codex" / "skills"),
-        "codex_rules_dir": str(home_dir / ".codex"),
-        "codex_config_file": str(home_dir / ".codex" / "config.toml"),
-        "cursor_agents_dir": str(cursor_root / "agents"),
-        "cursor_skills_dir": str(cursor_root / "skills"),
-        "cursor_rules_dir": str(cursor_root / "rules"),
-        "cursor_commands_dir": str(cursor_root / "commands"),
-        "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
-        "cursor_enabled": True,
-        # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
-        # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
-        # handles the per-OS separator). Set antigravity_enabled=False to skip
-        # registration entirely.
-        "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
-        "antigravity_enabled": True,
-        "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
-        "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
-        "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
-        "gemini_cli_rules_dir": str(home_dir / ".gemini"),
-        "gemini_cli_settings_file": str(home_dir / ".gemini" / "settings.json"),
-        "gemini_cli_enabled": True,
-        "opencode_agents_dir": str(opencode_root / "agents"),
-        "opencode_commands_dir": str(opencode_root / "commands"),
-        "opencode_skills_dir": str(opencode_root / "skills"),
-        "opencode_rules_dir": str(opencode_root),
-        "opencode_config_file": str(opencode_root / "opencode.json"),
-        "opencode_enabled": True,
-        "copilot_enabled": True,
-        "copilot_cli_enabled": True,
-        "copilot_vscode_user_profile_enabled": True,
-        "copilot_cli_agents_dir": str(home_dir / ".copilot" / "agents"),
-        "copilot_cli_skills_dir": str(home_dir / ".copilot" / "skills"),
-        "copilot_cli_mcp_config_file": str(home_dir / ".copilot" / "mcp-config.json"),
-        "copilot_vscode_user_agents_dir": None,
-        "copilot_vscode_user_instructions_dir": None,
-        "copilot_vscode_user_prompts_dir": None,
-        "copilot_vscode_user_mcp_file": None,
-        "secret_policy": "secrets_refused",
-    }
+    return cast(
+        AgentsSyncConfig,
+        {
+            "poll_interval_seconds": 2.0,
+            "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
+            "claude_agents_dir": str(home_dir / ".claude" / "agents"),
+            "claude_commands_dir": str(home_dir / ".claude" / "commands"),
+            "claude_skills_dir": str(home_dir / ".claude" / "skills"),
+            "claude_rules_dir": str(home_dir / ".claude"),
+            "claude_mcp_servers_file": str(home_dir / ".claude.json"),
+            "codex_agents_dir": str(home_dir / ".codex" / "agents"),
+            "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
+            "codex_skills_dir": str(home_dir / ".codex" / "skills"),
+            "codex_rules_dir": str(home_dir / ".codex"),
+            "codex_config_file": str(home_dir / ".codex" / "config.toml"),
+            "cursor_agents_dir": str(cursor_root / "agents"),
+            "cursor_skills_dir": str(cursor_root / "skills"),
+            "cursor_rules_dir": str(cursor_root / "rules"),
+            "cursor_commands_dir": str(cursor_root / "commands"),
+            "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
+            "cursor_enabled": True,
+            # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
+            # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
+            # handles the per-OS separator). Set antigravity_enabled=False to skip
+            # registration entirely.
+            "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
+            "antigravity_enabled": True,
+            "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
+            "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
+            "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
+            "gemini_cli_rules_dir": str(home_dir / ".gemini"),
+            "gemini_cli_settings_file": str(home_dir / ".gemini" / "settings.json"),
+            "gemini_cli_enabled": True,
+            "opencode_agents_dir": str(opencode_root / "agents"),
+            "opencode_commands_dir": str(opencode_root / "commands"),
+            "opencode_skills_dir": str(opencode_root / "skills"),
+            "opencode_rules_dir": str(opencode_root),
+            "opencode_config_file": str(opencode_root / "opencode.json"),
+            "opencode_enabled": True,
+            "copilot_enabled": True,
+            "copilot_cli_enabled": True,
+            "copilot_vscode_user_profile_enabled": True,
+            "copilot_cli_agents_dir": str(home_dir / ".copilot" / "agents"),
+            "copilot_cli_skills_dir": str(home_dir / ".copilot" / "skills"),
+            "copilot_cli_mcp_config_file": str(home_dir / ".copilot" / "mcp-config.json"),
+            "copilot_vscode_user_agents_dir": None,
+            "copilot_vscode_user_instructions_dir": None,
+            "copilot_vscode_user_prompts_dir": None,
+            "copilot_vscode_user_mcp_file": None,
+            "secret_policy": "secrets_refused",
+        },
+    )
 
 
-DEFAULTS: dict[str, Any] = platform_defaults()
+DEFAULTS: AgentsSyncConfig = platform_defaults()
 
 
 class ConfigError(ValueError):
@@ -285,7 +292,7 @@ _ARG_TO_CONFIG_KEY: tuple[tuple[str, str], ...] = (
 )
 
 
-def merged_config(args: argparse.Namespace) -> dict[str, Any]:
+def merged_config(args: argparse.Namespace) -> AgentsSyncConfig:
     config = dict(DEFAULTS)
     config_path = args.config if args.config is not None else default_config_path()
     config.update(load_external_config(config_path))
@@ -296,11 +303,11 @@ def merged_config(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def normalize_config(
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     *,
     source: str = "config",
     warn_deprecated: bool = True,
-) -> dict[str, Any]:
+) -> AgentsSyncConfig:
     """Return a copy with config aliases and values normalized.
 
     This is the config-boundary mutation point: callers get a fresh dict with
@@ -333,9 +340,11 @@ def normalize_config(
     # spelling.
     raw_policy = normalized.get("secret_policy", DEFAULTS["secret_policy"])
     normalized["secret_policy"] = normalize_secret_policy(
-        str(raw_policy), source=source, warn_deprecated=warn_deprecated,
+        str(raw_policy),
+        source=source,
+        warn_deprecated=warn_deprecated,
     )
-    return normalized
+    return cast(AgentsSyncConfig, normalized)
 
 
 REQUIRED_DIR_KEYS: tuple[str, ...] = (
@@ -384,7 +393,7 @@ OPTIONAL_BOOL_KEYS: tuple[str, ...] = (
 )
 
 
-def validate_config(config: dict[str, Any]) -> None:
+def validate_config(config: Mapping[str, Any]) -> None:
     """Structural validation only.
 
     Per US-11 (graceful agentic_tool absence) and v0.4 plan §3, the
@@ -438,16 +447,17 @@ def validate_config(config: dict[str, Any]) -> None:
         raw_policy = config.get("mcp_server_secret_policy", "secrets_refused")
     try:
         normalize_secret_policy(
-            str(raw_policy), source="validate_config", warn_deprecated=False,
+            str(raw_policy),
+            source="validate_config",
+            warn_deprecated=False,
         )
     except ValueError as exc:
         raise ConfigError(
-            "secret_policy must be "
-            f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
+            f"secret_policy must be {'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
         ) from exc
 
 
-def prepare_state_storage(config: dict[str, Any]) -> Path:
+def prepare_state_storage(config: Mapping[str, Any]) -> Path:
     """Create and verify the state directory, then return it."""
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent

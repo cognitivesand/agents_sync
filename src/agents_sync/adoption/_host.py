@@ -13,6 +13,7 @@ never alters the mixin's runtime bases or metaclass.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -25,7 +26,7 @@ from agents_sync.tool_status import ToolStatusTracker
 class _AdoptionHost(Protocol):
     """Attributes and methods the adoption leaf-mixins read from their host."""
 
-    config: dict[str, Any]
+    config: Mapping[str, Any]
     agentic_tools: dict[str, AgenticToolSpec]
     state_dir: Path
     tool_status: ToolStatusTracker

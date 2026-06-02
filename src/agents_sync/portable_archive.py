@@ -33,6 +33,7 @@ import socket
 import tempfile
 import uuid
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -439,7 +440,7 @@ def import_from_zip(
     state_dir: Path,
     zip_path: Path,
     *,
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     agentic_tools: dict[str, AgenticToolSpec],
 ) -> ImportReport:
     """Restore artifacts from a customization library export.
@@ -484,16 +485,14 @@ def import_from_zip(
 
 
 def _filter_secret_bearing_decisions(
-    decisions: list[_ImportDecision], config: dict[str, Any]
+    decisions: list[_ImportDecision], config: Mapping[str, Any]
 ) -> list[str]:
     """Per-artifact secret filter (US-12 AC-15 / AC-16). The receiver's policy
     ALWAYS overrides whatever the source-host policy was. Under secrets_refused,
     secret-bearing canonicals are de-accepted with one structured WARNING each;
     under secrets_accepted, all are imported verbatim and one summary WARNING is
     emitted. Returns the pair_ids skipped under secrets_refused."""
-    raw_policy = str(
-        config.get("secret_policy") or config.get("mcp_server_secret_policy") or "secrets_refused"
-    )
+    raw_policy = str(config.get("secret_policy", "secrets_refused"))
     normalized_policy = normalize_secret_policy(
         raw_policy,
         source="import_from_zip",

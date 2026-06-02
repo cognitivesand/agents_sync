@@ -53,7 +53,7 @@ def build_codex_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec
         return parse_codex_skill_md(text, prior_canonical=prior_canonical)
 
     def render_skill(canonical: dict[str, Any], prior_text: str | None) -> str:
-        return render_codex_skill_md(canonical)
+        return render_codex_skill_md(canonical, prior_text=prior_text)
 
     def parse_slash_command(
         text: str,

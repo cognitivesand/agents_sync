@@ -141,3 +141,26 @@ def test_main_exits_without_detection_when_migration_lock_is_held(
 
     captured = capsys.readouterr()
     assert "another migration appears to be running" in captured.err
+
+
+def test_restore_path_copy_failure_leaves_live_target_untouched(
+    migrate_mod,
+    monkeypatch,
+    tmp_path,
+):
+    source = tmp_path / "snapshot"
+    source.mkdir()
+    (source / "file.txt").write_text("snapshot", encoding="utf-8")
+    target = tmp_path / "live"
+    target.mkdir()
+    (target / "file.txt").write_text("live", encoding="utf-8")
+
+    def fail_copytree(*_args, **_kwargs):
+        raise OSError("copy failed before live target swap")
+
+    monkeypatch.setattr(migrate_mod.shutil, "copytree", fail_copytree)
+
+    with pytest.raises(OSError, match="copy failed"):
+        migrate_mod._restore_path(source, target)
+
+    assert (target / "file.txt").read_text(encoding="utf-8") == "live"

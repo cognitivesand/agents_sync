@@ -96,6 +96,31 @@ def test_codex_skill_render_then_parse_is_a_fixed_point():
     assert c2["body"] == c1["body"]
 
 
+def test_codex_skill_render_preserves_prior_frontmatter_comments():
+    canonical = empty_canonical("skill")
+    canonical["pair_id"] = "abc-123"
+    canonical["name"] = "my-skill"
+    canonical["description"] = "skill desc"
+    canonical["body"] = "the body"
+    canonical["per_agentic_tool_extra"]["codex"] = {"vendor": "new"}
+    prior = (
+        "---\n"
+        "# keep this comment\n"
+        "pair_id: old\n"
+        "name: old\n"
+        "vendor: old\n"
+        "---\n"
+        "old body\n"
+    )
+
+    rendered = render_codex_skill_md(canonical, prior_text=prior)
+
+    assert "# keep this comment" in rendered
+    assert "pair_id: abc-123" in rendered
+    assert "name: my-skill" in rendered
+    assert "vendor: new" in rendered
+
+
 def test_codex_agent_parse_strips_legacy_review_metadata():
     """A v0.1-style developer_instructions value with the review-metadata tail
     parses into canonical.body without the tail."""

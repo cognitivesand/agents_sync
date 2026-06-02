@@ -123,8 +123,6 @@ def parse_gemini_agent_md(
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
     """Parse a Gemini CLI subagent Markdown file."""
-    del artifact_root
-
     frontmatter_data, body = split_frontmatter(
         text, label="Gemini CLI agent",
     )
@@ -218,8 +216,6 @@ def parse_gemini_skill_md(
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
     """Parse a Gemini CLI Agent Skill ``SKILL.md`` file."""
-    del artifact_path, artifact_root
-
     frontmatter_data, body = split_frontmatter(
         text, label="Gemini CLI SKILL.md",
     )
@@ -295,7 +291,6 @@ def parse_gemini_rules_md(
     artifact_path: Path | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    del artifact_root
     return parse_rules_md(
         text,
         prior_canonical,

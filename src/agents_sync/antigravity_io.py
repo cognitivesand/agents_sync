@@ -20,7 +20,6 @@ from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
 from agents_sync.markdown_yaml_metadata_block import (
-    extract_pair_id_from_md,
     frontmatter_for_render,
     split_frontmatter,
     yaml_dump,
@@ -140,7 +139,6 @@ def render_antigravity_skill_md(
 __all__ = [
     "KNOWN_ANTIGRAVITY_FIELDS",
     "OPTIONAL_ANTIGRAVITY_FIELDS",
-    "extract_pair_id_from_md",
     "parse_antigravity_skill_md",
     "render_antigravity_skill_md",
 ]

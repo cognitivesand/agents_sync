@@ -5,11 +5,11 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from agents_sync.claude_io import extract_pair_id_from_md
 from agents_sync.copilot_io import (
     extract_pair_id_from_copilot_agent_md,
     parse_copilot_skill_md,
 )
+from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
 from agents_sync.sync import Syncer
 
 
@@ -71,7 +71,7 @@ def test_copilot_cli_agent_adopts_and_projects_to_other_agent_tools(tmp_path: Pa
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_copilot_agent_md(source.read_text(encoding="utf-8"))
     assert pair_id is not None
@@ -99,7 +99,7 @@ def test_agent_from_other_tool_projects_to_copilot_agent_md(tmp_path: Path):
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     pair_id = extract_pair_id_from_md(source.read_text(encoding="utf-8"))
     target = syncer.tool_root("copilot", "agent") / "planner.agent.md"
@@ -124,7 +124,7 @@ def test_skill_from_other_tool_keeps_canonical_name_on_copilot_slug_path(tmp_pat
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     target = syncer.tool_root("copilot", "skill") / "release-checklist"
     target_text = (target / "SKILL.md").read_text(encoding="utf-8")
@@ -154,7 +154,7 @@ def test_copilot_prompt_syncs_as_slash_command_with_namespace(tmp_path: Path):
         encoding="utf-8",
     )
 
-    assert syncer.sync_once() == 1
+    assert syncer.sync_once().changed == 1
 
     target = syncer.tool_root("claude", "slash_command") / "git" / "commit.md"
     assert target.exists()
