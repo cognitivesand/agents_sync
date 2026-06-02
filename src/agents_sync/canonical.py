@@ -148,7 +148,9 @@ def canonical_content(canonical: dict[str, Any]) -> dict[str, Any]:
     ``generation``. Those facts must travel with the canonical document, but
     they are not user content and must not affect content-change detection.
     """
-    content = dict(canonical)
+    import copy
+
+    content = copy.deepcopy(canonical)
     content.pop("metadata", None)
     return content
 
@@ -209,7 +211,11 @@ def canonical_digest(canonical: dict[str, Any]) -> str:
     Runtime metadata is excluded, so stamping ``last_modified`` / ``generation``
     does not look like a user-content edit.
     """
-    payload = json.dumps(canonical_content(canonical), sort_keys=True, ensure_ascii=False)
+    payload = json.dumps(
+        canonicalize(canonical_content(canonical)),
+        sort_keys=True,
+        ensure_ascii=False,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

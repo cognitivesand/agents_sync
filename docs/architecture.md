@@ -435,10 +435,10 @@ removal. Dropping a canonical archives it first (US-05 AC-5).
 
 On that foundation, `portable_archive.import_from_zip` becomes a **second entry
 point** that feeds `sync_once`, not a parallel writer. It writes only the
-**canonical store + `state.json` stubs** — never an agentic_tool root (US-12 AC-5,
-canonical-only); the next `sync_once` projects the imported artifacts through the
-unchanged adoption pipeline, so all tool-side writes keep the archive-before-write
-discipline (NFR-01).
+**canonical store** — never `state.json` and never an agentic_tool root (US-12
+AC-5, canonical-only); the next `sync_once` adopts those orphan canonicals and
+projects the imported artifacts through the unchanged adoption pipeline, so all
+tool-side writes keep the archive-before-write discipline (NFR-01).
 
 Import is a **merge keyed by `(customization_type, target_slug(name))`**, not a
 blind restore. `_classify` folds an **incremental** slug index — seeded from local
