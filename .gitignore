@@ -15,5 +15,6 @@ dist/
 *.swp
 *.swo
 
-# Project archive convention (per global CLAUDE.md)
+# Project archive + scratch conventions (per global CLAUDE.md / AGENTS.md §13)
 archive/
+tmp/
