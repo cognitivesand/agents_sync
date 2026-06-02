@@ -12,13 +12,15 @@ Two operations:
     state directory; the zip is materialised atomically (write to a
     sibling temp file, then `os.replace`).
   - `import_from_zip`: reads an export and writes only the canonical store
-    + state stubs. Decisions are made fully in memory before any disk write,
-    so a mid-import failure cannot leave `state.json` half-updated (AC-10).
+    (never `state.json` or tool roots). Decisions are made fully in memory
+    before any disk write, so a mid-import failure cannot leave `state.json`
+    half-updated (AC-10).
 
 `last_modified` is a wall-clock POSIX timestamp in the canonical metadata.
-It is the source of truth for the `last_modified_wins` rule. Wall-clock is
-not monotonic across hosts; clock skew is tie-broken lexicographically by
-`customization_artifact_id` in favour of the local artifact (AC-6 tie rule).
+It is the source of truth for the `last_modified_wins` rule. Wall-clock is not
+monotonic across hosts; ties against a local artifact favour the local artifact,
+and ties within the imported set are resolved by stable lexicographic
+`customization_artifact_id` order.
 """
 
 from __future__ import annotations
@@ -452,15 +454,11 @@ def import_from_zip(
        first; only after *all* stagings succeed are the staged files
        promoted into the live ``canonical/`` directory via ``os.replace``.
        If staging raises midway, the pending directory is removed and no
-       canonical is touched.
-    3. ``state.json`` is the last thing written. A failure during the
-       tool-side projection step does not corrupt state.json — the next
-       sync poll will reconcile from a clean ``canonical/`` directory.
-
-    Note: tool-side files are *not* staged in Phase 1; a mid-import
-    failure during tool projection still leaves the already-projected
-    tool files in place. Adding tool-side staging requires the
-    polymorphic ``FileLayout`` from Phase 2; it is tracked separately.
+       canonical is touched. If promotion raises midway, each already-promoted
+       canonical is complete and later artifacts keep their prior bytes.
+    3. ``state.json`` and tool roots are never written by import. The next
+       sync poll adopts orphan canonicals or re-projects overwritten canonicals
+       from the canonical digest mismatch.
     """
     manifest, canonicals = _read_zip_entries(zip_path)
     _validate_manifest_version(manifest)

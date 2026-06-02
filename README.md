@@ -311,7 +311,7 @@ agents-sync export ~/my-library.zip
 agents-sync import ~/my-library.zip
 ```
 
-The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only** — its canonical document plus a `state.json` stub — and no agentic_tool file is touched by `import` itself; the next daemon `sync_once` projects every imported artifact onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
+The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only**: only its canonical document is promoted into the local canonical store. The import primitive never writes `state.json` and never touches an agentic_tool file; `agents-sync import` then invokes one normal `sync_once` so one-shot CLI imports appear immediately even when the daemon is not running. A daemon poll can also adopt the orphan canonical and project it onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
 
 When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), the `last_modified_wins` rule applies: the candidate with the higher `last_modified` timestamp wins, and ties favour the local artifact. Every operation that would displace local bytes archives them first under `<state_dir>/archive/<pair_id>/<tool>/` (NFR-01), so an unwanted import is recoverable.
 
@@ -368,7 +368,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 **State layout:**
 
 ```text
-state.json                                pair_id -> paths and digests
+state.json                                pair_id -> paths, tool digests, canonical_digest
 canonical/<pair_id>.json                  one canonical document per pair
 archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ```
@@ -399,6 +399,16 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
+### 0.6.0
+
+**Canonical store as source of truth**
+
+- Promoted the canonical store to the authoritative library: tool-side files are projections that can be healed from canonical state.
+- Added schema `4` state baselines with per-pair `canonical_digest`, including migration from schema `3` so canonical-only imports and external canonical edits re-project cleanly.
+- Finished canonical-only import: `import` writes only canonical documents, never `state.json` or tool roots; the daemon adopts orphan canonicals on the next poll.
+- Added bulk-disappearance protection: two or more recorded artifacts vanishing from one available tool are treated as a glitch and re-projected instead of being propagated as deletions.
+- Cross-machine merges reconcile by `(customization_type, target_slug(name))` with `last_modified_wins`; displaced local canonicals and tool bytes are archived before overwrite.
+
 ### 0.5.8
 
 **Canonical import finalization**
@@ -418,12 +428,12 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - Documentation coherence: the architecture and README now describe the shipped v0.6 canonical-as-truth behaviour.
 - Internal refactor (behaviour-preserving): extracted the canonical-projection mixin and split `sync_once` / `import_from_zip` into per-concern helpers.
 
-### 0.5.6 (v0.6 canonical-as-truth)
+### 0.5.6 (canonical-as-truth preview)
 
 **Canonical store is the source of truth**
 
 - Inverted the model (NFR-16): the canonical document under `state_dir/canonical/` is authoritative and every tool-side file is a projection of it.
-- `import` is now **canonical-only** (Decision A, US-12 AC-5): it writes canonical documents plus `state.json` stubs and touches no agentic_tool file; the next daemon `sync_once` projects them. This **supersedes** the 0.4.3 render-on-import behaviour below.
+- `import` is now **canonical-only** (Decision A, US-12 AC-5): it writes canonical documents and touches no agentic_tool file; the next daemon `sync_once` projects them. This **supersedes** the 0.4.3 render-on-import behaviour below.
 - Added canonical-change detection (FR-14): a canonical edited out of band is re-projected onto every supporting tool, displaced bytes archived.
 - Import may run **while the daemon is active** (FR-15). (Known gap: the "identical to sequential" guarantee is not yet enforced by a cross-process lock on the shared state record.)
 - Added cross-machine merge: same-(kind, name) canonicals minted on two hosts reconcile to one managed artifact, newest winning, the loser archived (US-12 AC-17/19).
@@ -464,8 +474,8 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ### 0.4.3
 
 - Added portable library snapshot: `agents-sync export <file.zip>` serialises every managed agent and skill into a single zip, and `agents-sync import <file.zip>` restores or merges that zip into a local install. See [Backup, Restore, Share](#backup-restore-share).
-- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp (the source of truth for the `last_modified_wins` collision rule). Pre-1.0 cutover: v2 state files are regenerated on first boot.
-- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in v0.6 / 0.5.6: import is now canonical-only and the next `sync_once` projects — see above.)*
+- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp. Pre-1.0 cutover: v2 state files are regenerated on first boot.
+- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in 0.6.0: import is now canonical-only and the next `sync_once` projects — see above.)*
 
 ### 0.4.1
 

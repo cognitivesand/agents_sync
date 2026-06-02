@@ -4,8 +4,8 @@ record nor lose user-authored content, and the interleaving must converge to the
 same managed state as running them sequentially.
 
 Two mechanisms realise FR-15 and are pinned here:
-  1. ``state.atomic_write_text`` (unique temp + ``os.replace``) — a daemon poll
-     reading ``state.json`` while an import writes it never observes a torn record.
+  1. ``import`` is canonical-only and never writes ``state.json``; the daemon is
+     the single state writer.
   2. canonical-as-truth idempotent reconcile (FR-14) — a poll interleaved with an
      import converges regardless of ordering.
 """
@@ -74,7 +74,7 @@ def _import(syncer, zip_path: Path):
     )
 
 
-# A library large enough to widen the import's state-write window for the reader.
+# A library large enough to make interleaving with a daemon poll meaningful.
 _IMPORTED = [
     _canonical(f"22222222-2222-4333-8444-5555555555{n:02d}", f"beta{n}", f"body-{n}", 500.0)
     for n in range(12)

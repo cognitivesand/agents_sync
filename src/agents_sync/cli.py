@@ -267,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Deprecated alias for the canonical --secret-policy flag. Accepts the
     # old value spellings (refuse / redact / permissive) plus the new ones,
     # so existing scripts keep working while the deprecation warning
-    # surfaces in the logs. To be removed in v0.6.
+    # surfaces in the logs. Retained for pre-1.0 compatibility.
     parser.add_argument(
         "--mcp-server-secret-policy",
         choices=[
@@ -398,8 +398,8 @@ def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
             len(report.skipped_secret_artifacts),
             report.skipped_secret_artifacts,
         )
-    # Canonical-only import only writes canonicals + state stubs; project them now
-    # so the one-shot CLI import takes effect without the daemon running.
+    # Canonical-only import only writes canonicals; run one sync poll now so the
+    # one-shot CLI import takes effect without the daemon running.
     Syncer(config).sync_once()
     return 0
 

@@ -15,7 +15,8 @@ from typing import Any
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import InvalidPairId, validate_pair_id
 
-STATE_SCHEMA_VERSION = 3
+STATE_SCHEMA_VERSION = 4
+_LEGACY_SCHEMA_VERSION_WITHOUT_CANONICAL_DIGEST = 3
 
 
 class StateQuarantineError(RuntimeError):
@@ -264,22 +265,24 @@ def state_path(state_dir: Path) -> Path:
 
 
 def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
-    """Read ``state.json`` at the current ``STATE_SCHEMA_VERSION`` (v3).
+    """Read ``state.json`` at the current ``STATE_SCHEMA_VERSION`` (v4).
 
-    v0.4.1 introduced schema v3 (per-pair ``last_modified`` + per-tool
-    ``slot``); v0.5 added the monotonic ``generation`` field. Older
-    envelopes (v1, v2) are not migrated â€” v0.x was a pre-1.0 cutover and
-    state-rebuild was always the documented recovery. This function only
-    accepts the current schema_version constant; mismatches log at INFO
-    and return an empty state.
+    v0.6 introduced schema v4 with per-pair ``canonical_digest``. Schema v3
+    files are accepted and migrated in memory by deriving that digest from the
+    on-disk canonical, establishing the canonical as the recorded source of
+    truth without causing a spurious re-projection. Older envelopes (v1, v2) are
+    not migrated â€” v0.x was a pre-1.0 cutover and state-rebuild was always the
+    documented recovery.
 
     Anomalies are differentiated so the operator can tell silent rebuilds
     from genuine partial-write recovery:
 
     - **Absent** (no file): return ``{}`` quietly. This is the normal
       first-boot path.
-    - **Wrong schema version** (older v0.x cutover): log INFO, rebuild
-      empty (the documented v0.4 policy for our two pre-1.0 users).
+    - **Schema v3**: load and initialise missing ``canonical_digest`` fields
+      from the canonical store.
+    - **Wrong older schema version** (v1/v2 cutover): log INFO, rebuild empty
+      (the documented v0.4 policy for our two pre-1.0 users).
     - **Corrupt** (unparseable JSON or wrong top-level shape): move the
       offending file to ``state_dir/quarantine/state-<timestamp>.json``,
       log ERROR with the quarantine path, then rebuild empty. The user
@@ -301,10 +304,15 @@ def load_state(state_dir: Path) -> dict[str, CustomizationArtifactState]:
         _quarantine_corrupt(state_dir, path, reason="root is not a JSON object")
         return {}
     schema_version = data.get("schema_version")
-    if schema_version != STATE_SCHEMA_VERSION:
+    accepted_schema_versions = {
+        STATE_SCHEMA_VERSION,
+        _LEGACY_SCHEMA_VERSION_WITHOUT_CANONICAL_DIGEST,
+    }
+    if schema_version not in accepted_schema_versions:
         logging.info(
-            "state.json schema_version=%r is not %d; rebuilding from scratch: %s",
+            "state.json schema_version=%r is not %d or %d; rebuilding from scratch: %s",
             schema_version,
+            _LEGACY_SCHEMA_VERSION_WITHOUT_CANONICAL_DIGEST,
             STATE_SCHEMA_VERSION,
             path,
         )

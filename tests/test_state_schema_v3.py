@@ -1,8 +1,8 @@
-"""State schema v3 with canonical-owned runtime metadata.
+"""State schema v4 with canonical-owned runtime metadata.
 
 These tests cover the schema bump itself: serialisation, deserialisation,
-the v2-or-older rebuild policy, and the rule that content changes stamp
-canonical metadata instead of state.
+the v3 migration, the v2-or-older rebuild policy, and the rule that content
+changes stamp canonical metadata instead of state.
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ from agents_sync.state import (
 )
 
 
-def test_schema_version_is_three():
+def test_schema_version_is_four():
     """Pinning the version keeps callers honest about the migration cutover."""
-    assert STATE_SCHEMA_VERSION == 3
+    assert STATE_SCHEMA_VERSION == 4
 
 
 def test_to_dict_excludes_canonical_metadata():
@@ -69,7 +69,7 @@ def test_from_dict_tolerates_missing_legacy_metadata_fields():
 
 
 def test_agentic_tool_state_omits_slot_when_none():
-    """v3 stays byte-stable for non-keyed-map artifacts: an unset slot does
+    """Non-keyed-map artifacts stay compact: an unset slot does
     not appear in to_dict, so existing state files are not rewritten with
     an extra key on the next save cycle."""
     encoded = AgenticToolState(path=Path("/x.md"), last_seen="d", last_written="d").to_dict()
@@ -106,7 +106,7 @@ def test_agentic_tool_state_from_dict_tolerates_missing_slot():
 
 
 def test_load_state_rebuilds_when_schema_version_is_two(tmp_path: Path):
-    """v2 → v3 cutover follows the existing policy: regenerate from scratch."""
+    """v2 → v4 cutover follows the existing policy: regenerate from scratch."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     (state_dir / "state.json").write_text(
@@ -158,7 +158,7 @@ def test_content_change_stamps_canonical_last_modified(syncer):
     after = time.time()
 
     raw = json.loads((syncer.state_dir / "state.json").read_text())
-    assert raw["schema_version"] == 3
+    assert raw["schema_version"] == 4
     entries = raw["customization_artifacts"]
     assert entries, "adoption did not record any state"
     entry = next(iter(entries.values()))
@@ -229,7 +229,7 @@ def test_load_state_quarantines_non_dict_root(tmp_path: Path):
 
 
 def test_load_state_does_not_quarantine_legacy_schema_versions(tmp_path: Path):
-    """v2 -> v3 cutover is an expected rebuild, not a corruption signal."""
+    """v2 -> v4 cutover is an expected rebuild, not a corruption signal."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     (state_dir / "state.json").write_text(
