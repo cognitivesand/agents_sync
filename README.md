@@ -406,10 +406,10 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ./scripts/ci.sh
 ```
 
-**Enable the automatic pre-push gate once per clone** so the gate runs on every `git push` (bypass deliberately with `git push --no-verify`):
+**Set up once per clone** — installs dev dependencies and enables the automatic pre-push gate so `./scripts/ci.sh` runs on every `git push` (bypass deliberately with `git push --no-verify`):
 
 ```bash
-git config core.hooksPath .githooks
+./scripts/dev_setup.sh
 ```
 
 GitHub Actions (`.github/workflows/remote_ci_test.yml`) runs only the checks that cannot be reproduced on a Linux developer machine — today, the Windows `pytest` job (file locking, path handling); a macOS job may be added later. Everything reproducible on Linux is covered by the local gate.
