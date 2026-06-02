@@ -1,0 +1,46 @@
+name: Mark merged branch stale
+
+# When a same-repo PR is merged, rename its head branch to
+# stale/<YYYY-MM-DD>/<original-name>. The date is the merge date; the
+# scheduled "Delete old stale branches" workflow reads it back to apply a
+# 30-day deletion clock. Requires the repo setting
+# "Automatically delete head branches" to be OFF, or the head ref is gone
+# before this can rename it. Fork PRs are skipped (their head lives in
+# another repo and cannot be renamed by this token).
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  rename:
+    if: >
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const ref = context.payload.pull_request.head.ref;
+            const sha = context.payload.pull_request.head.sha;
+            if (ref.startsWith('stale/') || ref === context.payload.repository.default_branch) {
+              core.info(`Skipping ${ref}`);
+              return;
+            }
+            const stamp = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD (UTC)
+            const staleRef = `stale/${stamp}/${ref}`;
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/heads/${staleRef}`,
+              sha,
+            });
+            await github.rest.git.deleteRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${ref}`,
+            });
+            core.info(`Renamed ${ref} -> ${staleRef}`);
