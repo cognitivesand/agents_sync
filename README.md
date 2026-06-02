@@ -399,6 +399,14 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
+### 0.6.0
+
+**Canonical store as source of truth + cross-machine merge**
+
+- Promotes the canonical store to the behavioural source of truth: the daemon detects a canonical that changed independently of its tool files and re-projects it (FR-14), heals a disk-absent canonical, and archives displaced bytes.
+- Adds the portable customization-library export/import for cross-machine merge under the `last_modified_wins` rule (US-12).
+- Folds in the round-2 P0 audit fixes, the US-15 framework-specific rules egress guard, `AgentsSyncConfig`/`Mapping` boundary typing, and line-ending-insensitive change detection.
+
 ### 0.5.8
 
 **Canonical import finalization**
