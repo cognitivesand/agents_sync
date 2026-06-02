@@ -7,6 +7,7 @@ trailing whitespace) write byte-identical state files.
 from __future__ import annotations
 
 from agents_sync.canonical import (
+    canonical_content,
     canonical_digest,
     canonical_equal,
     canonical_last_modified,
@@ -114,10 +115,35 @@ def test_canonical_metadata_round_trip_helpers():
     assert canonical_last_modified(a) == 123.5
 
 
+def test_canonical_content_returns_deep_copy_without_metadata():
+    a = empty_canonical("agent")
+    a["tools"] = ["Read"]
+    set_canonical_metadata(a, last_modified=123.5, generation=4)
+
+    content = canonical_content(a)
+    content["tools"].append("Edit")
+
+    assert "metadata" not in content
+    assert a["tools"] == ["Read"]
+    assert canonical_metadata(a) == {"last_modified": 123.5, "generation": 4}
+
+
 def test_canonical_digest_excludes_metadata():
     a = empty_canonical("agent")
     b = dict(a)
     set_canonical_metadata(a, last_modified=1.0, generation=1)
     set_canonical_metadata(b, last_modified=2.0, generation=2)
+
+    assert canonical_digest(a) == canonical_digest(b)
+
+
+def test_canonical_digest_uses_canonicalized_content():
+    a = empty_canonical("agent")
+    a["tools"] = ["Read", "Bash"]
+    a["body"] = "line1\r\n"
+    b = empty_canonical("agent")
+    b["pair_id"] = a["pair_id"]
+    b["tools"] = ["Bash", "Read"]
+    b["body"] = "line1\n"
 
     assert canonical_digest(a) == canonical_digest(b)

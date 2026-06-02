@@ -114,7 +114,7 @@ def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
     try:
         while True:
             try:
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                 break
             except OSError:
                 if time.monotonic() >= deadline:
@@ -128,7 +128,7 @@ def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
         finally:
             try:
                 os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
             except OSError:
                 logging.exception("msvcrt unlock failed for %s", lock_path)
     finally:
