@@ -145,25 +145,51 @@ captured here once run.
 
 ---
 
-## 5. Bug_remediation_plan  *(Freedman)* — draft
+## 5. Bug_remediation_plan  *(Freedman)* — settled
 
-**Spine (DRY mandate): a single identity-assignment process.** One function is
-the *sole* caller of `new_pair_id()`. It mints an id only at the moment the
-artifact is durably recorded (first successful adoption / canonical write), and
-**never on a bare discovery pass**. The 19 current call sites route through it or
-are removed. This makes RC-1 structurally impossible (you cannot mint without
-recording) and satisfies DRY / SRP / SoC.
+**Why 19 mint sites.** Every adapter `parse()` repeats the same block
+(`claude_io.py:108-111` and twins): *embedded id → use it; else → `new_pair_id()`*.
+Copy-pasted once per tool × customization-type (~13) + 2 discovery sites +
+`empty_canonical` = 19. One concept, nineteen implementations.
 
-Open design questions (need a decision before coding):
-1. Where the single mint-and-record chokepoint lives (adoption engine vs a small
-   `identity` service) and how discovery references an as-yet-unadopted artifact
-   without minting (e.g. a path-derived provisional key).
-2. Quarantine threshold: consecutive failed reads/adoptions of a path before it
-   is quarantined and skipped (RC-3).
-3. Whether quarantined artifacts are excluded from the crash-loop counter so the
-   daemon stays up (RC-4).
-4. Archive retention policy: max age / entries / bytes, and daemon vs separate
-   maintenance command (RC-5).
+**Spine (DRY mandate, decision: single identity service).** Introduce one
+`identity` module that is the **sole caller of `new_pair_id()`** and mints
+*with a record sink* — it refuses to produce an id unless the caller is recording
+it. Every adapter `parse()` and both discovery sites route through it; no bare
+`new_pair_id()` remains elsewhere. Makes RC-1 structurally impossible and
+satisfies DRY / SRP / SoC.
+
+**Decisions (locked):**
+1. **Mint chokepoint** — single `identity` service, mint-with-sink (above).
+2. **Quarantine (RC-3)** — quarantine a path after **2** consecutive failed
+   reads/adoptions; **clean logging**: one WARN when a path enters quarantine,
+   no per-poll ERROR spam; auto-clear when the path parses again.
+3. **Crash-loop (RC-4)** — a quarantined artifact is **excluded from the
+   consecutive-failed-poll exit counter** (daemon stays up), but is **always
+   counted and surfaced** in the poll result / daemon status as a persistent
+   `quarantined` count so it is never silently forgotten.
+4. **Archive retention (RC-5)** — tiered age-based downsampling GC, run on a
+   low-frequency daemon tick, plus an `agents-sync prune` command:
+   - `< 7 days`: keep all.
+   - `7–30 days`: keep newest **4 per calendar day**, delete the rest.
+   - `30–365 days`: keep newest **1 per calendar day**.
+   - `> 365 days`: delete.
+
+**Prevention (prevent > detect > document):** the single mint-with-record
+chokepoint (prevents RC-1 by construction); quarantine-after-2 (prevents the
+churn class RC-3); the archive GC (prevents RC-5 unbounded growth); the
+crash-loop exclusion keeps the daemon alive (RC-4) while the `quarantined` count
+makes the residual fault loud (detection).
+
+**Wider issue:** fix the whole mint *class* now (all 19 sites → one service),
+not just clean-stories. RC-4/RC-5 are individual structural gaps fixed alongside.
+
+**Architecture fit:** the `identity` service is a new small SRP module under
+`agents_sync/`; quarantine state lives with `state`/`tool_status`; GC lives with
+`archive.py`; `prune` is a CLI subcommand. No layering inversion.
+
+**Gate:** met — removes every root cause, addresses the class, includes
+prevention, fits the architecture.
 
 ## 6. Docs_update — pending
 ## 7. Code_correction — pending
