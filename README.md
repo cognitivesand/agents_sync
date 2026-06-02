@@ -400,13 +400,21 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🧪 Development
 
-Run the local CI gate before every push. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite — this is the project's primary CI gate. GitHub Actions runs only the Windows `pytest` job, because Windows-specific runtime behaviour (file locking, path handling) cannot be reproduced on a Linux developer machine; everything else is verified locally here:
+`./scripts/ci.sh` is the project's primary CI gate. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite, aborting on the first failing stage:
 
 ```bash
 ./scripts/ci.sh
 ```
 
-The first failing stage aborts with a non-zero exit code. For the end-to-end export/import flow against two throwaway installs, run `./scripts/integration_tests.sh`.
+**Enable the automatic pre-push gate once per clone** so the gate runs on every `git push` (bypass deliberately with `git push --no-verify`):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+GitHub Actions (`.github/workflows/remote_ci_test.yml`) runs only the checks that cannot be reproduced on a Linux developer machine — today, the Windows `pytest` job (file locking, path handling); a macOS job may be added later. Everything reproducible on Linux is covered by the local gate.
+
+For the end-to-end export/import flow against two throwaway installs, run `./scripts/integration_tests.sh`.
 
 ---
 

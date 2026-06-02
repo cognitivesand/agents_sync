@@ -1,11 +1,11 @@
-name: Windows tests
+name: Remote CI tests
 
 # Linux verification (ruff, mypy --strict, full pytest) runs locally via
-# ./scripts/ci.sh before every push — that is the project's primary CI gate.
-# GitHub runs only the Windows pytest job, because Windows-specific runtime
-# behaviour (msvcrt file locking, path handling) cannot be reproduced on a
-# Linux developer machine. macOS needs no runner: its installer tests are
-# simulated and pass under the local Linux gate.
+# ./scripts/ci.sh, enforced automatically by the .githooks/pre-push hook —
+# that is the project's primary CI gate. This workflow runs only the checks
+# that cannot be reproduced on a Linux developer machine. Today that is the
+# Windows pytest job (msvcrt file locking, path handling); a macOS job can be
+# added here the same way if macOS-only behaviour ever needs remote coverage.
 
 on:
   push:
