@@ -40,6 +40,7 @@ Built by [CognitiveSand](https://cognitivesand.ai/en/).
 - [Uninstall](#uninstall)
 - [Default Paths](#default-paths)
 - [Notes](#notes)
+- [Development](#development)
 - [Changelog](#changelog)
 - [Documentation](#documentation)
 - [License](#license)
@@ -392,6 +393,20 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 - **GitHub Copilot limitations:** this adapter manages user-level Copilot CLI agents, skills, and MCP servers plus explicitly configured VS Code user-profile instructions and prompts. It does not sync repository `.github/` files, workspace `.vscode/mcp.json`, VS Code user MCP files, GitHub.com organization customizations, Copilot cloud agent settings, hooks, plugin packages, or extension-contributed customizations.
 - This tool was developed with the support of Claude Code, Codex, GitHub Copilot, Cursor, Google Antigravity, and OpenCode.
 - Learn more about CognitiveSand, the team behind this project, at [cognitivesand.ai](https://cognitivesand.ai/en/).
+
+---
+
+<a id="development"></a>
+
+## 🧪 Development
+
+Run the local CI gate before every push. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite — the static checks live here on purpose, because the GitHub workflow runs only the cross-platform `pytest` matrix:
+
+```bash
+./scripts/ci.sh
+```
+
+The first failing stage aborts with a non-zero exit code. For the end-to-end export/import flow against two throwaway installs, run `./scripts/integration_tests.sh`.
 
 ---
 
