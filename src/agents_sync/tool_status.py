@@ -9,6 +9,7 @@ status-probing logic alongside its discovery and reconciliation duties.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
@@ -25,7 +26,7 @@ class ToolStatusTracker:
 
     def __init__(
         self,
-        config: dict[str, Any],
+        config: Mapping[str, Any],
         agentic_tools: dict[str, AgenticToolSpec],
     ) -> None:
         self.config = config

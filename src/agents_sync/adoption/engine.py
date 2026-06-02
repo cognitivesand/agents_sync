@@ -13,7 +13,7 @@ operations are kept as composed mixins:
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +51,7 @@ class AdoptionEngine(
 
     def __init__(
         self,
-        config: dict[str, Any],
+        config: Mapping[str, Any],
         agentic_tools: dict[str, AgenticToolSpec],
         state_dir: Path,
         tool_status: ToolStatusTracker,

@@ -10,6 +10,7 @@ responsibilities live in dedicated mixins (see :mod:`enumerator`,
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,7 @@ class DiscoveryWalker(
 
     def __init__(
         self,
-        config: dict[str, Any],
+        config: Mapping[str, Any],
         agentic_tools: dict[str, AgenticToolSpec],
         tool_status: ToolStatusTracker,
     ) -> None:

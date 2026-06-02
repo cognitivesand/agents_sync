@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,6 @@ from agents_sync.agentic_tool_spec import (
 )
 from agents_sync.canonical import is_private
 from agents_sync.config import (
-    AgentsSyncConfig,
     expand_path,
     normalize_config,
     prepare_state_storage,
@@ -77,10 +77,10 @@ class SyncResult:
 class Syncer:
     def __init__(
         self,
-        config: dict[str, Any],
+        config: Mapping[str, Any],
         agentic_tools: dict[str, AgenticToolSpec] | None = None,
     ) -> None:
-        self.config: AgentsSyncConfig = normalize_config(
+        self.config: Mapping[str, Any] = normalize_config(
             config,
             source="syncer",
             warn_deprecated=False,

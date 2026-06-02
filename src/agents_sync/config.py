@@ -395,7 +395,7 @@ OPTIONAL_BOOL_KEYS: tuple[str, ...] = (
 )
 
 
-def validate_config(config: dict[str, Any]) -> None:
+def validate_config(config: Mapping[str, Any]) -> None:
     """Structural validation only.
 
     Per US-11 (graceful agentic_tool absence) and v0.4 plan §3, the
@@ -465,7 +465,7 @@ def validate_config(config: dict[str, Any]) -> None:
         ) from exc
 
 
-def prepare_state_storage(config: dict[str, Any]) -> Path:
+def prepare_state_storage(config: Mapping[str, Any]) -> Path:
     """Create and verify the state directory, then return it."""
     state_path = expand_path(config["state_path"])
     state_parent = state_path.parent

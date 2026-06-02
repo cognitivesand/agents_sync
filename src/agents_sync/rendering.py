@@ -14,6 +14,7 @@ import shutil
 import sys
 import time
 import unicodedata
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -201,7 +202,7 @@ class UnconfiguredRootError(RuntimeError):
 
 
 def render_to_agentic_tool(
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     spec: AgenticToolSpec,
     kind: str,
     canonical: dict[str, Any],
@@ -265,7 +266,7 @@ def render_to_agentic_tool(
 
 
 def _render_keyed_map_slot(
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     io: CustomizationTypeIO,
     canonical: dict[str, Any],
     slug: str,

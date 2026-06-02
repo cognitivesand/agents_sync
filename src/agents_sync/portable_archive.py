@@ -38,6 +38,7 @@ import socket
 import tempfile
 import uuid
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -467,7 +468,7 @@ def _archive_displaced_tool_files(
 
 def _participating_tools(
     kind: str,
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     agentic_tools: dict[str, AgenticToolSpec],
     tool_status: ToolStatusTracker,
 ) -> list[tuple[str, AgenticToolSpec]]:
@@ -520,7 +521,7 @@ def import_from_zip(
     zip_path: Path,
     *,
     strategy: CollisionStrategy,
-    config: dict[str, Any],
+    config: Mapping[str, Any],
     agentic_tools: dict[str, AgenticToolSpec],
 ) -> ImportReport:
     """Restore artifacts from a customization library export.
