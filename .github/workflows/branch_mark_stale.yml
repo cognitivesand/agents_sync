@@ -7,6 +7,10 @@ name: Mark merged branch stale
 # "Automatically delete head branches" to be OFF, or the head ref is gone
 # before this can rename it. Fork PRs are skipped (their head lives in
 # another repo and cannot be renamed by this token).
+#
+# Protected branches are skipped, so a long-lived trunk (e.g. the staging
+# branch promoted into the default branch) is never marked stale or
+# deleted. Protect any integration branch you want this to leave alone.
 
 on:
   pull_request:
@@ -29,6 +33,24 @@ jobs:
             if (ref.startsWith('stale/') || ref === context.payload.repository.default_branch) {
               core.info(`Skipping ${ref}`);
               return;
+            }
+            // Never touch a protected branch — that is how a long-lived trunk
+            // (e.g. the staging branch promoted into the default branch) opts
+            // out of being renamed and deleted.
+            try {
+              const { data: branch } = await github.rest.repos.getBranch({
+                owner: context.repo.owner, repo: context.repo.repo, branch: ref,
+              });
+              if (branch.protected) {
+                core.info(`Skipping protected branch ${ref}`);
+                return;
+              }
+            } catch (e) {
+              if (e.status === 404) {
+                core.info(`Head branch ${ref} already gone; nothing to rename`);
+                return;
+              }
+              throw e;
             }
             const stamp = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD (UTC)
             const staleRef = `stale/${stamp}/${ref}`;
