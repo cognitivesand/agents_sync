@@ -53,7 +53,7 @@ _CURATED_INTEGRATION_MODULES: frozenset[str] = frozenset(
     {
         "test_e2e_sync.py",
         "test_first_boot_reconciliation.py",
-        "test_v0_4_1_matrix.py",
+        "test_cross_adapter_adoption_matrix.py",
         "test_migrate_v0_4_e2e.py",
         "test_mcp_real_adapters.py",
         "test_rules_real_adapters.py",
