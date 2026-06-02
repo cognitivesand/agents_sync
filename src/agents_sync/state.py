@@ -1,4 +1,4 @@
-﻿"""State store â€” pair_id-keyed index + filesystem helpers."""
+"""State store â€” pair_id-keyed index + filesystem helpers."""
 
 from __future__ import annotations
 
@@ -143,7 +143,6 @@ class CustomizationArtifactState:
         )
 
 
-
 def slugify(value: str) -> str:
     value = value.strip().lower()
     value = re.sub(r"[^a-z0-9_-]+", "-", value)
@@ -201,6 +200,29 @@ def sha256_tree(root: Path) -> str:
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(sha256_file(path).encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def sha256_skill_tree_snapshot(root: Path, skill_md_text: str) -> str:
+    """Hash a skill tree, hashing ``SKILL.md`` from an already-read text snapshot.
+
+    The discovery walker and the projection-record path both call this so a
+    skill's recorded digest and its freshly-discovered digest agree. ``SKILL.md``
+    is hashed as ``sha256_text`` over the universal-newline-normalized text the
+    daemon actually parses (TOCTOU-safe and line-ending-insensitive); sibling
+    files are hashed by raw bytes.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file() and not is_ignored_tree_path(p)):
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        if relative == "SKILL.md":
+            file_digest = sha256_text(skill_md_text)
+        else:
+            file_digest = sha256_file(path)
+        digest.update(file_digest.encode("ascii"))
         digest.update(b"\0")
     return digest.hexdigest()
 

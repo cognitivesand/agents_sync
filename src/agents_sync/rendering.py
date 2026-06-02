@@ -32,8 +32,7 @@ from agents_sync.state import (
     CustomizationArtifactState,
     atomic_write_text,
     ignored_tree_names,
-    is_ignored_tree_path,
-    sha256_file,
+    sha256_skill_tree_snapshot,
     sha256_text,
     target_slug,
 )
@@ -351,9 +350,13 @@ def update_state_n_way(
     """Record ``results`` (one per tool) into ``state[pair_id]``, computing
     digests.
 
-    For ``SharedKeyedMapLayout`` results the digest is over the slot text
-    (re-read from the shared file via ``read_slots``); for per-file
-    results it is the existing ``sha256_file`` / ``sha256_tree``.
+    The recorded digest must be computed the same way the discovery walker
+    computes it (``enumerator``), or a poll would see a phantom change: both
+    hash the universal-newline-normalized text the daemon reads, so a CRLF
+    artifact and its LF form are the same content. ``SharedKeyedMapLayout``
+    hashes the slot text (re-read via ``read_slots``); ``SingleFileLayout``
+    hashes the read artifact text; ``DirectorySkillLayout`` hashes the tree
+    with ``SKILL.md`` taken from its read-text snapshot.
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
@@ -368,10 +371,7 @@ def update_state_n_way(
         elif isinstance(layout, SingleFileLayout):
             digest = sha256_text(read_artifact_text(io, result.path))
         elif isinstance(layout, DirectorySkillLayout):
-            digest = _sha256_skill_tree_with_text_snapshot(
-                result.path,
-                read_artifact_text(io, result.path),
-            )
+            digest = sha256_skill_tree_snapshot(result.path, read_artifact_text(io, result.path))
         else:
             raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         ps.agentic_tools[tool_name] = AgenticToolState(
@@ -380,28 +380,3 @@ def update_state_n_way(
             last_written=digest,
             slot=result.slot,
         )
-
-
-def _sha256_skill_tree_with_text_snapshot(root: Path, skill_md_text: str) -> str:
-    """Hash a skill tree the same way discovery does.
-
-    ``SKILL.md`` is text-normalised before hashing so a Windows-authored CRLF
-    edit and the daemon's LF-normalised render converge to the same digest.
-    Auxiliary files stay byte-exact.
-    """
-    import hashlib
-
-    digest = hashlib.sha256()
-    for path in sorted(
-        p for p in root.rglob("*") if p.is_file() and not is_ignored_tree_path(p)
-    ):
-        relative = path.relative_to(root).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        if relative == "SKILL.md":
-            file_digest = sha256_text(skill_md_text)
-        else:
-            file_digest = sha256_file(path)
-        digest.update(file_digest.encode("ascii"))
-        digest.update(b"\0")
-    return digest.hexdigest()

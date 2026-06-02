@@ -4,7 +4,8 @@ set -Eeuo pipefail
 APP_NAME="agents-sync"
 LAUNCHD_LABEL="com.agents-sync.daemon"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${PROJECT_DIR}/.venv"
+INSTALL_DIR="${HOME}/.local/share/${APP_NAME}"
+VENV_DIR="${INSTALL_DIR}/venv"
 BIN_DIR="${HOME}/.local/bin"
 STATE_DIR="${HOME}/.local/state/${APP_NAME}"
 CONFIG_DIR="${HOME}/.config/${APP_NAME}"
@@ -20,7 +21,7 @@ Usage:
 
 What it does:
   - verifies this is macOS and uv is available
-  - creates/updates .venv with uv sync
+  - creates/updates a private app venv under ~/.local/share/agents-sync/venv
   - installs/updates ~/.local/bin/agents-sync launcher
   - creates ~/.config/agents-sync/config.toml if missing
   - installs and starts a per-user LaunchAgent so the daemon runs
@@ -71,11 +72,15 @@ if ! command -v launchctl >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p "${BIN_DIR}" "${STATE_DIR}" "${CONFIG_DIR}" "${LOG_DIR}" "${LAUNCH_AGENT_DIR}"
+mkdir -p "${INSTALL_DIR}" "${BIN_DIR}" "${STATE_DIR}" "${CONFIG_DIR}" "${LOG_DIR}" "${LAUNCH_AGENT_DIR}"
 
-cd "${PROJECT_DIR}"
+uv venv --python 3.12 "${VENV_DIR}"
+uv pip install --python "${VENV_DIR}/bin/python" --reinstall "${PROJECT_DIR}"
 
-uv sync
+if [[ ! -x "${VENV_DIR}/bin/${APP_NAME}" ]]; then
+  echo "Expected entrypoint not found after install: ${VENV_DIR}/bin/${APP_NAME}" >&2
+  exit 1
+fi
 
 cat > "${BIN_DIR}/${APP_NAME}" <<EOF
 #!/usr/bin/env bash
@@ -142,7 +147,7 @@ fi
 
 # Migrate any pre-v0.4-fix state. Idempotent and silent on fresh installs.
 # See scripts/migrate_v0.4.py for the contract.
-uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
+"${VENV_DIR}/bin/python" "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
 
 cat > "${PLIST_FILE}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -158,7 +163,7 @@ cat > "${PLIST_FILE}" <<EOF
     <string>$(xml_escape "${CONFIG_FILE}")</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>$(xml_escape "${PROJECT_DIR}")</string>
+  <string>$(xml_escape "${HOME}")</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

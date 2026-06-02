@@ -40,6 +40,7 @@ Built by [CognitiveSand](https://cognitivesand.ai/en/).
 - [Uninstall](#uninstall)
 - [Default Paths](#default-paths)
 - [Notes](#notes)
+- [Development](#development)
 - [Changelog](#changelog)
 - [Documentation](#documentation)
 - [License](#license)
@@ -395,19 +396,34 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ---
 
+<a id="development"></a>
+
+## 🧪 Development
+
+Run the local CI gate before every push. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite — the static checks live here on purpose, because the GitHub workflow runs only the cross-platform `pytest` matrix:
+
+```bash
+./scripts/ci.sh
+```
+
+The first failing stage aborts with a non-zero exit code. For the end-to-end export/import flow against two throwaway installs, run `./scripts/integration_tests.sh`.
+
+---
+
 <a id="changelog"></a>
 
 ## 🗓️ Changelog
 
 ### 0.6.0
 
-**Canonical store as source of truth**
+**Canonical store as source of truth + cross-machine merge**
 
-- Promoted the canonical store to the authoritative library: tool-side files are projections that can be healed from canonical state.
+- Promoted the canonical store to the authoritative library: tool-side files are projections, and the daemon detects a canonical that changed independently of its tool files and re-projects it (FR-14), heals a disk-absent canonical, and archives displaced bytes.
 - Added schema `4` state baselines with per-pair `canonical_digest`, including migration from schema `3` so canonical-only imports and external canonical edits re-project cleanly.
-- Finished canonical-only import: `import` writes only canonical documents, never `state.json` or tool roots; the daemon adopts orphan canonicals on the next poll.
+- Finished canonical-only import (US-12): `import` writes only canonical documents, never `state.json` or tool roots, and the daemon adopts orphan canonicals on the next poll; the `agents-sync import` CLI runs one `sync_once` so one-shot imports take effect without the daemon.
+- Added the portable customization-library export/import for cross-machine merge: reconciliation by `(customization_type, target_slug(name))` under `last_modified_wins`, with displaced local canonicals and tool bytes archived before overwrite.
 - Added bulk-disappearance protection: two or more recorded artifacts vanishing from one available tool are treated as a glitch and re-projected instead of being propagated as deletions.
-- Cross-machine merges reconcile by `(customization_type, target_slug(name))` with `last_modified_wins`; displaced local canonicals and tool bytes are archived before overwrite.
+- Folded in the round-2 P0 audit fixes, the US-15 framework-specific rules egress guard, `AgentsSyncConfig`/`Mapping` boundary typing, and line-ending-insensitive change detection.
 
 ### 0.5.8
 
@@ -433,7 +449,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 **Canonical store is the source of truth**
 
 - Inverted the model (NFR-16): the canonical document under `state_dir/canonical/` is authoritative and every tool-side file is a projection of it.
-- `import` is now **canonical-only** (Decision A, US-12 AC-5): it writes canonical documents and touches no agentic_tool file; the next daemon `sync_once` projects them. This **supersedes** the 0.4.3 render-on-import behaviour below.
+- `import` is now **canonical-only** (Decision A, US-12 AC-5): it writes canonical documents only and touches neither `state.json` nor any agentic_tool file; the next daemon `sync_once` adopts and projects them. This **supersedes** the 0.4.3 render-on-import behaviour below.
 - Added canonical-change detection (FR-14): a canonical edited out of band is re-projected onto every supporting tool, displaced bytes archived.
 - Import may run **while the daemon is active** (FR-15). (Known gap: the "identical to sequential" guarantee is not yet enforced by a cross-process lock on the shared state record.)
 - Added cross-machine merge: same-(kind, name) canonicals minted on two hosts reconcile to one managed artifact, newest winning, the loser archived (US-12 AC-17/19).
@@ -474,7 +490,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ### 0.4.3
 
 - Added portable library snapshot: `agents-sync export <file.zip>` serialises every managed agent and skill into a single zip, and `agents-sync import <file.zip>` restores or merges that zip into a local install. See [Backup, Restore, Share](#backup-restore-share).
-- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp. Pre-1.0 cutover: v2 state files are regenerated on first boot.
+- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp at the time; this was later superseded by canonical `metadata.last_modified` as the source of truth for the `last_modified_wins` collision rule. Pre-1.0 cutover: v2 state files are regenerated on first boot.
 - Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in 0.6.0: import is now canonical-only and the next `sync_once` projects — see above.)*
 
 ### 0.4.1
