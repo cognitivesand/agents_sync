@@ -4,13 +4,17 @@ The test runs the installer end-to-end with a fake HOME and fake macOS
 commands. It does not install a real LaunchAgent, but it verifies the files
 the installer would write and the launchctl calls it would make.
 """
+
 from __future__ import annotations
 
 import os
 import plistlib
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,6 +24,10 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="install-macos.sh requires a POSIX shell; the macOS installer is never run on Windows",
+)
 def test_macos_installer_writes_runtime_files_under_home(tmp_path: Path) -> None:
     home = tmp_path / "home"
     fake_bin = tmp_path / "fake-bin"
@@ -155,9 +163,7 @@ def test_macos_installer_writes_runtime_files_under_home(tmp_path: Path) -> None
         str(config),
     ]
     assert plist["StandardOutPath"] == str(home / "Library/Logs/agents-sync/agents-sync.log")
-    assert plist["StandardErrorPath"] == str(
-        home / "Library/Logs/agents-sync/agents-sync.err.log"
-    )
+    assert plist["StandardErrorPath"] == str(home / "Library/Logs/agents-sync/agents-sync.err.log")
 
     assert uv_log.read_text(encoding="utf-8").splitlines() == [
         f"venv --python 3.12 {venv_dir}",
