@@ -99,6 +99,7 @@ def _posix_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
 def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
     import msvcrt
 
+    msvcrt_module: Any = msvcrt
     # ``msvcrt.locking`` locks a region; we lock byte 0 of a 1-byte file.
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     # Make sure there is at least one byte to lock.
@@ -114,7 +115,7 @@ def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
     try:
         while True:
             try:
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                msvcrt_module.locking(fd, msvcrt_module.LK_NBLCK, 1)
                 break
             except OSError:
                 if time.monotonic() >= deadline:
@@ -128,7 +129,7 @@ def _windows_lock(lock_path: Path, *, timeout_seconds: float) -> Iterator[None]:
         finally:
             try:
                 os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                msvcrt_module.locking(fd, msvcrt_module.LK_UNLCK, 1)
             except OSError:
                 logging.exception("msvcrt unlock failed for %s", lock_path)
     finally:
