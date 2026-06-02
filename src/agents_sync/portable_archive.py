@@ -25,6 +25,7 @@ Phase 0 (US-12). It is the source of truth for the `mtime_wins`
 comparison. Wall-clock is not monotonic across hosts; clock skew is
 tie-broken in favour of the local artifact (AC-6 tie rule).
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -66,9 +67,7 @@ MANIFEST_NAME = "manifest.json"
 CANONICAL_PREFIX = "canonical/"
 
 CollisionStrategy = Literal["skip", "mtime_wins", "overwrite"]
-ALLOWED_STRATEGIES: frozenset[CollisionStrategy] = frozenset(
-    {"skip", "mtime_wins", "overwrite"}
-)
+ALLOWED_STRATEGIES: frozenset[CollisionStrategy] = frozenset({"skip", "mtime_wins", "overwrite"})
 
 
 class PortableArchiveError(ValueError):
@@ -101,7 +100,9 @@ def _agents_sync_version() -> str:
 
 
 def _build_manifest(
-    artifact_count: int, *, contains_secret_literals: bool = False,
+    artifact_count: int,
+    *,
+    contains_secret_literals: bool = False,
 ) -> dict[str, Any]:
     return {
         "schema_version": PORTABLE_ARCHIVE_SCHEMA_VERSION,
@@ -133,7 +134,9 @@ def export_to_zip(
     anything that would have flipped it).
     """
     normalized_policy = normalize_secret_policy(
-        secret_policy, source="export_to_zip", warn_deprecated=False,
+        secret_policy,
+        source="export_to_zip",
+        warn_deprecated=False,
     )
     state = load_state(state_dir)
     canonicals: dict[str, dict[str, Any]] = {}
@@ -155,16 +158,15 @@ def export_to_zip(
                     "Skipping export of artifact with literal secret material "
                     "under secret_policy=secrets_refused: "
                     "pair_id=%s fields=%s",
-                    pair_id, field_paths,
+                    pair_id,
+                    field_paths,
                 )
                 skipped_secret_artifacts.append(pair_id)
                 continue
             # secrets_accepted — include verbatim, summary warning emitted below
             secret_bearing_artifacts.append(pair_id)
         entry = dict(canonical)
-        entry["last_modified"] = (
-            ps.last_modified if ps.last_modified is not None else 0.0
-        )
+        entry["last_modified"] = ps.last_modified if ps.last_modified is not None else 0.0
         entry["generation"] = ps.generation
         canonicals[pair_id] = entry
 
@@ -172,12 +174,14 @@ def export_to_zip(
         logging.warning(
             "Customization library export under secret_policy=secrets_accepted: "
             "%d artifact(s) carry literal secret material: %s",
-            len(secret_bearing_artifacts), secret_bearing_artifacts,
+            len(secret_bearing_artifacts),
+            secret_bearing_artifacts,
         )
 
     contains_secret_literals = bool(secret_bearing_artifacts)
     manifest = _build_manifest(
-        len(canonicals), contains_secret_literals=contains_secret_literals,
+        len(canonicals),
+        contains_secret_literals=contains_secret_literals,
     )
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_fd, tmp_name = tempfile.mkstemp(
@@ -187,14 +191,11 @@ def export_to_zip(
     tmp_path = Path(tmp_name)
     try:
         with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr(
-                MANIFEST_NAME, json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-            )
+            zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
             for pair_id, entry in sorted(canonicals.items()):
                 zf.writestr(
                     f"{CANONICAL_PREFIX}{pair_id}.json",
-                    json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False)
-                    + "\n",
+                    json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
                 )
         os.replace(tmp_path, zip_path)
     except BaseException:
@@ -229,15 +230,11 @@ def _read_zip_entries(
     with zf:
         names = set(zf.namelist())
         if MANIFEST_NAME not in names:
-            raise PortableArchiveError(
-                f"Archive is missing {MANIFEST_NAME}: {zip_path}"
-            )
+            raise PortableArchiveError(f"Archive is missing {MANIFEST_NAME}: {zip_path}")
         try:
             manifest = json.loads(zf.read(MANIFEST_NAME).decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise PortableArchiveError(
-                f"Archive {MANIFEST_NAME} is unparseable: {exc}"
-            ) from exc
+            raise PortableArchiveError(f"Archive {MANIFEST_NAME} is unparseable: {exc}") from exc
         if not isinstance(manifest, dict):
             raise PortableArchiveError("Archive manifest is not a JSON object")
         canonicals: dict[str, dict[str, Any]] = {}
@@ -248,28 +245,20 @@ def _read_zip_entries(
             try:
                 validate_pair_id(pair_id)
             except InvalidPairId as exc:
-                raise PortableArchiveError(
-                    f"Archive entry has invalid pair_id: {name}"
-                ) from exc
+                raise PortableArchiveError(f"Archive entry has invalid pair_id: {name}") from exc
             try:
                 doc = json.loads(zf.read(name).decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise PortableArchiveError(
-                    f"Archive entry is unparseable: {name}: {exc}"
-                ) from exc
+                raise PortableArchiveError(f"Archive entry is unparseable: {name}: {exc}") from exc
             if not isinstance(doc, dict):
-                raise PortableArchiveError(
-                    f"Archive entry is not a JSON object: {name}"
-                )
+                raise PortableArchiveError(f"Archive entry is not a JSON object: {name}")
             if doc.get("pair_id") != pair_id:
                 raise PortableArchiveError(
                     f"Archive entry pair_id mismatch: filename={pair_id} "
                     f"document={doc.get('pair_id')!r}"
                 )
             if "kind" not in doc or "name" not in doc:
-                raise PortableArchiveError(
-                    f"Archive entry missing kind/name: {name}"
-                )
+                raise PortableArchiveError(f"Archive entry missing kind/name: {name}")
             canonicals[pair_id] = doc
     return manifest, canonicals
 
@@ -287,18 +276,14 @@ def _validate_manifest_version(manifest: dict[str, Any]) -> None:
         )
 
 
-def _local_last_modified(
-    state: dict[str, CustomizationArtifactState], pair_id: str
-) -> float:
+def _local_last_modified(state: dict[str, CustomizationArtifactState], pair_id: str) -> float:
     ps = state.get(pair_id)
     if ps is None or ps.last_modified is None:
         return 0.0
     return ps.last_modified
 
 
-def _local_generation(
-    state: dict[str, CustomizationArtifactState], pair_id: str
-) -> int:
+def _local_generation(state: dict[str, CustomizationArtifactState], pair_id: str) -> int:
     ps = state.get(pair_id)
     return ps.generation if ps is not None else 0
 
@@ -576,7 +561,9 @@ def import_from_zip(
     # verbatim and one summary WARNING is emitted.
     raw_policy = str(config.get("secret_policy", "secrets_refused"))
     normalized_policy = normalize_secret_policy(
-        raw_policy, source="import_from_zip", warn_deprecated=False,
+        raw_policy,
+        source="import_from_zip",
+        warn_deprecated=False,
     )
     skipped_secret_artifacts: list[str] = []
     secret_bearing_artifacts: list[str] = []
@@ -592,7 +579,8 @@ def import_from_zip(
                 "Skipping import of artifact with literal secret material "
                 "under secret_policy=secrets_refused: "
                 "pair_id=%s fields=%s",
-                decision.pair_id, field_paths,
+                decision.pair_id,
+                field_paths,
             )
             decision.accepted = False
             skipped_secret_artifacts.append(decision.pair_id)
@@ -603,7 +591,8 @@ def import_from_zip(
         logging.warning(
             "Customization library import under secret_policy=secrets_accepted: "
             "%d artifact(s) carry literal secret material: %s",
-            len(secret_bearing_artifacts), secret_bearing_artifacts,
+            len(secret_bearing_artifacts),
+            secret_bearing_artifacts,
         )
 
     tool_status = ToolStatusTracker(config, agentic_tools)
@@ -620,9 +609,7 @@ def import_from_zip(
         for decision in accepted_decisions:
             pending_path = pending_dir / f"{decision.pair_id}.json"
             save_canonical_to(pending_path, decision.canonical)
-            staged.append(
-                (pending_path, canonical_path(state_dir, decision.pair_id))
-            )
+            staged.append((pending_path, canonical_path(state_dir, decision.pair_id)))
     except Exception:
         shutil.rmtree(pending_dir, ignore_errors=True)
         raise
@@ -648,15 +635,11 @@ def import_from_zip(
     for decision in decisions:
         if not decision.accepted:
             report.skipped.append(decision.pair_id)
-            logging.info(
-                "Import skipped (strategy=%s): pair_id=%s", strategy, decision.pair_id
-            )
+            logging.info("Import skipped (strategy=%s): pair_id=%s", strategy, decision.pair_id)
             continue
 
         if decision.displaces_local_pair_id is not None:
-            slug_displacement = (
-                decision.displaces_local_pair_id != decision.pair_id
-            )
+            slug_displacement = decision.displaces_local_pair_id != decision.pair_id
             archived = _archive_displaced_tool_files(
                 state_dir,
                 state,
@@ -673,9 +656,7 @@ def import_from_zip(
                 # scanner holding the JSON open) does not abort the import
                 # mid-loop (audit slice 09 · CQ-07).
                 state.pop(decision.displaces_local_pair_id, None)
-                local_canonical = canonical_path(
-                    state_dir, decision.displaces_local_pair_id
-                )
+                local_canonical = canonical_path(state_dir, decision.displaces_local_pair_id)
                 if local_canonical.exists():
                     retry_fs(
                         # mypy cannot infer the return type of a default-arg lambda
@@ -687,15 +668,10 @@ def import_from_zip(
         kind = decision.canonical["kind"]
 
         results: dict[str, RenderResult] = {}
-        for tool_name, spec in _participating_tools(
-            kind, config, agentic_tools, tool_status
-        ):
+        for tool_name, spec in _participating_tools(kind, config, agentic_tools, tool_status):
             existing_path = None
             existing_slot = None
-            if (
-                decision.pair_id in state
-                and tool_name in state[decision.pair_id].agentic_tools
-            ):
+            if decision.pair_id in state and tool_name in state[decision.pair_id].agentic_tools:
                 existing = state[decision.pair_id].agentic_tools[tool_name]
                 existing_path = Path(existing.path)
                 existing_slot = existing.slot
@@ -723,7 +699,9 @@ def import_from_zip(
         report.accepted.append(decision.pair_id)
         logging.info(
             "Import accepted: pair_id=%s strategy=%s projected_tools=%s",
-            decision.pair_id, strategy, sorted(results.keys()),
+            decision.pair_id,
+            strategy,
+            sorted(results.keys()),
         )
 
     save_state(state_dir, state)

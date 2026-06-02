@@ -81,7 +81,9 @@ class Syncer:
         agentic_tools: dict[str, AgenticToolSpec] | None = None,
     ) -> None:
         self.config: AgentsSyncConfig = normalize_config(
-            config, source="syncer", warn_deprecated=False,
+            config,
+            source="syncer",
+            warn_deprecated=False,
         )
         validate_config(self.config)
         self.agentic_tools: dict[str, AgenticToolSpec] = (

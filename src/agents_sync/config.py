@@ -142,64 +142,70 @@ def platform_defaults(
     home_dir = _home_dir(home)
     cursor_root = home_dir / ".cursor"
     if platform_name == "nt":
-        opencode_root = _windows_data_dir(
-            "APPDATA",
-            ("AppData", "Roaming"),
-            env=env,
-            home=home,
-        ) / "opencode"
+        opencode_root = (
+            _windows_data_dir(
+                "APPDATA",
+                ("AppData", "Roaming"),
+                env=env,
+                home=home,
+            )
+            / "opencode"
+        )
     else:
         opencode_root = home_dir / ".config" / "opencode"
-    return cast(AgentsSyncConfig, {
-        "poll_interval_seconds": 2.0,
-        "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
-        "claude_agents_dir": str(home_dir / ".claude" / "agents"),
-        "claude_commands_dir": str(home_dir / ".claude" / "commands"),
-        "claude_skills_dir": str(home_dir / ".claude" / "skills"),
-        "claude_rules_dir": str(home_dir / ".claude"),
-        "claude_mcp_servers_file": str(home_dir / ".claude.json"),
-        "codex_agents_dir": str(home_dir / ".codex" / "agents"),
-        "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
-        "codex_skills_dir": str(home_dir / ".codex" / "skills"),
-        "codex_rules_dir": str(home_dir / ".codex"),
-        "codex_config_file": str(home_dir / ".codex" / "config.toml"),
-        "cursor_agents_dir": str(cursor_root / "agents"),
-        "cursor_skills_dir": str(cursor_root / "skills"),
-        "cursor_rules_dir": str(cursor_root / "rules"),
-        "cursor_commands_dir": str(cursor_root / "commands"),
-        "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
-        "cursor_enabled": True,
-        # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
-        # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
-        # handles the per-OS separator). Set antigravity_enabled=False to skip
-        # registration entirely.
-        "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
-        "antigravity_enabled": True,
-        "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
-        "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
-        "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
-        "gemini_cli_rules_dir": str(home_dir / ".gemini"),
-        "gemini_cli_settings_file": str(home_dir / ".gemini" / "settings.json"),
-        "gemini_cli_enabled": True,
-        "opencode_agents_dir": str(opencode_root / "agents"),
-        "opencode_commands_dir": str(opencode_root / "commands"),
-        "opencode_skills_dir": str(opencode_root / "skills"),
-        "opencode_rules_dir": str(opencode_root),
-        "opencode_config_file": str(opencode_root / "opencode.json"),
-        "opencode_enabled": True,
-        "copilot_enabled": True,
-        "copilot_cli_enabled": True,
-        "copilot_vscode_user_profile_enabled": True,
-        "copilot_cli_agents_dir": str(home_dir / ".copilot" / "agents"),
-        "copilot_cli_skills_dir": str(home_dir / ".copilot" / "skills"),
-        "copilot_cli_mcp_config_file": str(home_dir / ".copilot" / "mcp-config.json"),
-        "copilot_vscode_user_agents_dir": None,
-        "copilot_vscode_user_instructions_dir": None,
-        "copilot_vscode_user_prompts_dir": None,
-        "copilot_vscode_user_mcp_file": None,
-        "import_collision_strategy": "mtime_wins",
-        "secret_policy": "secrets_refused",
-    })
+    return cast(
+        AgentsSyncConfig,
+        {
+            "poll_interval_seconds": 2.0,
+            "state_path": str(default_state_path(os_name=os_name, env=env, home=home)),
+            "claude_agents_dir": str(home_dir / ".claude" / "agents"),
+            "claude_commands_dir": str(home_dir / ".claude" / "commands"),
+            "claude_skills_dir": str(home_dir / ".claude" / "skills"),
+            "claude_rules_dir": str(home_dir / ".claude"),
+            "claude_mcp_servers_file": str(home_dir / ".claude.json"),
+            "codex_agents_dir": str(home_dir / ".codex" / "agents"),
+            "codex_prompts_dir": str(home_dir / ".codex" / "prompts"),
+            "codex_skills_dir": str(home_dir / ".codex" / "skills"),
+            "codex_rules_dir": str(home_dir / ".codex"),
+            "codex_config_file": str(home_dir / ".codex" / "config.toml"),
+            "cursor_agents_dir": str(cursor_root / "agents"),
+            "cursor_skills_dir": str(cursor_root / "skills"),
+            "cursor_rules_dir": str(cursor_root / "rules"),
+            "cursor_commands_dir": str(cursor_root / "commands"),
+            "cursor_mcp_servers_file": str(cursor_root / "mcp.json"),
+            "cursor_enabled": True,
+            # Antigravity uses the open SKILL.md spec under ~/.gemini/antigravity/skills/
+            # on every OS (the home_dir / "$USERPROFILE%" join is uniform — Path
+            # handles the per-OS separator). Set antigravity_enabled=False to skip
+            # registration entirely.
+            "antigravity_skills_dir": str(home_dir / ".gemini" / "antigravity" / "skills"),
+            "antigravity_enabled": True,
+            "gemini_cli_agents_dir": str(home_dir / ".gemini" / "agents"),
+            "gemini_cli_commands_dir": str(home_dir / ".gemini" / "commands"),
+            "gemini_cli_skills_dir": str(home_dir / ".gemini" / "skills"),
+            "gemini_cli_rules_dir": str(home_dir / ".gemini"),
+            "gemini_cli_settings_file": str(home_dir / ".gemini" / "settings.json"),
+            "gemini_cli_enabled": True,
+            "opencode_agents_dir": str(opencode_root / "agents"),
+            "opencode_commands_dir": str(opencode_root / "commands"),
+            "opencode_skills_dir": str(opencode_root / "skills"),
+            "opencode_rules_dir": str(opencode_root),
+            "opencode_config_file": str(opencode_root / "opencode.json"),
+            "opencode_enabled": True,
+            "copilot_enabled": True,
+            "copilot_cli_enabled": True,
+            "copilot_vscode_user_profile_enabled": True,
+            "copilot_cli_agents_dir": str(home_dir / ".copilot" / "agents"),
+            "copilot_cli_skills_dir": str(home_dir / ".copilot" / "skills"),
+            "copilot_cli_mcp_config_file": str(home_dir / ".copilot" / "mcp-config.json"),
+            "copilot_vscode_user_agents_dir": None,
+            "copilot_vscode_user_instructions_dir": None,
+            "copilot_vscode_user_prompts_dir": None,
+            "copilot_vscode_user_mcp_file": None,
+            "import_collision_strategy": "mtime_wins",
+            "secret_policy": "secrets_refused",
+        },
+    )
 
 
 DEFAULTS: AgentsSyncConfig = platform_defaults()
@@ -336,7 +342,9 @@ def normalize_config(
     # spelling.
     raw_policy = normalized.get("secret_policy", DEFAULTS["secret_policy"])
     normalized["secret_policy"] = normalize_secret_policy(
-        str(raw_policy), source=source, warn_deprecated=warn_deprecated,
+        str(raw_policy),
+        source=source,
+        warn_deprecated=warn_deprecated,
     )
     return cast(AgentsSyncConfig, normalized)
 
@@ -436,8 +444,7 @@ def validate_config(config: dict[str, Any]) -> None:
     strategy = config.get("import_collision_strategy", "mtime_wins")
     if strategy not in {"skip", "mtime_wins", "overwrite"}:
         raise ConfigError(
-            f"import_collision_strategy must be skip|mtime_wins|overwrite, "
-            f"got {strategy!r}"
+            f"import_collision_strategy must be skip|mtime_wins|overwrite, got {strategy!r}"
         )
 
     # secret_policy validation: accept either the canonical key or the
@@ -448,12 +455,13 @@ def validate_config(config: dict[str, Any]) -> None:
         raw_policy = config.get("mcp_server_secret_policy", "secrets_refused")
     try:
         normalize_secret_policy(
-            str(raw_policy), source="validate_config", warn_deprecated=False,
+            str(raw_policy),
+            source="validate_config",
+            warn_deprecated=False,
         )
     except ValueError as exc:
         raise ConfigError(
-            "secret_policy must be "
-            f"{'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
+            f"secret_policy must be {'|'.join(sorted(ALLOWED_SECRET_POLICIES))}, got {raw_policy!r}"
         ) from exc
 
 

@@ -7,6 +7,7 @@ enumeration, adoption-target planning, and collision-detection
 responsibilities live in dedicated mixins (see :mod:`enumerator`,
 :mod:`adoption_planner`, :mod:`collision_blocker`).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -67,8 +68,12 @@ class DiscoveryWalker(
                 io = spec.io[customization_type]
                 if isinstance(io.file_layout, SharedKeyedMapLayout):
                     self._discover_shared_keyed_map(
-                        tool_name, customization_type, io,
-                        pairs, blocked_pair_ids, state,
+                        tool_name,
+                        customization_type,
+                        io,
+                        pairs,
+                        blocked_pair_ids,
+                        state,
                     )
                     continue
                 root = expand_path(self.config[spec.config_dir_keys[customization_type]])
@@ -111,7 +116,8 @@ class DiscoveryWalker(
         for pair_id, pair_state in state.items():
             for tool_state in pair_state.agentic_tools.values():
                 state_key = slot_aware_collision_key(
-                    tool_state.path, tool_state.slot,
+                    tool_state.path,
+                    tool_state.slot,
                 )
                 if state_key == target_key:
                     return pair_id

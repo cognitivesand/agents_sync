@@ -5,6 +5,7 @@ registered agentic tool, with transition logging on every state change.
 Extracted from Syncer so the orchestrator does not need to carry the
 status-probing logic alongside its discovery and reconciliation duties.
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,17 +68,17 @@ class ToolStatusTracker:
                     continue
                 layout = spec.io[kind].file_layout
                 resolved = expand_path(raw_root)
-                parent = (
-                    layout.probe_check_path(resolved)
-                    if layout is not None else resolved
-                )
+                parent = layout.probe_check_path(resolved) if layout is not None else resolved
                 try:
                     parent.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
                     logging.warning(
                         "Could not pre-create %s root %s (%s: %s); "
                         "next poll will mark this tool unavailable.",
-                        spec.name, parent, type(exc).__name__, exc,
+                        spec.name,
+                        parent,
+                        type(exc).__name__,
+                        exc,
                     )
 
     # ---------- per-poll refresh ----------
@@ -109,9 +110,7 @@ class ToolStatusTracker:
             prev = self._status.get(tool_name)
             if prev == status:
                 continue
-            self._log_status_transition(
-                tool_name, prev, status, reasons.get(tool_name)
-            )
+            self._log_status_transition(tool_name, prev, status, reasons.get(tool_name))
         self._status = new_status
         self._available_kinds = available_kinds
 
@@ -166,10 +165,7 @@ class ToolStatusTracker:
                     first_reason = reason
                 continue
             resolved = expand_path(raw_root)
-            probe_path = (
-                layout.probe_check_path(resolved)
-                if layout is not None else resolved
-            )
+            probe_path = layout.probe_check_path(resolved) if layout is not None else resolved
             if not probe_path.exists():
                 reason = (str(probe_path), "path does not exist")
                 if not spec.partial_availability:
@@ -214,10 +210,15 @@ class ToolStatusTracker:
         if prev is None:
             logging.info(
                 "agentic_tool %s: startup -> unavailable (root=%s reason=%s)",
-                tool_name, root_str, reason_str,
+                tool_name,
+                root_str,
+                reason_str,
             )
         else:
             logging.warning(
                 "agentic_tool %s: %s -> unavailable (root=%s reason=%s)",
-                tool_name, prev, root_str, reason_str,
+                tool_name,
+                prev,
+                root_str,
+                reason_str,
             )

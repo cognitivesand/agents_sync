@@ -6,6 +6,7 @@ instance state and do not mutate the caller's objects (other than the
 ``state`` dict explicitly passed to ``update_state_n_way``). Keeping them
 out of the Syncer class lets the orchestrator stay focused on control flow.
 """
+
 from __future__ import annotations
 
 import os
@@ -40,6 +41,7 @@ from agents_sync.sync_types import RenderResult
 
 # ---------- path identity ----------
 
+
 def path_collision_key(path: Path) -> str:
     """Normalise a path so that two visually-different strings that point to
     the same on-disk entry compare equal (NFC normalisation, case-folding
@@ -73,6 +75,7 @@ def assert_target_available(target: Path, existing_path: Path | None) -> None:
 
 
 # ---------- directory-skill atomic staging ----------
+
 
 def _clear_stale_paths(*paths: Path) -> None:
     """Remove leftover staging siblings (`.tmp` / `.old`) before atomic-swap."""
@@ -127,8 +130,11 @@ def stage_skill_dir(source: Path, target: Path, skill_md_content: str) -> None:
 
 # ---------- artifact rendering ----------
 
+
 def read_artifact_text(
-    io: CustomizationTypeIO, path: Path, slot: str | None = None,
+    io: CustomizationTypeIO,
+    path: Path,
+    slot: str | None = None,
 ) -> str:
     """Read the artifact-metadata text for an artifact at `path`.
 
@@ -221,7 +227,10 @@ def render_to_agentic_tool(
     layout = io.file_layout
     if isinstance(layout, SharedKeyedMapLayout):
         return _render_keyed_map_slot(
-            config, io, canonical, slug,
+            config,
+            io,
+            canonical,
+            slug,
             existing_slot=existing_slot,
             allow_unpaired_existing_slot=allow_unpaired_existing_slot,
             prior_text=prior_text,
@@ -235,11 +244,22 @@ def render_to_agentic_tool(
     root = expand_path(raw_root)
     if isinstance(layout, SingleFileLayout):
         return _render_single_file(
-            io, canonical, root, slug, existing_path, prior_text,
+            io,
+            canonical,
+            root,
+            slug,
+            existing_path,
+            prior_text,
         )
     if isinstance(layout, DirectorySkillLayout):
         return _render_directory_skill(
-            io, canonical, root, slug, existing_path, prior_text, source_dir,
+            io,
+            canonical,
+            root,
+            slug,
+            existing_path,
+            prior_text,
+            source_dir,
         )
     raise ValueError(f"Unknown file layout: {type(layout).__name__}")
 
@@ -269,7 +289,9 @@ def _render_keyed_map_slot(
         allow_unpaired_existing=allow_unpaired_existing_slot,
     )
     return RenderResult(
-        path=shared_path, slot=slot_key, prior_slot_text=prior_slot_text,
+        path=shared_path,
+        slot=slot_key,
+        prior_slot_text=prior_slot_text,
     )
 
 
@@ -317,6 +339,7 @@ def single_file_target(root: Path, io: CustomizationTypeIO, slug: str) -> Path:
 
 
 # ---------- state update ----------
+
 
 def update_state_n_way(
     state: dict[str, CustomizationArtifactState],
