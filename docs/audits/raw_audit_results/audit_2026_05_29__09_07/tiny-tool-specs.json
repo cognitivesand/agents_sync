@@ -1,0 +1,115 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/antigravity.py, file:src/agents_sync/tool_specs/_rules_factory.py",
+  "date": "2026-05-29",
+  "files_analyzed": 2,
+  "total_lines": 101,
+
+  "detailed_analysis": "Both scoped files are small spec-factory adapters in Layer 3 (the port/wiring layer per architecture §7, §12 step 2). antigravity.py (46 lines) builds the skill-only AgenticToolSpec for Antigravity; _rules_factory.py (55 lines) is a shared DRY factory producing the per-tool `rules` CustomizationTypeIO cell, consumed by claude.py, codex.py, and opencode.py. Both are well under the 300-line module limit and the 40-line function limit (build_antigravity_spec ~32 LOC, build_global_rules_io ~42 LOC). Naming follows the two-word/role+mechanism convention. No secrets, no injection vectors, no global mutable state, no silent error swallowing, no mutable default arguments. Imports of concrete *_io adapters are performed lazily inside the factory bodies — matching the established codebase convention and keeping module import side-effect free (W5 clean). The wrapper closures (parse_skill/render_skill, parse_rules/render_rules) correctly adapt the ParseFn Protocol (which mandates keyword-only artifact_path/artifact_root) to the narrower underlying parser signatures. Verified parse_antigravity_skill_md and parse_rules_md exist with compatible signatures; GLOBAL_RULE_NAME, extract_pair_id_from_md, RulesFileLayout, and DirectorySkillLayout all resolve. Architecture and spec conformance is clean: the sync engine never references a concrete tool name (the tool name 'antigravity' lives only in this adapter/factory layer per goal 5), the factories produce frozen-dataclass ports, and US-10 AC-2 (new tool = one spec factory + config keys) is honoured. Findings are limited to one minor unused-parameter observation; no CRITICAL, MAJOR, or WARNING-class defects.",
+
+  "dependency_graph_summary": {
+    "total_modules": 2,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "_rules_factory.py", "imported_by": 3},
+    "highest_fan_out": {"module": "antigravity.py", "imports": 2}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/antigravity.py",
+      "lines": 46,
+      "function_count": 3,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 1
+    },
+    {
+      "file": "src/agents_sync/tool_specs/_rules_factory.py",
+      "lines": 55,
+      "function_count": 3,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 0
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/antigravity.py",
+      "line": 21,
+      "function_or_class": "build_antigravity_spec.parse_skill",
+      "anti_pattern": "I2",
+      "variant": "Unused parameter (dead parameter)",
+      "severity": "INFO",
+      "metrics": {"unused_params": 2},
+      "evidence": "def parse_skill(\n    text: str,\n    prior_canonical: dict[str, Any] | None,\n    *,\n    artifact_path: Path | None = None,\n    artifact_root: Path | None = None,\n) -> dict[str, Any]:\n    return parse_antigravity_skill_md(text, prior_canonical=prior_canonical)",
+      "evidence_lines": "21-28",
+      "problem": "The keyword-only parameters `artifact_path` and `artifact_root` are accepted (to satisfy the ParseFn Protocol in agentic_tool_spec.py lines 27-36) but never forwarded to parse_antigravity_skill_md, whose signature does not accept them. This is intentional interface conformance, not a bug — the underlying skill parser derives identity from frontmatter/prior canonical, not from the artifact path. Flagged only as a transparency note: a reader may expect path-based identity resolution (as rules_io.parse_rules_md uses artifact_path) and be surprised it is dropped here. No remediation implied.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 1.0,
+    "weakest_axis": "none"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_conformance": {
+    "conforms": true,
+    "checks": [
+      {"reference": "goal 5 / US-10 AC-2", "result": "PASS", "note": "Each file adds a tool via one spec factory + config keys; no edit to the sync algorithm required."},
+      {"reference": "goal 5 (sync engine never references a concrete tool name)", "result": "PASS", "note": "Tool name 'antigravity' appears only in this adapter/factory layer; _rules_factory receives the tool name as a parameter."},
+      {"reference": "architecture §4 / §12 step 2", "result": "PASS", "note": "Both files sit in Layer 3 (tool_specs/*), depend inward on agentic_tool_spec and concrete *_io adapters; no inward layer imports a use case or framework module."},
+      {"reference": "architecture §3 (Dependency Rule)", "result": "PASS", "note": "No cyclic or upward imports; lazy in-body imports avoid import-time coupling."},
+      {"reference": "US-10 AC-1/AC-4 (port contract)", "result": "PASS", "note": "Produced CustomizationTypeIO bundles wire parse/render/extract_pair_id with a valid file_layout; __post_init__ validation will reject drift."},
+      {"reference": "NFR-15 / goal 6 (secret_policy at egress)", "result": "N/A", "note": "secret_policy is evaluated by the sync core, not per-adapter (architecture §1 goal 6); these wiring factories carry no egress boundary."}
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Both spec-factory files are clean, conform to layering and the tool-name-abstraction invariant, and contain only one INFO-level intentional unused-parameter note."
+}

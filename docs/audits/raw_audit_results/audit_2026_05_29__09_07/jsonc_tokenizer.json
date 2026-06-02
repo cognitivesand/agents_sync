@@ -1,0 +1,137 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/formats/jsonc_tokenizer.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 134,
+
+  "detailed_analysis": "src/agents_sync/formats/jsonc_tokenizer.py is a small (134-line), single-responsibility module that strips JSONC comments and trailing commas via a character-by-character state machine, leaving text safe for json.loads. The module is well-named (two-word public functions: strip_utf8_bom, normalize_jsonc, strip_jsonc_comments, strip_trailing_commas), fully type-annotated, has a clear docstring justifying the state-machine-over-regex choice, and carries no I/O or side effects at import time. It is a pure-function transformation module with no class, no global mutable state, no secrets, no injection vectors, and no unsafe deserialization (the dangerous parsing is delegated to stdlib json downstream). The principal quality issue is structural: strip_jsonc_comments (lines 35-93) exceeds both the project's 40-line function limit and the cyclomatic-complexity threshold of 10 (the prior global audit measured it at 57 lines / complexity 14 in its previous single-file form; the split-out version remains over both limits). A secondary observation is DRY: the in-string/escape state-tracking block is duplicated between strip_jsonc_comments (lines 63-72) and strip_trailing_commas (lines 105-114). A behavioral smell flagged by prior audits (P1-22 / 5/CQ-14): both state machines silently consume input past an unterminated string or unterminated block comment, returning truncated-but-syntactically-plausible output rather than failing fast at the boundary; in this module's actual call site the corruption is caught downstream when json.loads re-parses the normalized text, so it is a degraded-diagnostic smell rather than a correctness defect, but it contradicts AGENTS.md §8 'validate at boundaries / fail loud'. No CRITICAL or MAJOR-security findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "jsonc_tokenizer.py", "imported_by": 2},
+    "highest_fan_out": {"module": "jsonc_tokenizer.py", "imports": 0}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+      "lines": 134,
+      "function_count": 4,
+      "class_count": 0,
+      "correctness": 0.75,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+      "line": 35,
+      "function_or_class": "strip_jsonc_comments",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 49, "cyclomatic_complexity": 13},
+      "evidence": "def strip_jsonc_comments(text: str) -> str:\n    ...\n    while index < len(text):\n        char = text[index]\n        next_char = text[index + 1] if index + 1 < len(text) else \"\"\n        if in_line_comment: ...\n        if in_block_comment: ...\n        if in_string: ...\n        if char == '\\\"': ...\n        if char == '/' and next_char == '/': ...\n        if char == '/' and next_char == '*': ...",
+      "evidence_lines": "35-93",
+      "problem": "The function body (lines 37-93) exceeds the project's 40-line function limit (AGENTS.md §3) and its cyclomatic complexity exceeds the McCabe/Zhang threshold of 10 (branches at the while, the ternary on line 46, and the if-chains at lines 48,49,55,56,63,65,67,69,74,80,85 give ~13). It interleaves five state transitions (line-comment, block-comment, in-string-with-escape, comment-open detection, default copy) in one flat loop. Prior audits recorded this as 57 lines / complexity 14 (docs/v0.5_audit_remediation_plan.md line 163; global_audit 2026-05-21 line 84).",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+      "line": 35,
+      "function_or_class": "strip_jsonc_comments / strip_trailing_commas",
+      "anti_pattern": "SMELL",
+      "variant": "Missing fail-fast / no EOF state check (AGENTS.md §8)",
+      "severity": "SMELL",
+      "metrics": {"unterminated_states_unchecked": 3},
+      "evidence": "    return \"\".join(result)\n    # loop exits with in_string / in_block_comment / in_line_comment possibly still True; no assertion or raise",
+      "evidence_lines": "44-93, 103-133",
+      "problem": "Both state machines exit the while-loop without checking whether they terminated inside a string (in_string), a block comment (in_block_comment), or with a pending escape (escaped). Malformed input such as an unterminated string literal or unterminated /* block comment is silently consumed and returned as truncated-but-plausible output rather than raising at the boundary. This contradicts AGENTS.md §8 'validate at boundaries / fail loud' and matches prior finding P1-22 (docs/audit_analysis.md line 79, ref 5/CQ-14). Severity is held to SMELL because the sole production caller (formats/json_format.deserialize line 20) re-parses the normalized text with json.loads, which raises JSONDecodeError/ValueError on the corrupted output — so end-to-end correctness is preserved, but the diagnostic surfaces at a misleading layer.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+      "line": 63,
+      "function_or_class": "strip_jsonc_comments / strip_trailing_commas",
+      "anti_pattern": "SMELL",
+      "variant": "DRY — duplicated in-string/escape state machine",
+      "severity": "SMELL",
+      "metrics": {"duplicated_blocks": 2, "lines_each": 9},
+      "evidence": "if in_string:\n    result.append(char)\n    if escaped:\n        escaped = False\n    elif char == \"\\\\\":\n        escaped = True\n    elif char == \"\\\"\":\n        in_string = False\n    index += 1\n    continue",
+      "evidence_lines": "63-72 and 105-114",
+      "problem": "The string-literal scanning logic (track entry on ", backslash-escape suppression, exit on closing quote) is duplicated verbatim between strip_jsonc_comments (lines 63-78) and strip_trailing_commas (lines 105-120). Two copies of the same subtle escape-handling invariant can drift independently. Below the Rule-of-Three threshold (two occurrences), so reported as a low-severity DRY smell rather than mandated extraction.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 1, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map) and §9 (Traceability table)",
+        "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+        "description": "The module map in §4 and the traceability table in §9 enumerate the v0.5 module set (’19 modules’) but contain no row for formats/jsonc_tokenizer.py (nor the sibling formats/json_format.py, formats/toml_format.py). §9 explicitly states 'Any future requirement that has no carrying module is a defect in either the requirement or the architecture' and every module is expected to be traced; this module — introduced by the v0.5 audit remediation split of shared_keyed_map_formats.py (docs/v0.5_audit_remediation_plan.md lines 146, 194) — carries the JSON/JSONC format-tolerance behavior backing NFR-06 (round-trip stability) yet appears in no traceability row. The architecture docs are stale with respect to the shipped formats/ subpackage."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §8 cross-cutting invariant equivalent (fail-fast) / AGENTS.md §8",
+        "file": "src/agents_sync/formats/jsonc_tokenizer.py",
+        "line": 93,
+        "description": "AGENTS.md §8 mandates 'validate at boundaries, fail loud' and 'never silently swallow' bad input. Both tokenizer state machines (strip_jsonc_comments, strip_trailing_commas) are public boundary functions that exit without asserting termination state, silently consuming input past an unterminated string or block comment instead of raising. This was previously logged as P1-22 / ref 5/CQ-14 (docs/audit_analysis.md line 79). It is mitigated in practice by the downstream json.loads re-validation in json_format.deserialize (line 20), so it is a diagnostic-quality deviation rather than a correctness break."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Clean, secure, well-named pure-function module; one MAJOR Long-Function/complexity smell in strip_jsonc_comments caps structure at 0.5, plus a fail-fast gap and stale architecture traceability."
+}

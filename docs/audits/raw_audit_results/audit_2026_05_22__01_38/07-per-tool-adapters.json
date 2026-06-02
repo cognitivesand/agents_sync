@@ -1,0 +1,123 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/{claude_io,codex_io,opencode_io,antigravity_io,markdown_yaml_metadata_block,field_names}.py + tests/test_{round_trip,codex_round_trip,opencode_io,antigravity_io}.py",
+  "date": "2026-05-22",
+  "files_analyzed": 10,
+  "total_lines": 2103,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "The two structural smells that drove the prior AUDIT_WEAK verdict (the Liskov outlier on parse_opencode_agent_md, and three sibling adapters importing five private helpers from claude_io) are both closed; remaining findings are WARNING or INFO.",
+  "remediation_diff_summary": "Phase 2 extracted the YAML-frontmatter prelude into a dedicated markdown_yaml_metadata_block module with a public surface; all four Markdown adapters now import from there instead of from claude_io. Phase 3 added field_names.py with CanonicalField/ClaudeField/CodexField/OpencodeField vocabularies and CROSS_ADAPTER_FIELD_MAP, adopted in claude_io only. Phase 4 reshaped parse_opencode_agent_md to raise when no name source is available (closing CQ-01) and version-gated the v0.1 review-marker strip (closing CQ-16).",
+  "detailed_analysis": "The Liskov outlier in parse_opencode_agent_md is closed: it now raises when none of (artifact_path, prior_canonical.name, frontmatter.name) can produce a non-empty identity; three new tests cover all three branches. markdown_yaml_metadata_block exports FRONTMATTER_RE, yaml_load/dump, strip_bom_prefix, split_frontmatter, frontmatter_for_render, extract_pair_id_from_md, AdapterParseError. Every Markdown adapter imports from it. The 14-line parse-prelude exists in exactly one place. The codex TOML path still has its own _normalize_toml_text / _make_yaml / _yaml_dump private helpers and its own copy of _CORRUPTED_UTF8_BOM. The render-side prelude still appears verbatim in four modules. The new field_names.py is adopted only in claude_io; opencode_io.FOREIGN_AGENT_FIELDS / FOREIGN_SKILL_FIELDS still hardcode 'disallowedTools', 'permissionMode', 'mcpServers', 'developer_instructions' as bare strings. CQ-09 mostly closed but one residual `from agents_sync.canonical import SCHEMA_VERSION` lives inside _strip_legacy_review_metadata. CQ-06 partially closed: markdown_yaml_metadata_block.AdapterParseError exists but codex_io:278 (TOML root) and opencode_io:197 (name-source check) still raise bare ValueError. CQ-12 persists: no tests/fixtures/ directory.",
+  "findings": [
+    {
+      "id": "CQ-03",
+      "severity": "WARNING",
+      "category": "Shotgun Surgery — render-prelude duplication",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 146,
+      "description": "Parse-side prelude is fully centralized in markdown_yaml_metadata_block.split_frontmatter. Render-side prelude is still duplicated verbatim in claude_io:146-150, antigravity_io:134-138, opencode_io:96-100 (as _render_markdown helper), and slash_command_io:214-218. Four copies, one wrapped.",
+      "recommendation": "Promote opencode_io._render_markdown to markdown_yaml_metadata_block.render_markdown_with_frontmatter(frontmatter, body) and call it from all four sites.",
+      "prior_audit_ref": "CQ-03"
+    },
+    {
+      "id": "CQ-04",
+      "severity": "WARNING",
+      "category": "Duplicated BOM-normalisation logic",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 67,
+      "description": "markdown_yaml_metadata_block.strip_bom_prefix centralized the markdown side. codex_io._normalize_toml_text (line 67) and the _CORRUPTED_UTF8_BOM constant (line 24) are still local. The TOML and Markdown BOM-handling are byte-equivalent but the constants are declared twice in slightly different escape forms.",
+      "recommendation": "Have codex_io._normalize_toml_text call markdown_yaml_metadata_block.strip_bom_prefix and remove the local _CORRUPTED_UTF8_BOM constant. Same for codex_io._make_yaml / _yaml_dump.",
+      "prior_audit_ref": "CQ-04"
+    },
+    {
+      "id": "CQ-05",
+      "severity": "INFO",
+      "category": "Dead code",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 277,
+      "description": "`if not isinstance(data, dict): raise ValueError(...)` at codex_io.py line 277 remains unreachable — tomllib.loads always returns dict on success and raises tomllib.TOMLDecodeError on failure.",
+      "recommendation": "Drop the isinstance check, or replace with `assert isinstance(data, dict)`.",
+      "prior_audit_ref": "CQ-05"
+    },
+    {
+      "id": "CQ-06",
+      "severity": "WARNING",
+      "category": "Divergent exception types",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 278,
+      "description": "markdown_yaml_metadata_block.AdapterParseError provides a single exception type for malformed frontmatter on every Markdown adapter. codex_io:278 (TOML root) and opencode_io:197 (name-source check) still raise bare ValueError.",
+      "recommendation": "Have codex_io and opencode_io raise AdapterParseError for these adapter-local malformed-input cases too.",
+      "prior_audit_ref": "CQ-06"
+    },
+    {
+      "id": "CQ-07",
+      "severity": "WARNING",
+      "category": "Hand-rolled TOML writer",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 86,
+      "description": "_toml_scalar / _toml_key / _toml_section_name / _emit_toml_table / _toml_dump still implement a hand-rolled TOML emitter that supports only str/bool/int/float/flat-list and raises TypeError on datetime, NaN, Infinity, nested lists, byte strings, None. Supported subset undocumented and not pinned by negative tests.",
+      "recommendation": "Either document the supported subset in the module docstring with negative-tests, or switch to tomlkit / tomli_w.",
+      "prior_audit_ref": "CQ-07"
+    },
+    {
+      "id": "CQ-09",
+      "severity": "INFO",
+      "category": "Function-scope import",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 209,
+      "description": "Phase 2 moved most function-scoped imports to module scope. One residual remains: `from agents_sync.canonical import SCHEMA_VERSION` inside _strip_legacy_review_metadata. canonical does not import codex_io, so no cycle justifies it.",
+      "recommendation": "Promote the SCHEMA_VERSION import to module scope.",
+      "prior_audit_ref": "CQ-09"
+    },
+    {
+      "id": "CQ-10",
+      "severity": "WARNING",
+      "category": "Primitive Obsession — duplicated foreign-field lists",
+      "file": "src/agents_sync/opencode_io.py",
+      "line": 67,
+      "description": "FOREIGN_AGENT_FIELDS and FOREIGN_SKILL_FIELDS still hardcode the set of Claude/Codex field names as bare string literals. field_names.py provides exactly these names as ClaudeField.* / CodexField.* constants.",
+      "recommendation": "Reference ClaudeField.* / CodexField.* constants in the two frozensets instead of raw strings.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "CQ-11",
+      "severity": "INFO",
+      "category": "One-directional round-trip coverage",
+      "file": "tests/test_codex_round_trip.py",
+      "line": 30,
+      "description": "No parse -> render -> parse -> render fixture-stability test exists for the codex agent path.",
+      "recommendation": "Add test_codex_agent_parse_then_render_then_parse_is_a_fixed_point with a realistic TOML fixture.",
+      "prior_audit_ref": "CQ-11"
+    },
+    {
+      "id": "CQ-12",
+      "severity": "INFO",
+      "category": "Synthetic-only fixtures",
+      "file": "tests/test_antigravity_io.py",
+      "line": 1,
+      "description": "No tests/fixtures/ directory was added. Every adapter test still constructs inputs with inline textwrap.dedent strings.",
+      "recommendation": "Add tests/fixtures/captured/{claude,codex,antigravity,opencode}/ with at least one real .md/.toml each.",
+      "prior_audit_ref": "CQ-12"
+    },
+    {
+      "id": "CQ-15",
+      "severity": "INFO",
+      "category": "Magic-string field vocabulary partial migration",
+      "file": "src/agents_sync/codex_io.py",
+      "line": 26,
+      "description": "Adoption of field_names is uneven: claude_io migrated; codex_io.KNOWN_CODEX_TOML_KEYS, antigravity_io.KNOWN_ANTIGRAVITY_FIELDS, and opencode_io.KNOWN_OPENCODE_*_FIELDS still use raw string literals.",
+      "recommendation": "Migrate the remaining three KNOWN_* frozensets to reference field_names.* constants.",
+      "prior_audit_ref": "CQ-15"
+    },
+    {
+      "id": "CQ-17",
+      "severity": "INFO",
+      "category": "Unused re-export",
+      "file": "src/agents_sync/claude_io.py",
+      "line": 16,
+      "description": "claude_io imports FRONTMATTER_RE and extract_pair_id_from_md from markdown_yaml_metadata_block. Neither name is referenced in claude_io.py; extract_pair_id_from_md is consumed by one external caller via the legacy path.",
+      "recommendation": "Drop FRONTMATTER_RE from the claude_io import list; have tool_specs/codex.py import extract_pair_id_from_md from markdown_yaml_metadata_block directly.",
+      "prior_audit_ref": "new"
+    }
+  ]
+}

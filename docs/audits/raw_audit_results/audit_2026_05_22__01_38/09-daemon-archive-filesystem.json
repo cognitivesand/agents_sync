@@ -1,0 +1,83 @@
+{
+  "project_version": "0.5-plan",
+  "scope": "src/agents_sync/{daemon,archive,portable_archive,filesystem_lock,filesystem_windows_retry,rules_io,slash_command_io}.py + tests/test_daemon_signals.py + tests/test_portable_archive.py + tests/test_filesystem_retry_helper.py + tests/test_rules_io.py + tests/test_rules_sync.py + tests/test_slash_command_*.py",
+  "date": "2026-05-22",
+  "files_analyzed": 10,
+  "total_lines": 2327,
+  "verdict": "AUDIT_PASS",
+  "verdict_rationale": "The single CRITICAL finding (CQ-01 silent-swallow + blocking-sleep daemon) and both MAJOR findings (CQ-03 daemon-loop coverage gap, CQ-04 non-transactional import) are closed with substantive remediation; residuals are bounded WARNING/INFO items that do not threaten the data-preservation invariant.",
+  "remediation_diff_summary": "Phases 1.1–4 rewrote daemon.py around a threading.Event-driven cancellable sleep and a real consecutive-failure budget; added four daemon loop tests; restructured import_from_zip into explicit Phase A (stage to .import_pending_<uuid>/) → Phase B (os.replace promotion) → Phase C (projection + state.json), and strengthened the AC-10 test to assert no live canonicals and no pending leftovers. CQ-07 unlink and CQ-08 mkdir are now wrapped in retry_fs. Shotgun duplication of the per-tool partition (CQ-11) is extracted into canonical.apply_per_tool_partition() and consumed in all three sites.",
+  "detailed_analysis": "daemon.py grew from 37 to 108 lines. The bare `except: continue` with time.sleep ignoring stop has been replaced by a typed three-outcome dispatch: clean / per-pair-failed / whole-poll exception, each advancing or resetting a consecutive_failures counter, with explicit max-failures exit code 1. Cancellable sleep is now stop.wait(interval_seconds); shutdown latency is bounded by ~0 instead of the prior 30s. test_daemon_signals.py grew from one helper assertion to four behavioural tests using real threading.Event and a scripted FakeSyncer. import_from_zip is now organised into three labelled phases: Phase A saves every accepted canonical into state_dir/.import_pending_<uuid>/ via save_canonical_to; if any save raises, pending dir is shutil.rmtreed and live tree is never touched. Phase B promotes pending files into canonical/ via os.replace inside a try/finally. Phase C runs projection and only then save_state. AC-10 test asserts state.json absent, live canonical/ directory empty, no leftover .import_pending_*. Zip handling is structurally safe: validate_pair_id enforces canonical UUIDv4 on every zip entry filename, so no slug derived from archive content can ever contain a path separator, '..', or absolute prefix. Residuals: CQ-06 export_to_zip still catches BaseException to unlink the tmp file. CQ-09 winerror branches still have zero Linux-runnable test. CQ-10/CQ-13 parameter counts in parse_rules_md (8) and parse_slash_command_markdown (5) unchanged. CQ-12 downgraded to INFO (only one underscore-prefixed import remains: _normalize_toml_text from codex_io). New CQ-14: portable_archive.py grew to 616 lines (over 300-line soft limit).",
+  "findings": [
+    {
+      "id": "CQ-04-residual",
+      "severity": "WARNING",
+      "category": "M2 long function",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 448,
+      "description": "import_from_zip is still ~155 lines, exceeding the 40-line guideline. Phase A/B/C structure makes responsibilities clearly partitioned but the function body remains long. Tool-side projection is still not staged in Phase 1 (documented caveat).",
+      "recommendation": "Track tool-side projection staging as a separate refactor item; consider extracting Phase C body into _project_decision(state, decision, ...) to bring import_from_zip back under 80 lines.",
+      "prior_audit_ref": "CQ-04"
+    },
+    {
+      "id": "CQ-06",
+      "severity": "WARNING",
+      "category": "C3 over-broad BaseException catch",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 144,
+      "description": "Persisting: export_to_zip still does `except BaseException: tmp_path.unlink(missing_ok=True); raise`. SystemExit and KeyboardInterrupt are caught for the duration of the unlink. The raise re-propagates, so blast radius is bounded, but a tighter `except (Exception, KeyboardInterrupt)` would be cleaner.",
+      "recommendation": "Replace with try/finally that always tries to unlink the tmp path on exit, or narrow the catch to Exception.",
+      "prior_audit_ref": "CQ-06"
+    },
+    {
+      "id": "CQ-09",
+      "severity": "INFO",
+      "category": "platform_coverage_gap",
+      "file": "src/agents_sync/filesystem_windows_retry.py",
+      "line": 22,
+      "description": "Persisting: the winerror branch in is_transient_fs_error (winerror ∈ {5, 32, 33}) has no Linux-runnable test. test_filesystem_retry_helper.py only exercises the PermissionError branch.",
+      "recommendation": "Add one test that synthesises OSError with .winerror = 32 and asserts retry_fs retries it.",
+      "prior_audit_ref": "CQ-09"
+    },
+    {
+      "id": "CQ-10",
+      "severity": "INFO",
+      "category": "I3 too many parameters",
+      "file": "src/agents_sync/rules_io.py",
+      "line": 41,
+      "description": "parse_rules_md still takes 8 parameters. canonical_name and artifact_path overlap in purpose.",
+      "recommendation": "Collapse canonical_name + artifact_path into a single RulesIdentity (path, override_name) data class.",
+      "prior_audit_ref": "CQ-10"
+    },
+    {
+      "id": "CQ-12",
+      "severity": "INFO",
+      "category": "W3 inappropriate intimacy (downgraded)",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 20,
+      "description": "Improved: was five-plus underscore-prefixed imports; now one (_normalize_toml_text from codex_io). rules_io.py no longer crosses any module-private boundary.",
+      "recommendation": "Promote codex_io._normalize_toml_text to a public name or move into a shared toml_normalization module.",
+      "prior_audit_ref": "CQ-12"
+    },
+    {
+      "id": "CQ-13",
+      "severity": "INFO",
+      "category": "I3 too many parameters",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 138,
+      "description": "parse_slash_command_markdown still has 5 parameters. On the threshold rather than over it.",
+      "recommendation": "Same as CQ-10 — collapse identity parameters into a small dataclass once a third parser is added.",
+      "prior_audit_ref": "CQ-13"
+    },
+    {
+      "id": "CQ-14",
+      "severity": "WARNING",
+      "category": "M1 module length over soft limit",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": null,
+      "description": "New: portable_archive.py is now 616 lines, exceeding the 300-line module guideline. The module remains topically coherent (export + import + collision policy + staging).",
+      "recommendation": "Consider splitting into portable_archive/{__init__,export,import_,collision,staging}.py once the file crosses 700 lines.",
+      "prior_audit_ref": null
+    }
+  ]
+}

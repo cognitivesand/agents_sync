@@ -1,4 +1,10 @@
-"""Shared test fixtures."""
+"""Shared test fixtures.
+
+The actual wiring lives in :mod:`tests._helpers` (Phase 2.7 extraction) so a
+test that needs a Syncer with non-default tool enablement can call
+``make_syncer(tmp_path, opencode_enabled=False)`` instead of copying the
+fixture's body inline.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,25 +13,9 @@ import pytest
 
 from agents_sync.sync import Syncer
 
+from ._helpers import make_syncer
+
 
 @pytest.fixture
 def syncer(tmp_path: Path) -> Syncer:
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "as", "oa", "os"):
-        (tmp_path / sub).mkdir()
-
-    config = {
-        "poll_interval_seconds": 1.0,
-        "state_path": str(state_dir / "state.json"),
-        "claude_agents_dir": str(tmp_path / "ca"),
-        "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
-        "codex_skills_dir": str(tmp_path / "xs"),
-        "antigravity_skills_dir": str(tmp_path / "as"),
-        "antigravity_enabled": True,
-        "opencode_agents_dir": str(tmp_path / "oa"),
-        "opencode_skills_dir": str(tmp_path / "os"),
-        "opencode_enabled": True,
-    }
-    return Syncer(config)
+    return make_syncer(tmp_path)

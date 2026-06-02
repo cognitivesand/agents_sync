@@ -1,0 +1,131 @@
+{
+  "project_version": "v0.5.0",
+  "scope": "file:src/agents_sync/formats/json_format.py, file:src/agents_sync/mcp_server_io/_slot_codec.py",
+  "date": "2026-05-29",
+  "files_analyzed": 2,
+  "total_lines": 61,
+
+  "detailed_analysis": "Two small per-format codec modules. json_format.py (28 lines) is the JSON/JSONC handler for SharedKeyedMapLayout shared files; it deserialises with a JSON-first / JSONC-fallback strategy and serialises with indent=2. _slot_codec.py (34 lines) is the per-slot serialise/deserialise helper for the mcp_server_io adapter, supporting json and toml slot formats. Both modules are well below the 300-line module limit, all functions are under the 40-line limit, every public function carries full type annotations, and both fail fast at their boundaries: each applies enforce_text_bound (parser DoS ceiling, NFR-derived security hardening) before parsing and each asserts the parsed root is a dict, raising ValueError otherwise. Naming is mostly two-word and intention-revealing. There are no hardcoded secrets, no injection vectors, no silent error swallowing, no mutable default arguments, no global state, and no deep nesting. The findings are confined to two genuine smells: a TOML-path code duplication / divergent-behaviour gap between dumps_slot (which delegates to the shared TOML format) and json_format/its JSON sibling, and a function-local deferred import inside dumps_slot that breaks the otherwise top-of-file import convention. Both are minor; neither caps an axis below 0.75. Spec conformance is clean: NFR-15 secret-policy enforcement is correctly NOT located in these pure codecs — it lives at the parse.py / render.py egress boundary one layer up — and the codecs respect the layer they sit in.",
+
+  "dependency_graph_summary": {
+    "total_modules": 2,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "_slot_codec.py", "imported_by": 2},
+    "highest_fan_out": {"module": "_slot_codec.py", "imports": 3}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/formats/json_format.py",
+      "lines": 28,
+      "function_count": 2,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 1.0,
+      "weakest_axis": "none",
+      "finding_count": 0
+    },
+    {
+      "file": "src/agents_sync/mcp_server_io/_slot_codec.py",
+      "lines": 34,
+      "function_count": 2,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 2
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/mcp_server_io/_slot_codec.py",
+      "line": 30,
+      "function_or_class": "dumps_slot",
+      "anti_pattern": "W5",
+      "variant": "Function-local deferred import / inconsistent import placement",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "    if slot_format == \"toml\":\n        from agents_sync.shared_keyed_map_formats import get_format\n\n        return get_format(\"toml\").serialize(obj)",
+      "evidence_lines": "29-32",
+      "problem": "The TOML branch of dumps_slot imports get_format inside the function body, while json/tomllib are imported at module top. The asymmetry (json read uses module-level json; toml read uses module-level tomllib; but toml write reaches through a different module's registry) is surprising (POLA) and hides a real dependency from the import graph. If the deferred import exists to avoid a circular import with shared_keyed_map_formats -> formats, that cycle should be documented at the import site; otherwise the import belongs at module top with the others.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/mcp_server_io/_slot_codec.py",
+      "line": 26,
+      "function_or_class": "loads_slot / dumps_slot",
+      "anti_pattern": "M4",
+      "variant": "Divergent TOML serialisation path (DRY / consistency gap)",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "def dumps_slot(obj, *, slot_format=\"json\"):\n    if slot_format == \"json\":\n        return json.dumps(obj, indent=2, sort_keys=False) + \"\\n\"\n    if slot_format == \"toml\":\n        from agents_sync.shared_keyed_map_formats import get_format\n        return get_format(\"toml\").serialize(obj)",
+      "evidence_lines": "26-33",
+      "problem": "The read and write sides treat TOML asymmetrically: loads_slot deserialises TOML directly via tomllib.loads (line 18), but dumps_slot serialises TOML via get_format('toml').serialize (line 32). The JSON path is self-contained in this module while the TOML path is split across two modules and two strategies. This is a small divergent-change / DRY smell: a future change to TOML slot handling must be reasoned about in two places, and the read/write TOML implementations can drift (e.g. tomllib.loads vs whatever serialize emits) without a single owner. The same JSON-dump literal (indent=2, sort_keys=False) is also duplicated verbatim in json_format.serialize (json_format.py:27); not flagged as a hard DRY violation given they are independent format owners, but noted as latent duplication.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/mcp_server_io/_slot_codec.py",
+      "line": 22,
+      "function_or_class": "loads_slot",
+      "anti_pattern": "I5",
+      "variant": "Imprecise error message",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "    if not isinstance(obj, dict):\n        raise ValueError(\"mcp_server JSON slot must be an object\")",
+      "evidence_lines": "21-22",
+      "problem": "The fail-fast guard at line 22 hardcodes 'JSON' in the message, but it is reached for both the json and toml branches (a non-dict TOML root would raise 'mcp_server JSON slot must be an object'). The slot_format value is in scope and should be interpolated, matching the precise messages used for the unknown-format errors on lines 20 and 33. Minor; the guard itself is correct and present.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 1},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 1, "total": 1},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Two clean, small, fail-fast codec modules; no critical or major defects, only a TOML-path consistency/import smell and an imprecise error string."
+}

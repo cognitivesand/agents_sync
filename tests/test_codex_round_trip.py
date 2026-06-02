@@ -96,6 +96,31 @@ def test_codex_skill_render_then_parse_is_a_fixed_point():
     assert c2["body"] == c1["body"]
 
 
+def test_codex_skill_render_preserves_prior_frontmatter_comments():
+    canonical = empty_canonical("skill")
+    canonical["pair_id"] = "abc-123"
+    canonical["name"] = "my-skill"
+    canonical["description"] = "skill desc"
+    canonical["body"] = "the body"
+    canonical["per_agentic_tool_extra"]["codex"] = {"vendor": "new"}
+    prior = (
+        "---\n"
+        "# keep this comment\n"
+        "pair_id: old\n"
+        "name: old\n"
+        "vendor: old\n"
+        "---\n"
+        "old body\n"
+    )
+
+    rendered = render_codex_skill_md(canonical, prior_text=prior)
+
+    assert "# keep this comment" in rendered
+    assert "pair_id: abc-123" in rendered
+    assert "name: my-skill" in rendered
+    assert "vendor: new" in rendered
+
+
 def test_codex_agent_parse_strips_legacy_review_metadata():
     """A v0.1-style developer_instructions value with the review-metadata tail
     parses into canonical.body without the tail."""
@@ -103,10 +128,28 @@ def test_codex_agent_parse_strips_legacy_review_metadata():
         'pair_id = "abc"\n'
         'name = "x"\n'
         'description = "y"\n'
-        'developer_instructions = "real body\\n\\n---\\nConverted Claude-specific metadata for manual review:\\n{}"\n'
+        'developer_instructions = "real body\\n\\n---\\n'
+        'Converted Claude-specific metadata for manual review:\\n{}"\n'
     )
     c = parse_codex_agent_toml(text)
     assert c["body"] == "real body"
+
+
+def test_codex_agent_parse_preserves_marker_when_prior_canonical_is_modern():
+    """A v0.4+ prior canonical (schema_version >= 4) means the marker is user-
+    authored content, not v0.1 conversion fallout — preserve it verbatim
+    (audit slice 07 · CQ-16)."""
+    text = (
+        'pair_id = "abc"\n'
+        'name = "x"\n'
+        'description = "y"\n'
+        'developer_instructions = "real body\\n\\n---\\n'
+        'Converted Claude-specific metadata for manual review:\\n{}"\n'
+    )
+    prior = {"pair_id": "abc", "kind": "agent", "schema_version": 4}
+    c = parse_codex_agent_toml(text, prior_canonical=prior)
+    # Marker tail preserved because prior is at modern schema.
+    assert "Converted Claude-specific metadata" in c["body"]
 
 
 def test_codex_agent_parse_preserves_unknown_fields_in_per_agentic_tool_extra():

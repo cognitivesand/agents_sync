@@ -5,9 +5,11 @@ registered agentic tool, with transition logging on every state change.
 Extracted from Syncer so the orchestrator does not need to carry the
 status-probing logic alongside its discovery and reconciliation duties.
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from agents_sync.agentic_tool_spec import AgenticToolSpec
@@ -24,12 +26,13 @@ class ToolStatusTracker:
 
     def __init__(
         self,
-        config: dict[str, Any],
+        config: Mapping[str, Any],
         agentic_tools: dict[str, AgenticToolSpec],
     ) -> None:
         self.config = config
         self.agentic_tools = agentic_tools
         self._status: dict[str, str] = {}
+        self._available_kinds: dict[str, set[str]] = {}
 
     # ---------- public read API ----------
 
@@ -38,6 +41,9 @@ class ToolStatusTracker:
 
     def is_available(self, tool_name: str) -> bool:
         return self._status.get(tool_name) == "available"
+
+    def is_kind_available(self, tool_name: str, kind: str) -> bool:
+        return kind in self._available_kinds.get(tool_name, set())
 
     def snapshot(self) -> dict[str, str]:
         """A shallow copy of the current status map, for inspection in tests."""
@@ -55,15 +61,25 @@ class ToolStatusTracker:
         for spec in self.agentic_tools.values():
             if not self._is_tool_enabled(spec):
                 continue
-            for config_key in spec.config_dir_keys.values():
-                root = expand_path(self.config[config_key])
+            for kind, config_key in spec.config_dir_keys.items():
+                if not self._is_kind_enabled(spec, kind):
+                    continue
+                raw_root = self.config.get(config_key)
+                if raw_root is None:
+                    continue
+                layout = spec.io[kind].file_layout
+                resolved = expand_path(raw_root)
+                parent = layout.probe_check_path(resolved) if layout is not None else resolved
                 try:
-                    root.mkdir(parents=True, exist_ok=True)
+                    parent.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
                     logging.warning(
                         "Could not pre-create %s root %s (%s: %s); "
                         "next poll will mark this tool unavailable.",
-                        spec.name, root, type(exc).__name__, exc,
+                        spec.name,
+                        parent,
+                        type(exc).__name__,
+                        exc,
                     )
 
     # ---------- per-poll refresh ----------
@@ -79,12 +95,15 @@ class ToolStatusTracker:
         """
         new_status: dict[str, str] = {}
         reasons: dict[str, tuple[str, str]] = {}
+        available_kinds: dict[str, set[str]] = {}
         for tool_name, spec in self.agentic_tools.items():
             if not self._is_tool_enabled(spec):
                 new_status[tool_name] = "disabled"
+                available_kinds[tool_name] = set()
                 continue
-            status, reason = self._probe_tool_roots(spec)
+            status, reason, kinds = self._probe_tool_roots(spec)
             new_status[tool_name] = status
+            available_kinds[tool_name] = kinds
             if reason is not None:
                 reasons[tool_name] = reason
 
@@ -92,10 +111,9 @@ class ToolStatusTracker:
             prev = self._status.get(tool_name)
             if prev == status:
                 continue
-            self._log_status_transition(
-                tool_name, prev, status, reasons.get(tool_name)
-            )
+            self._log_status_transition(tool_name, prev, status, reasons.get(tool_name))
         self._status = new_status
+        self._available_kinds = available_kinds
 
     # ---------- internals ----------
 
@@ -110,19 +128,69 @@ class ToolStatusTracker:
             return True
         return bool(self.config.get(spec.disable_config_key, True))
 
+    def _is_kind_enabled(self, spec: AgenticToolSpec, kind: str) -> bool:
+        if not self._is_tool_enabled(spec):
+            return False
+        config_key = spec.kind_disable_config_keys.get(kind)
+        if config_key is None:
+            return True
+        return bool(self.config.get(config_key, True))
+
     def _probe_tool_roots(
         self, spec: AgenticToolSpec
-    ) -> tuple[str, tuple[str, str] | None]:
+    ) -> tuple[str, tuple[str, str] | None, set[str]]:
         """Return (status, reason_or_None) for one tool's on-disk reachability."""
-        for _kind, config_key in spec.config_dir_keys.items():
-            root = expand_path(self.config[config_key])
-            if not root.exists():
-                return "unavailable", (str(root), "path does not exist")
+        available_kinds: set[str] = set()
+        first_reason: tuple[str, str] | None = None
+        enabled_kind_count = 0
+        for kind, config_key in spec.config_dir_keys.items():
+            if not self._is_kind_enabled(spec, kind):
+                continue
+            enabled_kind_count += 1
+            layout = spec.io[kind].file_layout
+            if config_key not in self.config:
+                if layout is not None and layout.tolerates_missing_config_key():
+                    continue
+                reason = (config_key, "config key missing")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
+            raw_root = self.config.get(config_key)
+            if raw_root is None:
+                reason = (config_key, "path is not configured")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
+            resolved = expand_path(raw_root)
+            probe_path = layout.probe_check_path(resolved) if layout is not None else resolved
+            if not probe_path.exists():
+                reason = (str(probe_path), "path does not exist")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
             try:
-                next(root.iterdir(), None)
+                next(probe_path.iterdir(), None)
             except OSError as exc:
-                return "unavailable", (str(root), f"{type(exc).__name__}: {exc}")
-        return "available", None
+                reason = (str(probe_path), f"{type(exc).__name__}: {exc}")
+                if not spec.partial_availability:
+                    return "unavailable", reason, set()
+                if first_reason is None:
+                    first_reason = reason
+                continue
+            available_kinds.add(kind)
+        if spec.partial_availability:
+            if available_kinds:
+                return "available", None, available_kinds
+            if enabled_kind_count == 0:
+                return "disabled", None, set()
+            return "unavailable", first_reason, set()
+        return "available", None, available_kinds
 
     def _log_status_transition(
         self,
@@ -143,10 +211,15 @@ class ToolStatusTracker:
         if prev is None:
             logging.info(
                 "agentic_tool %s: startup -> unavailable (root=%s reason=%s)",
-                tool_name, root_str, reason_str,
+                tool_name,
+                root_str,
+                reason_str,
             )
         else:
             logging.warning(
                 "agentic_tool %s: %s -> unavailable (root=%s reason=%s)",
-                tool_name, prev, root_str, reason_str,
+                tool_name,
+                prev,
+                root_str,
+                reason_str,
             )

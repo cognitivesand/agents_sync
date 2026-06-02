@@ -1,0 +1,180 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/cli.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 437,
+
+  "detailed_analysis": "cli.py is a Layer-4 (Frameworks & Drivers) module: argparse construction, legacy-install detection, log configuration, export/import dispatch, and the Syncer+watch entry point. Functionally it conforms to the spec: NFR-10 distinct exit codes (0 normal / 1 runtime / 2 config or legacy) are honoured; NFR-15 secret_policy is forwarded to export_to_zip and (via the full config dict) to import_from_zip; US-12 AC-8 CLI strategy precedence and AC-4/AC-9 non-zero abort with structured logging are implemented; error handling is fail-loud (logging.exception, never bare-swallowed). No security smells: no hardcoded secrets, no injection, no unsafe deserialization. The structural problems are real and concentrated: the module is 437 lines (project limit is 300; the architecture doc still claims '94 lines', a stale figure), and build_parser is a single ~272-line function — 7x the 40-line limit. The two run helpers also exceed 40 lines. These are Long-Function / Long-Module smells, not defects, but they violate the project's explicit Clean Code size limits (NFR-14). One small dead branch: _run_export reads config.get('mcp_server_secret_policy'), a key that merged_config already pops before the dict reaches the CLI, so it is always None.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "cli.py", "imported_by": 1},
+    "highest_fan_out": {"module": "cli.py", "imports": 6}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/cli.py",
+      "lines": 437,
+      "function_count": 5,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.5,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 6
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/cli.py",
+      "line": 35,
+      "function_or_class": "build_parser",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 272},
+      "evidence": "def build_parser() -> argparse.ArgumentParser:  (lines 35-307)\n    parser = argparse.ArgumentParser(...)\n    parser.add_argument(\"--config\", ...)\n    ... ~50 add_argument blocks ...\n    return parser",
+      "evidence_lines": "35-307",
+      "problem": "build_parser spans 272 lines (lines 35-307), ~7x the project's 40-line function limit (AGENTS.md §3, NFR-14). It declares roughly 50 flags across seven tools plus two subparsers in one flat body. The repeated per-tool add_argument blocks are a data-driven structure expressed as imperative code (the flag-to-config mapping is already tabularised in config._ARG_TO_CONFIG_KEY, but the parser side is not).",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/cli.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "God Module (oversized module)",
+      "severity": "MAJOR",
+      "metrics": {"lines": 437, "limit": 300},
+      "evidence": "437 total lines; project module limit is 300 (AGENTS.md §3).",
+      "evidence_lines": "1-437",
+      "problem": "The module is 437 lines, exceeding the project's explicit 300-line file limit. The bulk is the flag-declaration surface in build_parser; the module mixes argparse wiring, legacy-path detection, and two egress (export/import) use-case dispatchers. architecture.md §4 and §2 still describe cli.py as '94 lines', so the doc is also out of date relative to this file (see spec deviation).",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/cli.py",
+      "line": 353,
+      "function_or_class": "_run_import",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 53, "cyclomatic_complexity": 8},
+      "evidence": "def _run_import(args, config) -> int:  (lines 353-406)\n    ... preview_import (try/except OSError + PortableArchiveError) ...\n    if would_overwrite and not force: ... return 2\n    ... import_from_zip (try/except OSError + PortableArchiveError) ...\n    ... two info-log branches ...",
+      "evidence_lines": "353-406",
+      "problem": "_run_import is 53 lines, exceeding the 40-line limit. It holds two distinct egress concerns: the --force preview gate (lines 363-379) and the actual import + report logging (lines 381-406). Each has its own try/except pair. Two responsibilities suggest an extract-method split.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/cli.py",
+      "line": 329,
+      "function_or_class": "_run_export",
+      "anti_pattern": "I2",
+      "variant": "Dead branch (unreachable config key)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "secret_policy = str(\n    config.get(\"secret_policy\")\n    or config.get(\"mcp_server_secret_policy\")\n    or \"secrets_refused\"\n)",
+      "evidence_lines": "327-331",
+      "problem": "config.get(\"mcp_server_secret_policy\") is always None here: merged_config (config.py:302) pops the legacy 'mcp_server_secret_policy' key out of the dict before the config reaches the CLI, and validate_config never re-adds it. The middle fallback is dead. The 'or \"secrets_refused\"' tail is likewise redundant because merged_config/validate_config guarantee a normalized 'secret_policy' is always present. Minor maintainability noise that misleads a reader into thinking the legacy key flows through.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/cli.py",
+      "line": 324,
+      "function_or_class": "_run_export / _run_import",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession (untyped config dict)",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "def _run_export(args: argparse.Namespace, config: dict) -> int:\n    state_dir = expand_path(config[\"state_path\"]).parent\n    ...\ndef _run_import(args: argparse.Namespace, config: dict) -> int:\n    strategy = args.collision_strategy or config[\"import_collision_strategy\"]",
+      "evidence_lines": "324, 353",
+      "problem": "Both helpers and main pass an untyped `dict` and index it by raw string keys ('state_path', 'import_collision_strategy', 'poll_interval_seconds', 'secret_policy'). config.py already defines the AgentsSyncConfig TypedDict for exactly this contract, but the CLI annotates the parameter as bare `dict`, losing the schema at the boundary. The implicit dict-schema is duplicated across cli.py and the config module.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/cli.py",
+      "line": 433,
+      "function_or_class": "main",
+      "anti_pattern": "I4",
+      "variant": "Magic literal (default-fallthrough run mode)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "syncer = Syncer(config)\nreturn watch(syncer, float(config[\"poll_interval_seconds\"]))",
+      "evidence_lines": "432-433",
+      "problem": "The 'no subcommand => run the watch daemon' behaviour is implicit fall-through after the export/import dispatch (lines 427-430). The default command is never named; a reader must infer that absence of args.command means 'watch'. Low severity — the dispatch is short and readable — but the default mode would be clearer as an explicit branch or a named constant.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.5,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 1, "total": 1},
+    "M2_long_function": {"major": 2, "total": 2},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map) and §2 (layer 4 description)",
+        "file": "src/agents_sync/cli.py",
+        "line": 1,
+        "description": "architecture.md §4 lists cli.py at 94 lines and §2 repeats 'cli.py ... 94 lines'. The file is now 437 lines. The governance doc's module-map figure is stale; the module also blows past the project's 300-line limit (AGENTS.md §3 / NFR-14)."
+      },
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "file": "src/agents_sync/cli.py",
+        "line": 35,
+        "description": "NFR-14 mandates Clean Code 'small cohesive functions'. build_parser (272 lines) and _run_import (53 lines) exceed the project's explicit 40-line function limit; the module exceeds the 300-line file limit. Functional behaviour is correct, but the size limits the project sets for itself are violated."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Functionally correct and secure (NFR-10 exit codes, NFR-15 secret_policy egress, US-12 import/export dispatch all conform), but structurally over the project's own size limits: 437-line module, 272-line build_parser, 53-line _run_import; one stale architecture figure and one dead config-key branch."
+}

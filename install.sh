@@ -74,21 +74,52 @@ poll_interval_seconds = 2.0
 state_path = "~/.local/state/agents-sync/state.json"
 
 claude_agents_dir = "~/.claude/agents"
+claude_commands_dir = "~/.claude/commands"
 claude_skills_dir = "~/.claude/skills"
+claude_rules_dir = "~/.claude"
 
 codex_agents_dir = "~/.codex/agents"
+codex_prompts_dir = "~/.codex/prompts"
 codex_skills_dir = "~/.codex/skills"
+codex_rules_dir = "~/.codex"
+
+# Cursor. Enabled by default for user-level file surfaces.
+# cursor_agents_dir = "~/.cursor/agents"
+# cursor_commands_dir = "~/.cursor/commands"
+# cursor_skills_dir = "~/.cursor/skills"
+# cursor_rules_dir = "~/.cursor/rules"
+# cursor_mcp_servers_file = "~/.cursor/mcp.json"
+# cursor_enabled = false
+
+# Gemini CLI. Enabled by default for user-level file surfaces.
+# gemini_cli_agents_dir = "~/.gemini/agents"
+# gemini_cli_commands_dir = "~/.gemini/commands"
+# gemini_cli_skills_dir = "~/.gemini/skills"
+# gemini_cli_rules_dir = "~/.gemini"
+# gemini_cli_settings_file = "~/.gemini/settings.json"
+# gemini_cli_enabled = false
 
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
 
-# opencode (agents + skills). Enabled by default once the roots exist or can
+# opencode (agents + commands + skills). Enabled by default once the roots exist or can
 # be created. To disable, uncomment opencode_enabled.
 # opencode_agents_dir = "~/.config/opencode/agents"
+# opencode_commands_dir = "~/.config/opencode/commands"
 # opencode_skills_dir = "~/.config/opencode/skills"
+# opencode_rules_dir = "~/.config/opencode"
 # opencode_enabled = false
+
+# GitHub Copilot CLI agents and skills are enabled by default.
+# VS Code user-profile instructions/prompts are path-configured because
+# profile locations vary by install.
+# copilot_cli_agents_dir = "~/.copilot/agents"
+# copilot_cli_skills_dir = "~/.copilot/skills"
+# copilot_vscode_user_instructions_dir = "/path/to/vscode/profile/instructions"
+# copilot_vscode_user_prompts_dir = "/path/to/vscode/profile/prompts"
+# copilot_enabled = false
 EOF
 fi
 
@@ -102,7 +133,7 @@ uv run python "${PROJECT_DIR}/scripts/migrate_v0.4.py" --yes
 
 cat > "${SERVICE_DIR}/${APP_NAME}.service" <<EOF
 [Unit]
-Description=Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations
+Description=Bidirectional sync of Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and opencode customizations
 
 [Service]
 Type=simple

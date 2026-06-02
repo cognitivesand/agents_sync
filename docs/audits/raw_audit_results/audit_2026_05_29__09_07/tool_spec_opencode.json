@@ -1,0 +1,124 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/opencode.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 153,
+
+  "detailed_analysis": "src/agents_sync/tool_specs/opencode.py is a single declarative spec-factory module (Layer 3 'wiring', per architecture §4/§7). It defines one public function, build_opencode_spec, which lazily imports the opencode IO adapters, defines six thin closures adapting the opencode_io functions to the generic CustomizationTypeIO signatures, and returns one AgenticToolSpec literal. The file is 153 lines (well under the 300-line module limit) and contains no I/O, no secrets, no injection surface, no global mutable state, no silent exception swallowing, and no unsafe deserialization. Security posture is clean: the MCP-server secret_policy is delegated to build_mcp_server_io, which the architecture (goal 6 / NFR-15) makes responsible for egress secret handling — this file correctly does not re-implement it. The Dependency Rule holds: every import points inward (agentic_tool_spec port, opencode_io adapter, shared _mcp_server_factory / _rules_factory helpers); the concrete name 'opencode' appearing here is explicitly sanctioned by architecture §1 ('the names ... appear in adapter modules and in user-provided config keys'). The principal structural observation is that build_opencode_spec is ~137 lines, over the 40-line guideline; however the body is almost entirely nested micro-closures plus a declarative dataclass literal, and this exact shape is the project-wide convention for every tool_specs/*.py factory (codex.py is structurally identical). The notable inconsistency is API style: this file uses the legacy storage=/file_suffix=/slugify_name=/reserved_names= fields on CustomizationTypeIO, whereas codex.py uses the newer typed file_layout=DirectorySkillLayout()/SharedKeyedMapLayout(). Both are valid (CustomizationTypeIO.__post_init__ accepts either), but the divergence is a maintainability smell within a directory of sibling factories.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "opencode.py", "imported_by": 1},
+    "highest_fan_out": {"module": "opencode.py", "imports": 5},
+    "note": "Imports point inward only: agentic_tool_spec (port), opencode_io (adapter), _mcp_server_factory, _rules_factory, slash_command_io, mcp_server_io. Dependency Rule (architecture §3) upheld."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/opencode.py",
+      "lines": 153,
+      "function_count": 7,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/opencode.py",
+      "line": 16,
+      "function_or_class": "build_opencode_spec",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MINOR",
+      "metrics": {"lines": 137, "cyclomatic_complexity": 1},
+      "evidence": "def build_opencode_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:\n    ... lazy imports ...\n    def parse_agent(...): ...\n    def render_agent(...): ...\n    (six closures)\n    return AgenticToolSpec(name=\"opencode\", config_dir_keys={...}, io={...}, ...)",
+      "evidence_lines": "16-152",
+      "problem": "build_opencode_spec spans ~137 lines, exceeding the project's 40-line function guideline (AGENTS.md §3). Cyclomatic complexity is 1 (no branching) and the body is overwhelmingly six small wrapper closures plus a single declarative AgenticToolSpec literal, so cognitive load is low and this is the established convention for every tool_specs/*.py factory. Flagged for completeness against the explicit line limit; severity reduced because the content is declarative wiring, not logic.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/opencode.py",
+      "line": 99,
+      "function_or_class": "build_opencode_spec (io dict)",
+      "anti_pattern": "I5",
+      "variant": "Inconsistent API style across sibling factories",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "storage=\"single_file\",\nfile_suffix=\".md\",\n...\nstorage=\"directory_skill\",\nfile_suffix=\"\",\nslugify_name=opencode_skill_slug,",
+      "evidence_lines": "99-124",
+      "problem": "This factory configures CustomizationTypeIO via the legacy untyped fields storage=/file_suffix=/slugify_name=/reserved_names=, whereas the sibling codex.py uses the newer typed layout objects file_layout=DirectorySkillLayout() and SharedKeyedMapLayout(...). Both are accepted by CustomizationTypeIO.__post_init__, but the divergence within one directory of parallel factories raises maintenance cost and risks the two code paths drifting (the typed-layout path carries probe_check_path / tolerates_missing_config_key polymorphism the legacy path lacks). Not a correctness defect; a consistency/maintainability smell.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/tool_specs/opencode.py",
+      "line": 32,
+      "function_or_class": "parse_agent / parse_skill",
+      "anti_pattern": "I2",
+      "variant": "Unused parameters in adapter closures",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "def parse_agent(text, prior_canonical, *, artifact_path=None, artifact_root=None):\n    return parse_opencode_agent_md(text, prior_canonical=prior_canonical, artifact_path=artifact_path)\n# artifact_root accepted but discarded\ndef parse_skill(text, prior_canonical, *, artifact_path=None, artifact_root=None):\n    return parse_opencode_skill_md(text, prior_canonical=prior_canonical)\n# artifact_path AND artifact_root accepted but discarded",
+      "evidence_lines": "32-55",
+      "problem": "The closures accept ParseFn-protocol keyword parameters (artifact_path, artifact_root) that they then silently drop because the underlying opencode_io parsers do not consume them. This is required to satisfy the ParseFn Protocol signature, so it is intentional adapter shimming rather than a true defect, but the discarded keywords are quietly load-bearing-by-absence: a reader cannot tell whether the omission is deliberate or a bug. Low severity, noted for clarity.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "deviations": []
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean declarative Layer-3 spec factory; no critical/major findings, Dependency Rule and NFR-15 delegation upheld; only minor style/consistency smells."
+}

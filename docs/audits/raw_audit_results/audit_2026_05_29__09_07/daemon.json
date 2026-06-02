@@ -1,0 +1,101 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/daemon.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 108,
+
+  "detailed_analysis": "daemon.py is the Layer-4 polling driver: signal registration, a cancellable poll loop, an error-budget counter, and structured logging. It is small (108 lines, well under the 300-line module limit), single-responsibility, and the public function watch() is 64 lines of body but low in branching. There are no CRITICAL findings: the one broad `except Exception` is deliberate fault-isolation (FR-02 / US-07 AC-3) and is logged at exception level with a traceback before incrementing the failure counter, so it is NOT C3 silent-swallowing. Signal handlers are registered defensively for cross-platform support. The only substantive code-quality observations are: (a) watch() exceeds the project's 40-line function guideline at ~47 non-blank body lines and carries the loop, the error budget, and signal wiring in one function (mild M2 / SRP); (b) the architecture doc claims daemon.py is '37 lines' in two places (§2, §4) while the file is 108 lines — a stale documentation fact, not a code defect; (c) the watch() docstring documents exit codes 0 and 1 but the function reuses NFR-10's tri-state codes only partially (config-error exit 2 lives in cli.py, which is correct layering). Naming is intention-revealing throughout (request_stop, consecutive_failures, max_consecutive_failures). No hardcoded secrets, paths, injection vectors, mutable defaults, or no-op bodies. Conformance to US-07 AC-2/AC-3 and NFR-10/NFR-13 is sound.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "daemon.py", "imported_by": "cli.py (per architecture §4)"},
+    "highest_fan_out": {"module": "daemon.py", "imports": "agents_sync.sync.Syncer only"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/daemon.py",
+      "lines": 108,
+      "function_count": 3,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 1
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/daemon.py",
+      "line": 44,
+      "function_or_class": "watch",
+      "anti_pattern": "M2",
+      "variant": "Long Function (mild) / mild SRP",
+      "severity": "INFO",
+      "metrics": {"body_lines_non_blank": 47, "cyclomatic_complexity": 8},
+      "evidence": "def watch(\n    syncer: Syncer,\n    interval_seconds: float,\n    *,\n    max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,\n    stop_event: threading.Event | None = None,\n) -> int:\n    ...\n    while not stop.is_set():\n        try:\n            result = syncer.sync_once()\n        except Exception:\n            ...",
+      "evidence_lines": "44-107",
+      "problem": "watch() body runs ~47 non-blank lines, exceeding the project's 40-line function guideline (AGENTS.md §3). It bundles three concerns: signal-handler wiring (lines 60-69), the poll/error-budget state machine (lines 71-104), and termination logging. Cyclomatic complexity (~8) is under the >10 threshold and the logic is readable, so this is a guideline overage, not a true M2 defect. Could extract the per-poll outcome classification (lines 74-91) into a helper. No correctness impact.",
+      "affected_axis": "structure"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §2 and §4",
+        "description": "Doc states daemon.py is '37 lines' (§2 layer-4 description and §4 module map). The actual file is 108 lines. Stale documentation fact about the audited module; not a code defect, but the architecture artifact no longer describes the code truthfully (architecture doc requires any change to leave it 'either true or amended')."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean Layer-4 driver; one INFO function-length overage and one stale line-count in the architecture doc; no CRITICAL/MAJOR/WARNING findings."
+}

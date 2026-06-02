@@ -1,0 +1,105 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/codex.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 133,
+
+  "detailed_analysis": "src/agents_sync/tool_specs/codex.py is a thin Layer-3 spec-factory (per architecture.md §4 / §7) that wires the Codex IO adapters into one AgenticToolSpec. It contains a single public function, build_codex_spec, comprising six tiny local closures and one flat AgenticToolSpec(...) data literal. The file is 133 lines (well under the 300-line module limit) and the function carries no real branching (cyclomatic complexity ~1; the return statement is a nested dataclass literal, not control flow). No security smells: no hardcoded secrets, no injection vectors, no unsafe deserialization, no silent except. The secret_policy egress requirement (NFR-15 / goal 6) is correctly honoured by forwarding `config=config` into build_mcp_server_io (line 120); the non-mcp cells legitimately omit secret_policy because NFR-15 scopes detection to env/headers/auth.* fields that exist only on mcp_server artifacts. Architectural conformance is clean: the concrete tool name \"codex\" appears only in this adapter/factory layer (goal 5 / stable-abstractions rule), no use case is imported, and the closures conform to the ParseFn Protocol. The only substantive observations are (1) DRY: the slash_command parse/render closures are duplicated near-verbatim across codex.py, claude.py, and opencode.py — three occurrences, meeting the Rule-of-Three threshold the project already applies via _rules_factory.py and _mcp_server_factory.py for the rules and mcp_server cells; and (2) minor naming: the local closures use single-domain-word names (parse_agent, render_agent) rather than the project's two-word preference, though they match the established sibling convention and are file-local. Neither rises above SMELL/MINOR. No CRITICAL or MAJOR findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "codex.py", "imported_by": "tool_specs/__init__.py / agentic_tool_spec.default_agentic_tools"},
+    "highest_fan_out": {"module": "codex.py", "imports": "agentic_tool_spec, tool_specs._mcp_server_factory, tool_specs._rules_factory, mcp_server_io, codex_io, markdown_yaml_metadata_block, slash_command_io"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/codex.py",
+      "lines": 133,
+      "function_count": 7,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 2
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/codex.py",
+      "line": 57,
+      "function_or_class": "build_codex_spec.parse_slash_command / render_slash_command",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated boilerplate (Rule of Three)",
+      "severity": "SMELL",
+      "metrics": {"duplicate_occurrences": 3},
+      "evidence": "def parse_slash_command(text, prior_canonical, *, artifact_path=None, artifact_root=None):\n    return parse_slash_command_markdown(text, prior_canonical, agentic_tool_name=\"codex\", artifact_path=artifact_path, artifact_root=artifact_root)\ndef render_slash_command(canonical, prior_text):\n    return render_slash_command_markdown(canonical, prior_text, agentic_tool_name=\"codex\")",
+      "evidence_lines": "57-80",
+      "problem": "The slash_command parse/render closure pair (lines 57-80) is duplicated near-verbatim in claude.py (lines 51-74) and opencode.py — three occurrences differing only by the agentic_tool_name literal. The project already extracts the analogous rules and mcp_server cells via _rules_factory.build_global_rules_io and _mcp_server_factory.build_mcp_server_io; a build_slash_command_io factory would remove this repetition. Meets Fowler's Rule of Three. Non-blocking: each block is small.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/codex.py",
+      "line": 33,
+      "function_or_class": "build_codex_spec.parse_agent / render_agent / parse_skill / render_skill",
+      "anti_pattern": "I5",
+      "variant": "Inconsistent / single-word naming",
+      "severity": "MINOR",
+      "metrics": {"single_word_domain_names": 4},
+      "evidence": "def parse_agent(...): ...\ndef render_agent(...): ...\ndef parse_skill(...): ...\ndef render_skill(...): ...",
+      "evidence_lines": "33-55",
+      "problem": "Local closures use bare verb+single-domain-word names rather than the project's two-word-minimum preference (AGENTS.md §4). The names are unambiguous in the file-local factory context and match the sibling convention in claude.py, so impact is minimal; flagged only for completeness.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1},
+    "DRY_duplication": {"smell": 1, "total": 1}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean Layer-3 spec factory; no CRITICAL/MAJOR findings; only a cross-file DRY smell (slash_command closures, 3x) and a minor naming nit."
+}

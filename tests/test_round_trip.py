@@ -41,7 +41,10 @@ def test_parse_assigns_a_pair_id_when_missing():
 
 
 def test_parse_preserves_existing_pair_id():
-    text = "---\npair_id: 11111111-2222-3333-4444-555555555555\nname: foo\ndescription: bar\n---\nbody"
+    text = (
+        "---\npair_id: 11111111-2222-3333-4444-555555555555\n"
+        "name: foo\ndescription: bar\n---\nbody"
+    )
     canonical = parse_claude_md(text, kind="agent")
     assert canonical["pair_id"] == "11111111-2222-3333-4444-555555555555"
 

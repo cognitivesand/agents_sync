@@ -125,17 +125,39 @@ function Ensure-Config([string]$ConfigFile, [string]$StateFile) {
   if ((-not (Test-Path $ConfigFile)) -or $Force) {
     $tomlStatePath = Convert-ToTomlPath $StateFile
     $opencodeAgentsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\agents")
+    $opencodeCommandsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\commands")
     $opencodeSkillsPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode\skills")
+    $opencodeRulesPath = Convert-ToTomlPath (Join-Path $env:APPDATA "opencode")
     $cfg = @"
 [agents-sync]
 poll_interval_seconds = 2.0
 state_path = "$tomlStatePath"
 
 claude_agents_dir = "~/.claude/agents"
+claude_commands_dir = "~/.claude/commands"
 claude_skills_dir = "~/.claude/skills"
+claude_rules_dir = "~/.claude"
 
 codex_agents_dir = "~/.codex/agents"
+codex_prompts_dir = "~/.codex/prompts"
 codex_skills_dir = "~/.codex/skills"
+codex_rules_dir = "~/.codex"
+
+# Cursor. Enabled by default for user-level file surfaces.
+# cursor_agents_dir = "~/.cursor/agents"
+# cursor_commands_dir = "~/.cursor/commands"
+# cursor_skills_dir = "~/.cursor/skills"
+# cursor_rules_dir = "~/.cursor/rules"
+# cursor_mcp_servers_file = "~/.cursor/mcp.json"
+# cursor_enabled = false
+
+# Gemini CLI. Enabled by default for user-level file surfaces.
+# gemini_cli_agents_dir = "~/.gemini/agents"
+# gemini_cli_commands_dir = "~/.gemini/commands"
+# gemini_cli_skills_dir = "~/.gemini/skills"
+# gemini_cli_rules_dir = "~/.gemini"
+# gemini_cli_settings_file = "~/.gemini/settings.json"
+# gemini_cli_enabled = false
 
 # Google Antigravity (skills only). Enabled by default once
 # ~/.gemini/antigravity/skills exists. To disable, uncomment antigravity_enabled.
@@ -144,12 +166,23 @@ codex_skills_dir = "~/.codex/skills"
 # antigravity_skills_dir = "~/.gemini/antigravity/skills"
 # antigravity_enabled = false
 
-# opencode (agents + skills). Enabled by default once the roots exist or can
+# opencode (agents + commands + skills). Enabled by default once the roots exist or can
 # be created. Some opencode builds report %USERPROFILE%\.config\opencode
 # from opencode debug paths; override these paths if yours does.
 # opencode_agents_dir = "$opencodeAgentsPath"
+# opencode_commands_dir = "$opencodeCommandsPath"
 # opencode_skills_dir = "$opencodeSkillsPath"
+# opencode_rules_dir = "$opencodeRulesPath"
 # opencode_enabled = false
+
+# GitHub Copilot CLI agents and skills are enabled by default.
+# VS Code user-profile instructions/prompts are path-configured because
+# profile locations vary by install.
+# copilot_cli_agents_dir = "~/.copilot/agents"
+# copilot_cli_skills_dir = "~/.copilot/skills"
+# copilot_vscode_user_instructions_dir = "C:/path/to/vscode/profile/instructions"
+# copilot_vscode_user_prompts_dir = "C:/path/to/vscode/profile/prompts"
+# copilot_enabled = false
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($ConfigFile, $cfg, $utf8NoBom)
@@ -178,7 +211,7 @@ function Register-AgentsSyncTask([string]$Name, [string]$HiddenLauncherFile) {
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description "Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations" `
+    -Description "Bidirectional sync of Claude Code, Codex, Cursor, Gemini CLI, Antigravity, and opencode customizations" `
     -Force | Out-Null
 
   Start-ScheduledTask -TaskName $Name

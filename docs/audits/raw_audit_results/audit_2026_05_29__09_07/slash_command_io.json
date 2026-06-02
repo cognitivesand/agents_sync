@@ -1,0 +1,174 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/slash_command_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 310,
+
+  "detailed_analysis": "slash_command_io.py is a Layer-3 interface adapter implementing the CustomizationTypeIO triple (parse/render/extract_pair_id) for the slash_command customization_type in both the Markdown+YAML-frontmatter dialect and the Gemini-style TOML dialect. It is structurally clean overall: no God Class (module-level functions only, no classes), every function is well under the 40-line limit, nesting never exceeds 2, there are no secrets, no injection vectors, no silent exception swallowing, and no mutable default arguments. The use-case isolation invariant holds (it imports only canonical/state/markdown helpers, no use-case modules) and no concrete tool name is hardcoded. The body of the command is passed through verbatim in both renderers (canonical.get('body', '')), so US-13 AC-2 byte-for-byte interpolation-grammar preservation is honoured. The defects that exist are all maintainability-grade: (1) a DRY violation — _toml_key and _toml_scalar are near-verbatim duplicates of the same private functions in codex_io.py, and the module also imports the private _normalize_toml_text from codex_io, an inappropriate cross-adapter intimacy that couples two sibling Layer-3 adapters; (2) several function names violate the project's two-word-minimum naming rule (_toml_key, _toml_scalar, _first_present); (3) the module is 310 lines, marginally over the project's 300-line soft limit. None of these are correctness or security risks. The strongest finding is the cross-adapter coupling/duplication, which is a maintainability and DRY concern (NFR-14 / Clean Code).",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "slash_command_io.py", "imported_by": "unknown (out of scope)"},
+    "highest_fan_out": {"module": "slash_command_io.py", "imports": 5},
+    "notable_coupling": "Imports private symbol codex_io._normalize_toml_text — sibling Layer-3 adapter intimacy."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/slash_command_io.py",
+      "lines": 310,
+      "function_count": 12,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 58,
+      "function_or_class": "_toml_key / _toml_scalar",
+      "anti_pattern": "DRY (duplication)",
+      "variant": "Duplicated Code",
+      "severity": "WARNING",
+      "metrics": {"duplicated_functions": 2, "duplicated_lines": 18},
+      "evidence": "def _toml_key(key: str) -> str:\n    if re.fullmatch(r\"[A-Za-z0-9_-]+\", key):\n        return key\n    return json.dumps(key, ensure_ascii=False)\n\ndef _toml_scalar(value: Any) -> str:\n    if isinstance(value, str):\n        return json.dumps(value, ensure_ascii=False)\n    ...",
+      "evidence_lines": "58-75",
+      "problem": "_toml_key (58-61) and _toml_scalar (64-75) are near-verbatim copies of the identically-named private functions in codex_io.py (lines 67-84). The only difference is that codex_io routes string quoting through its toml_string() helper while this copy inlines json.dumps. Two TOML scalar-emitters now drift independently; a fix to TOML escaping in one will not reach the other.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 20,
+      "function_or_class": "module import",
+      "anti_pattern": "W3",
+      "variant": "Inappropriate Intimacy (cross-adapter)",
+      "severity": "WARNING",
+      "metrics": {"private_symbols_imported": 1},
+      "evidence": "from agents_sync.codex_io import _normalize_toml_text",
+      "evidence_lines": "20",
+      "problem": "slash_command_io (a Layer-3 adapter for the slash_command type) imports the private, underscore-prefixed _normalize_toml_text from codex_io (a Layer-3 adapter for codex agents). Reaching across a sibling adapter for a private BOM-stripping helper couples two adapters that the architecture treats as independent gateways; a refactor of codex_io's internals silently breaks slash_command parsing. The BOM-normalisation concern belongs in a shared TOML/text utility, not in a per-tool adapter.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 58,
+      "function_or_class": "_toml_key / _toml_scalar / _first_present",
+      "anti_pattern": "I5",
+      "variant": "Weak / single-concept naming (two-word-minimum rule)",
+      "severity": "INFO",
+      "metrics": {"violating_names": 3},
+      "evidence": "def _toml_key(key: str) -> str:\ndef _toml_scalar(value: Any) -> str:\ndef _first_present(data: dict[str, Any], *keys: str) -> Any:",
+      "evidence_lines": "58, 64, 221",
+      "problem": "AGENTS.md §4 mandates a role+domain pair for names. _toml_key, _toml_scalar, and _first_present are single-concept names that read as utility labels rather than describing what they produce (e.g. format_toml_key, render_toml_scalar, first_present_value). _toml_dump_top_level (78) is acceptable. Minor, but a documented project convention.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "Module length over soft limit",
+      "severity": "INFO",
+      "metrics": {"module_lines": 310, "soft_limit": 300},
+      "evidence": "File spans 310 lines.",
+      "evidence_lines": "1-310",
+      "problem": "The module is 310 lines, 10 over the project's 300-line soft limit (AGENTS.md §3). Borderline; the overage is largely the duplicated TOML helpers (CQ-01) — extracting those to a shared utility would bring it back under the limit. Not a true God Module: cohesion is high (one customization_type, two dialects) and there is no class.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/slash_command_io.py",
+      "line": 64,
+      "function_or_class": "_toml_scalar",
+      "anti_pattern": "C2 (cleared)",
+      "variant": "TypeError raised on unsupported scalar — fail-loud (positive)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "raise TypeError(f\"unsupported TOML scalar: {type(value).__name__}\")",
+      "evidence_lines": "75",
+      "problem": "Noted as a positive: the scalar emitter fails fast and loud on an unsupported type rather than silently emitting bad TOML — consistent with AGENTS.md §8. parse_slash_command_toml (228) also fails closed with ValueError when the root is not a table (239). No action needed; recorded so the auditor's fail-fast scan is explicit.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 1},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 1, "total": 1},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "DRY_duplication": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "US-13 AC-2 (slash_command propagation; interpolation grammars preserved byte-for-byte): HELD. Both renderers emit canonical.get('body','') verbatim with no transformation of $ARGUMENTS / !-shell / @-file / {{args}} / !{cmd} / @{path} sequences.",
+      "FR-08 (slash_command matrix): the parse/render/extract triple supports the slash_command type for tools that register it; tool-agnostic.",
+      "US-10 AC-1/AC-4 (port contract, no concrete tool name, per_agentic_tool bags): HELD. agentic_tool_name is a parameter; per_agentic_tool_only / per_agentic_tool_extra are populated via canonical.apply_per_tool_partition. No tool name literal appears.",
+      "US-10 §5.1 rule 3 (extract_pair_id never raises on malformed input): HELD. extract_pair_id_from_slash_command_toml uses a regex .search returning None on no match; extract_pair_id_from_slash_command_markdown delegates to extract_pair_id_from_md.",
+      "US-10 §5.1 rule 4 (unknown fields not dropped): HELD via apply_per_tool_partition -> per_agentic_tool_extra.",
+      "NFR-15 / US-13 AC-5/AC-6 (secret_policy at egress): NOT APPLICABLE to this module. US-13 AC-5 states only the mcp_server adapter declares secret-detection heuristics (env/headers/auth.*); slash_command carries no such fields, so no egress secret check is owed here.",
+      "Architecture §8 I-3 (no destructive write without archive): NOT APPLICABLE. This module performs no filesystem writes; rendering/archive is the rendering.py gateway's responsibility.",
+      "Architecture Dependency Rule (§3): adapter imports inward only (canonical, state, markdown helpers) — no use-case import. HELD."
+    ],
+    "deviations": [
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "description": "Clean Code maintainability: _toml_key and _toml_scalar (lines 58-75) duplicate the identically-named private helpers in codex_io.py (67-84), and the module imports the private codex_io._normalize_toml_text (line 20). 'Minimal duplication' and 'explicit boundaries' are violated: TOML scalar emission and BOM normalisation are shared concerns reached for across a sibling adapter rather than factored into a neutral shared utility. Soft consequence, not a correctness failure."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 / §11 (adapter layering)",
+        "description": "slash_command_io (Layer-3 adapter) depends on a private symbol of codex_io (another Layer-3 adapter). The module map treats each *_io adapter as an independent gateway depending only on canonical + shared IO helpers; reaching into codex_io's private _normalize_toml_text creates an undocumented adapter-to-adapter edge not reflected in the §4 dependency column. This is the same class of latent debt the doc records elsewhere (e.g. D-1/D-2) but is not itself listed as a known deviation."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, correct, secure slash_command adapter; sole real issue is cross-adapter TOML-helper duplication and a private import from codex_io (NFR-14 maintainability). code_score 0.75."
+}

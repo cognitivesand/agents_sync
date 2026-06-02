@@ -1,0 +1,190 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/sync.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 340,
+
+  "detailed_analysis": "src/agents_sync/sync.py is the Layer-2 top-level orchestrator (Syncer) for one poll cycle plus the v0.4 plan §5.5 first-boot multi-tool reconciliation. The file is 340 lines, above the project's 300-line module guideline (AGENTS.md §3), though the architecture doc's own §4 module-map still records it as 218 lines — the file has grown past both the convention and its own documented size. The code is genuinely tool-agnostic: no concrete tool name appears in any code path (the single 'claude' token at line 188 is inside a comment), so Goal 5 / NFR-11 'the sync engine never references a concrete tool name' holds. The archive-before-rewrite ordering in _merge_new_artifact_group is correct (losers' bytes are archived at lines 304-313 before discovery is rewritten at lines 328-330), upholding invariant I-3 / NFR-01 for the reconciliation path. The principal structural problems are: (1) the orchestration use case is no longer a single small file — Syncer carries first-boot reconciliation, group-by-slug, merge, and the main poll loop, four distinct reasons to change (Divergent Change / SRP pressure); (2) sync_once and _reconcile_new_groups both exceed the 40-line / nesting-4 thresholds; (3) the SyncResult equality shim compares only `changed` and ignores `failed`/`blocked`, an equality-contract smell that also overrides the frozen-dataclass-generated __eq__. Security posture is clean: no secrets, no injection, no unsafe deserialization; NFR-15 secret enforcement is delegated to io.parse/render (the egress boundary) and sync.py correctly resets the per-poll warning cache. Error handling is fail-loud and structured (logging.exception with pair_id), satisfying FR-02 and NFR-13.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "sync.py", "imported_by": 1},
+    "highest_fan_out": {"module": "sync.py", "imports": 13},
+    "note": "sync.py imports archive, adoption, agentic_tool_spec, canonical, config, discovery, mcp_secret_policy, rendering, state, sync_types, tool_status. All inward (Layer 2 -> 2/3/1). No adapter (*_io) imported by name. Dependency Rule (architecture §3 invariant 1) upheld."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/sync.py",
+      "lines": 340,
+      "function_count": 8,
+      "class_count": 2,
+      "correctness": 0.75,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 7
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/sync.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "God Module / module-length limit breach",
+      "severity": "MAJOR",
+      "metrics": {"module_lines": 340, "limit": 300},
+      "evidence": "File spans 340 lines; architecture §4 module map records sync.py at 218 lines.",
+      "problem": "Module exceeds the project's 300-line file/module limit (AGENTS.md §3). The Syncer class now carries four distinct responsibilities that change for different reasons: the poll loop (sync_once), first-boot group detection (_reconcile_new_groups / _collect_new_pair_ids / _group_new_pairs_by_slug), and the merge action (_merge_new_artifact_group). This is Divergent Change (M8) concentrated in one class. The architecture doc itself still lists 218 lines, so the file has drifted past both the convention and its own governance record.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/sync.py",
+      "line": 98,
+      "function_or_class": "Syncer.sync_once",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 54, "non_blank_logic_lines": 44, "cyclomatic_complexity": 11},
+      "evidence": "def sync_once(self) -> SyncResult:\n    ...\n    for pair_id, info in discovery.items(): ...\n    for pair_id in list(state.keys()):\n        if pair_id in discovery: continue\n        if pair_id in self._blocked_pair_ids: continue\n        ps = state[pair_id]\n        if not any(...): continue\n        try: ... except Exception: ...",
+      "evidence_lines": "98-151",
+      "problem": "Exceeds the 40-line function limit and the cyclomatic-complexity threshold of 10 (two loops, four guard branches, an any()-comprehension predicate, and two try/except blocks). The orphan-detection loop (lines 123-139) is a separable responsibility from the per-pair processing loop (lines 111-118).",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/sync.py",
+      "line": 155,
+      "function_or_class": "Syncer._reconcile_new_groups",
+      "anti_pattern": "M5",
+      "variant": "Deep Nesting / Long Function",
+      "severity": "MAJOR",
+      "metrics": {"body_logic_lines": 31, "max_nesting": 4},
+      "evidence": "for (kind, slug), group_pair_ids in groups.items():\n    if len(group_pair_ids) < 2: continue\n    tools_in_group = {...}\n    if len(tools_in_group) != len(group_pair_ids): continue\n    storage_targets = { slot_aware_collision_key( discovery[p]...path, discovery[p]...slot ) for p in group_pair_ids }\n    if len(storage_targets) != len(group_pair_ids): continue",
+      "evidence_lines": "184-206",
+      "problem": "The post-grouping filter loop nests a set-comprehension that itself reaches three attribute hops deep (discovery[p].agentic_tools[...].path) inside a for-body guarded by three continue branches. Three sequential 'len(...) != len(...)' equal-cardinality guards encode distinct rejection reasons inline; each is a separate predicate that would be clearer as a named helper. Nesting and the multi-guard structure push reader cognitive load past the 4-level guideline.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/sync.py",
+      "line": 55,
+      "function_or_class": "SyncResult.__eq__",
+      "anti_pattern": "M2-correctness",
+      "variant": "Equality-contract smell / partial equality",
+      "severity": "MAJOR",
+      "metrics": {"fields_compared": 1, "fields_total": 3},
+      "evidence": "def __eq__(self, other: object) -> bool:\n    if isinstance(other, int):\n        return self.changed == other\n    return super().__eq__(other)",
+      "evidence_lines": "55-59",
+      "problem": "Hand-defining __eq__ on a frozen dataclass overrides the dataclass-generated __eq__ and, more importantly, the int-comparison branch makes equality asymmetric and lossy: SyncResult(changed=1, failed=['a']) == 1 is True, so a result with failures compares equal to a bare int that carries no failure information. The super().__eq__ fallback for SyncResult-to-SyncResult comparison delegates to object identity semantics rather than the dataclass field comparison the frozen decorator would otherwise provide, so two SyncResults with identical fields may not compare equal. The __bool__/__int__/__eq__ back-compat triple (lines 47-59) is legacy-shim accretion on a value type — a fail-fast design would migrate callers rather than retain three coercion protocols.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/sync.py",
+      "line": 283,
+      "function_or_class": "Syncer._merge_new_artifact_group",
+      "anti_pattern": "M2",
+      "variant": "Long Function / mixed levels of abstraction",
+      "severity": "MAJOR",
+      "metrics": {"lines": 56, "non_blank_logic_lines": 41},
+      "evidence": "def _merge_new_artifact_group(self, discovery, kind, slug, pair_ids, source_tool_by_pair) -> None:\n    def tool_info_for(pair_id): ...\n    winner_pair_id = sorted(...)\n    for p in pair_ids:  # archive losers\n        ...\n    merged_tools = {} ; for p in pair_ids: ...\n    for p in pair_ids: discovery.pop(...)\n    discovery[merged_pair_id] = merged_info",
+      "evidence_lines": "269-338",
+      "problem": "At least 41 logical lines and three sequential responsibilities at different abstraction levels: winner selection (argmax mtime), the loser-archive loop with a SharedKeyedMapLayout branch and its own try/except (lines 292-320), and the discovery-rewrite (lines 322-330). Exceeds the 40-line limit; the archive sub-loop is independently extractable.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/sync.py",
+      "line": 269,
+      "function_or_class": "Syncer._merge_new_artifact_group",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"params_excluding_self": 5},
+      "evidence": "def _merge_new_artifact_group(self, discovery, kind, slug, pair_ids, source_tool_by_pair) -> None:",
+      "evidence_lines": "269-276",
+      "problem": "Five parameters (kind, slug, pair_ids, discovery, source_tool_by_pair) co-occur here and partially in _group_new_pairs_by_slug / _reconcile_new_groups. The (kind, slug, pair_ids, source_tool_by_pair) cluster is a Data Clump (W4) — a 'new-artifact merge group' is an implicit domain object passed as loose primitives. At 5 params it sits exactly on the limit; combined with the clump it signals a missing parameter object.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-07",
+      "file": "src/agents_sync/sync.py",
+      "line": 195,
+      "function_or_class": "Syncer._reconcile_new_groups",
+      "anti_pattern": "W2",
+      "variant": "Message Chain / Inappropriate Intimacy",
+      "severity": "WARNING",
+      "metrics": {"chain_depth": 4},
+      "evidence": "slot_aware_collision_key(\n    discovery[p].agentic_tools[source_tool_by_pair[p]].path,\n    discovery[p].agentic_tools[source_tool_by_pair[p]].slot,\n)",
+      "evidence_lines": "195-201",
+      "problem": "discovery[p].agentic_tools[source_tool_by_pair[p]].path is a four-hop traversal (subscript, attribute, subscript, attribute) repeated for .path and .slot. The same chain reappears in _merge_new_artifact_group's tool_info_for closure. The orchestrator reaches deep into CustomizationArtifactInfo/AgenticToolInfo internals to assemble collision keys — logic that arguably belongs nearer those types. Each link couples sync.py to the exact shape of two entity types (Feature Envy toward sync_types).",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 1, "total": 1},
+    "M2_long_function": {"major": 3, "total": 3},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 1, "total": 1},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 1, "total": 1},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 1},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "description": "Clean Code maintainability: module is 340 lines (>300 limit) and three methods (sync_once 54 lines, _reconcile_new_groups, _merge_new_artifact_group 56 lines) exceed the 40-line small-function limit. NFR-14 mandates 'small cohesive functions'; these breach the project's own thresholds."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (module map)",
+        "description": "The module map records sync.py at 218 lines and 'adoption.py | 391 | Layer 2'. sync.py is actually 340 lines, and adoption is now a package (adoption/engine.py, adopter.py, conflict_resolver.py, extender.py, removal_propagator.py, privacy_gate.py), not the single adoption.py the doc describes. sync.py line 10 imports `from agents_sync.adoption import AdoptionEngine` (resolves via the package), so the code is correct but the architecture artifact is stale relative to the scoped file's documented size and its dependency target."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "No security or critical defects; secret/archive/tool-agnostic invariants hold. Weak on structure: module over 300-line limit, three over-length methods, a lossy SyncResult equality shim, and a stale architecture record — code_score 0.5 (MAJOR findings)."
+}

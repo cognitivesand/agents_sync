@@ -1,0 +1,139 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/markdown_yaml_metadata_block.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 283,
+
+  "detailed_analysis": "markdown_yaml_metadata_block.py is a small, cohesive shared-primitives module (283 lines, under the 300-line cap) that consolidates the Markdown-frontmatter parse/render helpers previously hand-rolled across nine adapters. It contains one trivial exception subclass (AdapterParseError) and fourteen module-level functions, every one of which is well under the 40-line limit and carries full type annotations on its public surface. The module is well-named per the project's two-word convention, has an explicit __all__, and documents its public API in the docstring. There are no hardcoded secrets, no injection vectors, no global mutable state, and no bare-except swallowing. The single CRITICAL-class concern is absent. The notable structural observations are: (1) a mild DRY smell — the three-step 'normalize_markdown_text -> FRONTMATTER_RE.match -> yaml_load' pattern is repeated across split_frontmatter (lines 153-178), frontmatter_for_render (lines 239-247), and extract_pair_id_from_md (lines 256-263), each with a slightly different post-match policy; and (2) the lazy imports of parser_bounds inside make_yaml and split_frontmatter, documented as a deliberate cycle-break (parser_bounds imports AdapterParseError from this module). The lazy import is the correct defect-avoidance choice given the dependency direction, not a smell, but it is worth recording. Security is clean: this module is a lossless YAML/Markdown codec layer; the secret_policy (NFR-15) is correctly NOT this module's responsibility — it is enforced in mcp_secret_policy.py and adoption/privacy_gate.py at the egress boundaries. The module is not listed in architecture.md §4 module map or §9 traceability table, which is a documentation-currency gap given it is now a shared dependency of parser_bounds and the Markdown adapters.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [
+      "markdown_yaml_metadata_block <-> parser_bounds: parser_bounds imports AdapterParseError at module load (parser_bounds.py:38); this module imports parser_bounds lazily inside make_yaml (line 70) and split_frontmatter (line 151) precisely to break the cycle. No module-load-time cycle exists. Documented in docstrings."
+    ],
+    "highest_fan_in": {"module": "markdown_yaml_metadata_block.py", "imported_by": "9+ Markdown adapters and parser_bounds"},
+    "highest_fan_out": {"module": "markdown_yaml_metadata_block.py", "imports": 1}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/markdown_yaml_metadata_block.py",
+      "lines": 283,
+      "function_count": 14,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/markdown_yaml_metadata_block.py",
+      "line": 153,
+      "function_or_class": "split_frontmatter / frontmatter_for_render / extract_pair_id_from_md",
+      "anti_pattern": "DRY (incipient duplication)",
+      "variant": "Repeated parse-prelude across three functions",
+      "severity": "MINOR",
+      "metrics": {"duplicated_sites": 3},
+      "evidence": "split_frontmatter (153-171): text = normalize_markdown_text(text); match = FRONTMATTER_RE.match(head); ... loaded = yaml_load(raw_frontmatter)\nframractter_for_render (239-247): prior_text = normalize_markdown_text(prior_text); prior_match = FRONTMATTER_RE.match(prior_text); ... loaded = yaml_load(raw)\nextract_pair_id_from_md (256-262): text = normalize_markdown_text(text); match = FRONTMATTER_RE.match(text); loaded = yaml_load(match.group(1))",
+      "evidence_lines": "153-178, 239-247, 256-263",
+      "problem": "The normalize -> FRONTMATTER_RE.match -> yaml_load sequence is repeated in three functions, each diverging only in its post-match policy (raise vs empty-dict vs None, and whether the frontmatter window bound is applied). The module's whole purpose is to deduplicate this exact prelude across adapters; ironically the prelude is duplicated three times internally. Note also that frontmatter_for_render (240) and extract_pair_id_from_md (257) call FRONTMATTER_RE.match on the full text WITHOUT enforce_frontmatter_window, whereas split_frontmatter (159) applies the window bound — an inconsistency in DoS protection across the three entry points, not just a style nit.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/markdown_yaml_metadata_block.py",
+      "line": 122,
+      "function_or_class": "normalize_markdown_text",
+      "anti_pattern": "Dead-thin alias / KISS",
+      "variant": "Pure-passthrough alias of strip_bom_prefix",
+      "severity": "SMELL",
+      "metrics": {"body_lines": 1},
+      "evidence": "def normalize_markdown_text(text: str) -> str:\n    \"\"\"Strip BOMs from incoming Markdown text. Alias of ...\"\"\"\n    return strip_bom_prefix(text)",
+      "evidence_lines": "122-128",
+      "problem": "normalize_markdown_text adds no behaviour over strip_bom_prefix; it exists solely so call sites read 'normalize' at parse time. Both are exported in __all__, doubling the public surface for one operation. The docstring justifies it on readability grounds, which is defensible, but it is a second name for one concept (mild tension with the project's 'one concept, one word' naming rule). Low severity; record only.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/markdown_yaml_metadata_block.py",
+      "line": 187,
+      "function_or_class": "set_or_remove_empty_metadata_field",
+      "anti_pattern": "Magic / implicit emptiness predicate",
+      "variant": "Inline 'absent' definition",
+      "severity": "SMELL",
+      "metrics": {"compared_literals": 3},
+      "evidence": "if value is None or value == \"\" or value == []:\n    metadata.pop(key, None)\n    return",
+      "evidence_lines": "187-189",
+      "problem": "The notion of 'value means absent' is hardcoded inline as three disjuncts (None, empty string, empty list). It is a three-operator boolean (within the W1 threshold of >3, so not flagged as W1) but encodes a domain rule — 'what counts as an empty metadata field' — as an anonymous expression rather than a named predicate. A value of 0, False, or {} would NOT be treated as absent, which is a deliberate but undocumented asymmetry. Minor maintainability/clarity note, not a defect.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map) and §9 (Traceability table)",
+        "description": "markdown_yaml_metadata_block.py does not appear in the §4 module map nor the §9 traceability table, yet it is now a Layer-3 shared adapter primitive imported by 9+ *_io adapters and is the source of AdapterParseError consumed by parser_bounds. §9 states 'Any future requirement that has no carrying module is a defect in either the requirement or the architecture' and §1 promises the document is kept true. The module (and parser_bounds.py) are undocumented in the architecture, a currency gap. Not a code defect in the scoped file; recorded against the governance artifact's stated invariant.",
+        "file": "src/agents_sync/markdown_yaml_metadata_block.py"
+      },
+      {
+        "artifact": "requirement",
+        "reference": "NFR-13 / architecture §8 I-4",
+        "description": "split_frontmatter raises AdapterParseError with the message '{label} frontmatter must be a YAML mapping' (lines 174-177). The structured-error invariant I-4 / NFR-13 requires every reported failure to name the artifact_id, the tool, and the cause. This message carries the adapter 'label' (tool) and cause but no customization_artifact_id. This is acceptable IF the calling adapter enriches the exception with pair_id context before logging; this module is below the layer that knows pair_id, so the partial context is defensible. Flagged as a boundary observation, not a confirmed violation — verification requires the adapter call sites (out of scope).",
+        "file": "src/agents_sync/markdown_yaml_metadata_block.py",
+        "line": 174
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, cohesive shared primitive module; no CRITICAL/MAJOR/WARNING findings, only a DRY note, a thin-alias smell, and an inline-emptiness smell. code_score 0.75 capped by maintainability. Architecture docs (§4/§9) are stale: the module is undocumented despite being a shared Layer-3 dependency."
+}

@@ -6,11 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from agents_sync.artifact_names import CANONICAL_NAME_FIELD
 from agents_sync.canonical import empty_canonical
+from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
 from agents_sync.opencode_io import (
     KNOWN_OPENCODE_AGENT_FIELDS,
     KNOWN_OPENCODE_SKILL_FIELDS,
-    extract_pair_id_from_md,
     opencode_skill_slug,
     parse_opencode_agent_md,
     parse_opencode_skill_md,
@@ -39,6 +40,7 @@ def test_known_opencode_fields_match_v0_4_1_plan():
     assert KNOWN_OPENCODE_SKILL_FIELDS == frozenset({
         "pair_id",
         "name",
+        CANONICAL_NAME_FIELD,
         "description",
         "license",
         "compatibility",
@@ -46,11 +48,12 @@ def test_known_opencode_fields_match_v0_4_1_plan():
     })
 
 
-def test_parse_opencode_agent_uses_filename_and_preserves_known_fields(tmp_path: Path):
+def test_parse_opencode_agent_uses_shared_frontmatter_name_policy(tmp_path: Path):
     text = textwrap.dedent(
         """\
         ---
         pair_id: 00000000-0000-4000-8000-000000000001
+        name: reviewer
         description: Reviews code
         mode: subagent
         model: anthropic/claude-sonnet-4-5
@@ -216,6 +219,48 @@ def test_opencode_skill_slug_normalises_underscores_for_render():
     assert opencode_skill_slug("My_Skill") == "my-skill"
 
 
+def test_opencode_skill_preserves_canonical_name_across_slugged_render():
+    canonical = empty_canonical("skill")
+    canonical["pair_id"] = "00000000-0000-4000-8000-000000000008"
+    canonical["name"] = "My_Skill"
+    canonical["description"] = "x"
+    canonical["body"] = "Skill body."
+
+    rendered = render_opencode_skill_md(canonical)
+    reparsed = parse_opencode_skill_md(rendered)
+
+    assert "name: my-skill" in rendered
+    assert "x-agents-sync-name" in rendered
+    assert reparsed["name"] == "My_Skill"
+    assert reparsed["per_agentic_tool_extra"]["opencode"] == {}
+
+
 def test_extract_pair_id_from_md():
     text = "---\npair_id: 00000000-0000-4000-8000-000000000006\n---\nbody"
     assert extract_pair_id_from_md(text) == "00000000-0000-4000-8000-000000000006"
+
+
+def test_parse_opencode_agent_md_raises_when_no_name_source():
+    """Audit slice 07 · CQ-01 (Liskov fix): when artifact_path is omitted and
+    neither prior canonical nor frontmatter carries a name, the parser must
+    raise instead of silently minting name=''."""
+    text = "---\ndescription: nameless\n---\nbody"
+    with pytest.raises(ValueError, match="needs a non-empty artifact name"):
+        parse_opencode_agent_md(text)
+
+
+def test_parse_opencode_agent_md_accepts_frontmatter_name_without_artifact_path():
+    """Fallback path: prior_canonical None, no artifact_path, but frontmatter
+    explicitly carries name."""
+    text = "---\nname: explicit\ndescription: x\n---\nbody"
+    canonical = parse_opencode_agent_md(text)
+    assert canonical["name"] == "explicit"
+
+
+def test_parse_opencode_agent_md_accepts_prior_canonical_name():
+    """Fallback path: artifact_path omitted but prior canonical knows the name."""
+    text = "---\ndescription: updated\n---\nbody"
+    prior = empty_canonical("agent")
+    prior["name"] = "from-prior"
+    canonical = parse_opencode_agent_md(text, prior)
+    assert canonical["name"] == "from-prior"

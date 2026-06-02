@@ -5,9 +5,7 @@
 <h1 align="center">agents_sync</h1>
 
 <p align="center">
-  <img alt="Linux available" src="https://img.shields.io/badge/Linux-available-f9ab00">
-  <img alt="macOS available" src="https://img.shields.io/badge/macOS-available-1f883d">
-  <img alt="Windows available" src="https://img.shields.io/badge/Windows-available-8250df">
+  <img alt="Plateform : Linux, Windows, macOS" src="https://img.shields.io/badge/Plateform-Linux%2C%20Windows%2C%20macOS-2ea44f">
   <img alt="sync" src="https://img.shields.io/badge/sync-bidirectional-2ea44f">
   <img alt="daemon" src="https://img.shields.io/badge/daemon-background-0969da">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
@@ -15,11 +13,17 @@
 
 ## 🎯 Purpose
 
-`agents_sync` keeps your user-level custom agents and skills in sync across **Claude Code**, **Codex**, **Google Antigravity**, and **OpenCode**.
+`agents_sync` keeps your user-level custom agents, skills, commands, rules, and MCP servers in sync across **Claude Code**, **Codex**, **GitHub Copilot**, **Cursor**, **Gemini CLI**, **Google Antigravity**, and **OpenCode**.
 
 > Build your AI workflow once and use it from every tool you've installed. Skills and agents are shared across connected tools where they are supported. Create or edit one anywhere, and it syncs everywhere else automatically. (Antigravity has no stable per-agent file format yet).
 
 The daemon runs quietly in the background, protects your content with archives, and keeps user-level files connected even when they are renamed. If one of the tools isn't installed, that tool is silently skipped — the others continue to sync.
+
+Built by [CognitiveSand](https://cognitivesand.ai/en/).
+
+<p>
+  <img src="./assets/readme-banners/cognitivesand-logo-dark.avif" alt="CognitiveSand logo" height="56">
+</p>
 
 ---
 
@@ -36,6 +40,7 @@ The daemon runs quietly in the background, protects your content with archives, 
 - [Uninstall](#uninstall)
 - [Default Paths](#default-paths)
 - [Notes](#notes)
+- [Development](#development)
 - [Changelog](#changelog)
 - [Documentation](#documentation)
 - [License](#license)
@@ -46,52 +51,35 @@ The daemon runs quietly in the background, protects your content with archives, 
 
 ## 🧩 What It Syncs
 
-`agents_sync` synchronizes user-level agents across Claude Code and OpenCode, and user-level skills across Claude Code, Codex, Google Antigravity, and OpenCode.
+`agents_sync` synchronizes user-level agents, skills, slash commands, global rules, and MCP servers across the tools that expose each customization type.
 
-| What you edit | Claude Code | Codex | Antigravity | OpenCode |
-|:---|:---|:---|:---|:---|
-| Agents | `~/.claude/agents/*.md` | n/a (skills only) | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
-| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| What you edit | Claude Code | Codex | GitHub Copilot | Cursor | Gemini CLI | Antigravity | OpenCode |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+| Agents | `~/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `~/.copilot/agents/*.agent.md` | `~/.cursor/agents/*.md` | `~/.gemini/agents/*.md` | n/a (no per-agent format) | `~/.config/opencode/agents/*.md` |
+| Skills | `~/.claude/skills/*/SKILL.md` | `~/.codex/skills/*/SKILL.md` | `~/.copilot/skills/*/SKILL.md` | `~/.cursor/skills/*/SKILL.md` | `~/.gemini/skills/*/SKILL.md` | `~/.gemini/antigravity/skills/*/SKILL.md` | `~/.config/opencode/skills/*/SKILL.md` |
+| Slash commands | `~/.claude/commands/*.md` | `~/.codex/prompts/*.md` | VS Code user profile `*.prompt.md` | `~/.cursor/commands/*.md` | `~/.gemini/commands/*.toml` | n/a (skills only) | `~/.config/opencode/commands/*.md` |
+| Rules | `~/.claude/AGENTS.md` or `CLAUDE.md` | `~/.codex/AGENTS.md` | VS Code user profile `*.instructions.md` | `~/.cursor/rules/*.mdc` | `~/.gemini/GEMINI.md` | n/a | `~/.config/opencode/AGENTS.md` |
+| MCP servers | `~/.claude.json[mcpServers]` | `~/.codex/config.toml[mcp_servers]` | `~/.copilot/mcp-config.json[servers]` | `~/.cursor/mcp.json[mcpServers]` | `~/.gemini/settings.json[mcpServers]` | n/a | `~/.config/opencode/opencode.json[mcp]` |
 
 **In plain terms:**
 
-- Skills are reusable instruction folders. All four tools use the open `SKILL.md` spec, so skills sync four ways.
-- Agents are reusable AI personas. Claude Code and OpenCode have per-agent file formats, so agents sync two ways.
+- Skills are reusable instruction folders. Claude Code, Codex, Copilot, Cursor, Antigravity, and OpenCode use `SKILL.md` folders, so skills sync six ways.
+- Agents are reusable AI personas. Claude Code, Codex, Copilot, Cursor, Gemini CLI, and OpenCode have per-agent file formats.
+- Slash commands are reusable prompt files invoked from chat. Claude Code, Codex, Copilot, Cursor, Gemini CLI, and OpenCode sync them as files.
+- Rules are global instruction files. For Claude Code, `agents_sync` prefers the cross-tool-standard `AGENTS.md` when present and falls back to `CLAUDE.md` (and creates `CLAUDE.md` when neither exists); Codex and OpenCode use `AGENTS.md`; Copilot uses VS Code `*.instructions.md`; Cursor uses `.mdc`; Gemini CLI uses `GEMINI.md`.
+- MCP servers sync across Claude Code, Codex, Copilot CLI, Cursor, Gemini CLI, and OpenCode. Project-scoped MCP files remain out of scope.
 
 ```mermaid
-flowchart LR
-    subgraph Tools["Tools"]
-        direction TB
-        Claude["Claude Code<br/>agents + skills"]
-        Codex["Codex<br/>skills only"]
-        Antigravity["Antigravity<br/>skills only"]
-        Opencode["OpenCode<br/>agents + skills"]
-    end
-
-    Sync["agents_sync<br/>watch + match + sync"]
-    State["State<br/>pair_id + digests"]
-    Archive["Archive<br/>before overwrite or removal"]
-
-    Claude <-->|changes| Sync
-    Codex <-->|changes| Sync
-    Antigravity <-->|changes| Sync
-    Opencode <-->|changes| Sync
-    Sync --> State
-    Sync --> Archive
-
-    classDef side fill:#ddf4ff,stroke:#0969da,stroke-width:2px,color:#24292f
-    classDef sync fill:#fff8c5,stroke:#bf8700,stroke-width:2px,color:#24292f
-    classDef state fill:#fbefff,stroke:#8250df,stroke-width:2px,color:#24292f
-    classDef archive fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#24292f
-
-    class Claude,Codex,Antigravity,Opencode side
-    class Sync sync
-    class State state
-    class Archive archive
-
-    linkStyle 0,1,2,3 stroke:#2da44e,stroke-width:2px
-    linkStyle 4 stroke:#8250df,stroke-width:2px
-    linkStyle 5 stroke:#2da44e,stroke-width:2px
+graph LR
+    CLAUDE["Claude Code"] <--> SYNC["agents_sync"]
+    CODEX["Codex"] <--> SYNC
+    COPILOT["GitHub Copilot"] <--> SYNC
+    CURSOR["Cursor"] <--> SYNC
+    GEMINI["Gemini CLI"] <--> SYNC
+    ANTIGRAVITY["Antigravity skills only"] <--> SYNC
+    OPENCODE["OpenCode"] <--> SYNC
+    SYNC --> STATE["pair_id and digests"]
+    SYNC --> ARCHIVE["archive before overwrite or removal"]
 ```
 
 ---
@@ -104,11 +92,11 @@ flowchart LR
 
 | Action | Result |
 |:---|:---|
-| Create or edit a Claude Code agent | OpenCode receives a matching agent file |
-| Create or edit an OpenCode agent | Claude Code receives a matching agent file |
-| Create or edit a skill on any tool | The other three tools receive the matching `SKILL.md` folder |
-| Two or more tools edit the same skill simultaneously | The most recently modified copy wins; the losers are archived |
-| Remove a synced agent or skill on any tool | The other tools' copies are archived, then removed |
+| Create or edit an agent in Claude Code, Codex, Copilot, Cursor, Gemini CLI, or OpenCode | The other agent-capable tools receive matching agent files |
+| Create or edit a skill on any tool | The other skill-capable tools receive the matching `SKILL.md` folder |
+| Create or edit a slash command in Claude Code, Codex, Copilot, Cursor, Gemini CLI, or OpenCode | The other slash-command tools receive matching command files |
+| Two or more tools edit the same customization simultaneously | The most recently modified copy wins; the losers are archived |
+| Remove a synced customization on any tool | The other tools' copies are archived, then removed |
 | A tool's directory is missing at startup | That tool is marked unavailable; the others continue to sync, and nothing is interpreted as a deletion |
 
 ---
@@ -169,13 +157,19 @@ Verify it with [Check That It Is Running](#check-that-it-is-running).
 
 ### Enabling Antigravity
 
-Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs claude's and codex's skills into it. Antigravity itself picks up the directory on its next read.
+Antigravity is enabled by default. The daemon creates `~/.gemini/antigravity/skills/` at startup if it does not already exist, so the first poll syncs skills from Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, and OpenCode into it. Antigravity itself picks up the directory on its next read.
 
 To disable Antigravity entirely, set `antigravity_enabled = false` in your `config.toml`, or pass `--no-antigravity-enabled` on the command line. A disabled tool's roots are not created. The skills directory can be relocated with `antigravity_skills_dir` in `config.toml` or `--antigravity-skills-dir`.
 
+### Enabling Cursor
+
+Cursor is enabled by default. The daemon uses `~/.cursor/agents/`, `~/.cursor/skills/`, `~/.cursor/rules/`, `~/.cursor/commands/`, and `~/.cursor/mcp.json` for user-level syncable files.
+
+To disable Cursor entirely, set `cursor_enabled = false` in your `config.toml`, or pass `--no-cursor-enabled` on the command line. Cursor slash-command identity is stored as a first-line HTML comment because Cursor commands are plain Markdown files.
+
 ### Enabling OpenCode
 
-OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/` and `~/.config/opencode/skills/`. On Windows the default is `%APPDATA%\opencode\agents\` and `%APPDATA%\opencode\skills\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir` and `opencode_skills_dir`.
+OpenCode is enabled by default. On Linux and macOS the daemon uses `~/.config/opencode/agents/`, `~/.config/opencode/commands/`, `~/.config/opencode/skills/`, and `~/.config/opencode/AGENTS.md`. On Windows the default is under `%APPDATA%\opencode\`; run `opencode debug paths` if your OpenCode build reports a different config root, then override `opencode_agents_dir`, `opencode_commands_dir`, `opencode_skills_dir`, and `opencode_rules_dir`.
 
 To disable OpenCode entirely, set `opencode_enabled = false` in your `config.toml`, or pass `--no-opencode-enabled` on the command line.
 
@@ -191,7 +185,9 @@ After installation, there is nothing else to start manually:
 - macOS runs `agents_sync` as a per-user LaunchAgent.
 - Windows starts it through Task Scheduler when you log in.
 
-Use Claude Code, Codex, Antigravity, or OpenCode normally. Create, edit, rename, or remove agents and skills from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+Use Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, Antigravity, or OpenCode normally. Create, edit, rename, or remove supported customizations from any supported tool; matching changes propagate automatically. Removals archive the other tools before cleanup, and existing pairs keep their identity through `pair_id`.
+
+> ⚠️ **Delete customizations one at a time.** A single removal is treated as a deliberate deletion and propagates to your other tools (each copy is archived first, so it stays recoverable). **Do not bulk-delete** — removing several customizations from one tool at once is not a reliable way to clear your library: a simultaneous bulk disappearance from one available tool is treated as a glitch (e.g. a tool uninstalled, a drive unmounted) and the files are re-projected from the canonical rather than removed everywhere (US-11 AC-9). A partial disappearance still propagates as a removal. Make each deletion an individual, intentional action.
 
 ---
 
@@ -235,7 +231,7 @@ Get-Content "$env:LOCALAPPDATA\agents-sync\logs\agents-sync.log" -Tail 20
 **Expected log line:**
 
 ```text
-INFO Watching Claude agents/skills with SHA256 polling
+INFO Watching configured agent and skill roots with SHA256 polling
 ```
 
 ### macOS
@@ -309,37 +305,16 @@ tail -f ~/Library/Logs/agents-sync/agents-sync.log
 
 ## 💾 Backup, Restore, Share
 
-`agents_sync` can serialise your entire managed library — every agent and skill it tracks — into a single zip file. The same file restores onto another install, or seeds a teammate's machine.
+`agents_sync` can serialise your entire managed library into a single zip file. The same file restores onto another install, or seeds a teammate's machine.
 
 ```bash
 agents-sync export ~/my-library.zip
 agents-sync import ~/my-library.zip
 ```
 
-The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, every artifact is rendered onto every locally enabled, supporting, and available agentic_tool before the command returns; the daemon does not need to be running.
+The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only**: only its canonical document is promoted into the local canonical store. The import primitive never writes `state.json` and never touches an agentic_tool file; `agents-sync import` then invokes one normal `sync_once` so one-shot CLI imports appear immediately even when the daemon is not running. A daemon poll can also adopt the orphan canonical and project it onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
 
-When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), `import` consults the `import_collision_strategy` setting:
-
-| Strategy | Behaviour |
-|:---|:---|
-| `mtime_wins` (default) | The candidate with the higher `last_modified` wins. Ties favour the local artifact. |
-| `skip` | Imported artifact ignored; local artifact untouched. |
-| `overwrite` | Imported artifact replaces local unconditionally; local bytes archived first. |
-
-Override per invocation with `--collision-strategy`:
-
-```bash
-agents-sync import ~/my-library.zip --collision-strategy overwrite
-```
-
-Or set the default in `config.toml`:
-
-```toml
-[agents-sync]
-import_collision_strategy = "mtime_wins"
-```
-
-Every operation that would displace local bytes archives them first under `<state_dir>/archive/<pair_id>/<tool>/` (NFR-01), so an unwanted import is recoverable.
+When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), the `last_modified_wins` rule applies: the candidate with the higher `last_modified` timestamp wins, and ties favour the local artifact. Every operation that would displace local bytes archives them first under `<state_dir>/archive/<pair_id>/<tool>/` (NFR-01), so an unwanted import is recoverable.
 
 ---
 
@@ -381,19 +356,22 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 
 **Synced roots:**
 
-| Tool | Agents | Skills |
-|:---|:---|:---|
-| Claude Code | `~/.claude/agents` | `~/.claude/skills` |
-| Codex | n/a | `~/.codex/skills` |
-| Antigravity | n/a | `~/.gemini/antigravity/skills` |
-| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/skills` |
+| Tool | Agents | Slash commands | Skills | Rules | MCP servers |
+|:---|:---|:---|:---|:---|:---|
+| Claude Code | `~/.claude/agents` | `~/.claude/commands` | `~/.claude/skills` | `~/.claude/AGENTS.md` or `CLAUDE.md` | `~/.claude.json[mcpServers]` |
+| Codex | `~/.codex/agents` | `~/.codex/prompts` | `~/.codex/skills` | `~/.codex/AGENTS.md` | `~/.codex/config.toml[mcp_servers]` |
+| GitHub Copilot | `~/.copilot/agents` | configured VS Code profile prompts dir | `~/.copilot/skills` | configured VS Code profile instructions dir | `~/.copilot/mcp-config.json[servers]` |
+| Cursor | `~/.cursor/agents` | `~/.cursor/commands` | `~/.cursor/skills` | `~/.cursor/rules/*.mdc` | `~/.cursor/mcp.json[mcpServers]` |
+| Gemini CLI | `~/.gemini/agents` | `~/.gemini/commands` | `~/.gemini/skills` | `~/.gemini/GEMINI.md` | `~/.gemini/settings.json[mcpServers]` |
+| Antigravity | n/a | n/a | `~/.gemini/antigravity/skills` | n/a | n/a |
+| OpenCode | `~/.config/opencode/agents` | `~/.config/opencode/commands` | `~/.config/opencode/skills` | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json[mcp]` |
 
 **State layout:**
 
 ```text
-state.json                                pair_id -> paths and digests
+state.json                                pair_id -> paths, tool digests, canonical_digest
 canonical/<pair_id>.json                  one canonical document per pair
-archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
+archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ```
 
 ---
@@ -403,14 +381,40 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 ## 📝 Notes
 
 - The daemon polls every configured tool at a configurable interval.
-- First sight of any agent or skill file without a `pair_id` triggers adoption.
+- First sight of any managed customization file without a `pair_id` triggers adoption.
 - Adoption archives the original, injects a `pair_id`, and creates the counterpart on every other tool that supports that kind of customization.
-- Removing a synced agent or skill on any one tool archives every surviving tool's copy before removing it.
+- Removing a synced customization on any one tool archives every surviving tool's copy before removing it.
 - On startup the daemon creates each enabled tool's configured roots (`mkdir -p`) so a fresh install where the tool hasn't authored anything yet still comes up `available`. If creating a root fails (permission denied, parent is a file), or a root disappears mid-life (drive unmounted, tool uninstalled), the tool flips to `unavailable` for that poll and the daemon keeps running over the remaining `available` tools — your library stays intact (US-11).
 - Malformed `pair_id`s, duplicate IDs, and target path collisions are skipped with errors instead of being adopted or overwritten.
+- **Cursor limitations:** only user-level file surfaces under `~/.cursor/` are synced. Cursor's SQLite/cloud-backed state, including in-app User Rules, Custom Modes, Notepads, memories, account settings, Background Agents, hooks, project `.cursor/` files, and ignore files, is intentionally out of scope. Put syncable global rules in `~/.cursor/rules/*.mdc`.
 - **Antigravity on Windows:** Antigravity v1.19.6 has a known bug where the user-level skills directory is read as `~/.gemini/antigravity/global_skills/` instead of `skills/`. The daemon does not auto-detect this; if you are on an affected version, set `antigravity_skills_dir` to your `global_skills` path in `config.toml`.
-- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir` and `opencode_skills_dir`.
-- This tool was developed with the support of Claude Code, Codex, Google Antigravity, and OpenCode.
+- **MCP scope:** MCP server sync is user-level only. Claude Code project `.mcp.json`, Codex project `.codex/config.toml`, Copilot workspace `.vscode/mcp.json`, Cursor project `.cursor/mcp.json`, and project `opencode.json` are intentionally outside the default daemon scope.
+- **OpenCode on Windows:** OpenCode path reporting has differed between docs and runtime builds. The default uses `%APPDATA%\opencode\`; if `opencode debug paths` reports `%USERPROFILE%\.config\opencode\` or another root, override `opencode_agents_dir`, `opencode_commands_dir`, `opencode_skills_dir`, `opencode_rules_dir`, and `opencode_config_file`.
+- **GitHub Copilot limitations:** this adapter manages user-level Copilot CLI agents, skills, and MCP servers plus explicitly configured VS Code user-profile instructions and prompts. It does not sync repository `.github/` files, workspace `.vscode/mcp.json`, VS Code user MCP files, GitHub.com organization customizations, Copilot cloud agent settings, hooks, plugin packages, or extension-contributed customizations.
+- This tool was developed with the support of Claude Code, Codex, GitHub Copilot, Cursor, Google Antigravity, and OpenCode.
+- Learn more about CognitiveSand, the team behind this project, at [cognitivesand.ai](https://cognitivesand.ai/en/).
+
+---
+
+<a id="development"></a>
+
+## 🧪 Development
+
+`./scripts/ci.sh` is the project's primary CI gate. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite, aborting on the first failing stage:
+
+```bash
+./scripts/ci.sh
+```
+
+**Set up once per clone** — installs dev dependencies and enables the automatic pre-push gate so `./scripts/ci.sh` runs on every `git push` (bypass deliberately with `git push --no-verify`):
+
+```bash
+./scripts/dev_setup.sh
+```
+
+GitHub Actions (`.github/workflows/remote_ci_test.yml`) runs only the checks that cannot be reproduced on a Linux developer machine — today, the Windows `pytest` job (file locking, path handling); a macOS job may be added later. Everything reproducible on Linux is covered by the local gate.
+
+For the end-to-end export/import flow against two throwaway installs, run `./scripts/integration_tests.sh`.
 
 ---
 
@@ -418,16 +422,89 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 
 ## 🗓️ Changelog
 
+### 0.6.0
+
+**Canonical store as source of truth + cross-machine merge**
+
+- Promoted the canonical store to the authoritative library: tool-side files are projections, and the daemon detects a canonical that changed independently of its tool files and re-projects it (FR-14), heals a disk-absent canonical, and archives displaced bytes.
+- Added schema `4` state baselines with per-pair `canonical_digest`, including migration from schema `3` so canonical-only imports and external canonical edits re-project cleanly.
+- Finished canonical-only import (US-12): `import` writes only canonical documents, never `state.json` or tool roots, and the daemon adopts orphan canonicals on the next poll; the `agents-sync import` CLI runs one `sync_once` so one-shot imports take effect without the daemon.
+- Added the portable customization-library export/import for cross-machine merge: reconciliation by `(customization_type, target_slug(name))` under `last_modified_wins`, with displaced local canonicals and tool bytes archived before overwrite.
+- Added bulk-disappearance protection: two or more recorded artifacts vanishing from one available tool are treated as a glitch and re-projected instead of being propagated as deletions.
+- Folded in the round-2 P0 audit fixes, the US-15 framework-specific rules egress guard, `AgentsSyncConfig`/`Mapping` boundary typing, and line-ending-insensitive change detection.
+
+### 0.5.8
+
+**Canonical import finalization**
+
+- Import reconciliation now uses one self-contained `last_modified_wins` rule; the `--collision-strategy` flag and `import_collision_strategy` config key are retired.
+- Runtime metadata now lives in canonical documents, and canonical-change detection keys off user content so metadata-only changes do not drive unnecessary projections.
+- Import remains canonical-only: the daemon is the single writer for `state.json` and adopts orphan canonicals on the next poll.
+- Cleaned up US-12 import/export governance so the canonical library rules are stated once and referenced consistently.
+
+### 0.5.7
+
+**Audit follow-ups (review + remediation)**
+
+- Added FR-15 (import may run while the daemon is active) with a regression test.
+- Import now archives a displaced canonical before overwriting it, and a corrupt `state.json` that cannot be quarantined fails closed instead of being overwritten.
+- Broadened MCP secret value-shape detection (Google, GitLab, Stripe, npm, more Slack token shapes) and documented the heuristic boundary in NFR-15.
+- Documentation coherence: the architecture and README now describe the shipped v0.6 canonical-as-truth behaviour.
+- Internal refactor (behaviour-preserving): extracted the canonical-projection mixin and split `sync_once` / `import_from_zip` into per-concern helpers.
+
+### 0.5.6 (canonical-as-truth preview)
+
+**Canonical store is the source of truth**
+
+- Inverted the model (NFR-16): the canonical document under `state_dir/canonical/` is authoritative and every tool-side file is a projection of it.
+- `import` is now **canonical-only** (Decision A, US-12 AC-5): it writes canonical documents only and touches neither `state.json` nor any agentic_tool file; the next daemon `sync_once` adopts and projects them. This **supersedes** the 0.4.3 render-on-import behaviour below.
+- Added canonical-change detection (FR-14): a canonical edited out of band is re-projected onto every supporting tool, displaced bytes archived.
+- Import may run **while the daemon is active** (FR-15). (Known gap: the "identical to sequential" guarantee is not yet enforced by a cross-process lock on the shared state record.)
+- Added cross-machine merge: same-(kind, name) canonicals minted on two hosts reconcile to one managed artifact, newest winning, the loser archived (US-12 AC-17/19).
+
+**Safety**
+
+- A simultaneous bulk disappearance of an available tool's recorded artifacts is now treated as a glitch (frozen, re-projected from canonical), not a mass user deletion (US-11 AC-9).
+- Import archives a displaced canonical before overwriting it, and a corrupt `state.json` that cannot be quarantined fails closed instead of being overwritten (amendment 004).
+
+### 0.5.0
+
+**New agentic tools**
+
+- Added Cursor support for user-level agents, skills, rules, slash commands, and MCP servers under `~/.cursor/`.
+- Added Gemini CLI support for agents, skills, rules, slash commands, and MCP servers under `~/.gemini/`.
+- Added GitHub Copilot support for CLI agents, Agent Skills, CLI MCP servers, and explicitly configured VS Code user-profile instructions and prompt files.
+
+**New customization types**
+
+- Added `rules` sync across Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, and OpenCode.
+- Added `slash_command` sync across Claude Code (`~/.claude/commands`), Codex (`~/.codex/prompts`), GitHub Copilot (`*.prompt.md`), Cursor (`~/.cursor/commands`), Gemini CLI (`~/.gemini/commands`), and OpenCode (`~/.config/opencode/commands`).
+- Added `mcp_server` sync across Claude Code (`~/.claude.json[mcpServers]`), Codex (`~/.codex/config.toml[mcp_servers]`), GitHub Copilot CLI (`~/.copilot/mcp-config.json[servers]`), Cursor (`~/.cursor/mcp.json[mcpServers]`), Gemini CLI (`~/.gemini/settings.json[mcpServers]`), and OpenCode (`opencode.json[mcp]`).
+
+**Safety and portability**
+
+- Added per-slot archive/removal behaviour for shared MCP config files, preserving sibling server entries.
+- Added cross-process locking and safer shared keyed-map writes for JSON, JSONC, and TOML MCP files.
+- Added `secret_policy` with `secrets_refused` / `secrets_accepted` and applied it at parse, render, export, and import boundaries.
+- Deprecated `mcp_server_secret_policy` and legacy `refuse` / `redact` / `permissive` values; compatibility aliases remain for one release.
+- Hardened archive paths, parser bounds, and MCP secret detection.
+
+**Configuration**
+
+- Added config keys and CLI overrides for Cursor, Gemini CLI, GitHub Copilot, command roots, rules roots, and MCP shared files.
+- Added partial availability gates for Copilot CLI versus VS Code user-profile surfaces.
+- Updated platform defaults for Linux, macOS, and Windows paths.
+
 ### 0.4.3
 
 - Added portable library snapshot: `agents-sync export <file.zip>` serialises every managed agent and skill into a single zip, and `agents-sync import <file.zip>` restores or merges that zip into a local install. See [Backup, Restore, Share](#backup-restore-share).
-- Added `import_collision_strategy` config key (`skip` / `mtime_wins` / `overwrite`, default `mtime_wins`) controlling how an imported artifact reconciles with a locally-managed one. CLI flag `--collision-strategy` overrides per invocation.
-- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp (the source of truth for the `mtime_wins` collision rule). Pre-1.0 cutover: v2 state files are regenerated on first boot.
-- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01.
+- Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp at the time; this was later superseded by canonical `metadata.last_modified` as the source of truth for the `last_modified_wins` collision rule. Pre-1.0 cutover: v2 state files are regenerated on first boot.
+- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in 0.6.0: import is now canonical-only and the next `sync_once` projects — see above.)*
 
 ### 0.4.1
 
-- Added OpenCode as an agentic tool. Agents now sync two ways across Claude Code and OpenCode.
+- Added OpenCode as an agentic tool. Agents now sync three ways across Claude Code, Codex, and OpenCode.
+- Restored Codex custom agents under `~/.codex/agents/*.toml`.
 - Skills now include OpenCode as an additional sync participant.
 - Added OpenCode agent and skill roots with `opencode_agents_dir`, `opencode_skills_dir`, and `opencode_enabled` config/CLI wiring.
 - Preserved OpenCode-only metadata such as `mode`, `permission`, `steps`, `color`, and open-spec skill metadata without leaking foreign fields into OpenCode files.
@@ -435,11 +512,11 @@ archive/<pair_id>/<side>/<filename>.<ISO> preserved prior bytes
 ### 0.4.0
 
 - Added Google Antigravity as a third agentic tool. Antigravity participates in skills only.
-- Codex became skills-only in v0.4.
+- Codex agent sync was temporarily removed in v0.4, then restored in v0.4.1.
 - The default `codex_skills_dir` is now `~/.codex/skills` (the path Codex's own `skill-installer` and `skill-creator` use). The v0.3-era `~/.agents/skills` default never matched a live Codex install.
 - Daemon-projected counterparts use the bare slugified name. The v0.3 `-skill` / `-agent` suffix is dropped — agents and skills live in distinct config-keyed roots, so kind disambiguation is unnecessary. A skill named `formatter` now lives at `<root>/formatter/SKILL.md` on every tool instead of `<root>/formatter-skill/SKILL.md`.
 - On startup the daemon creates each enabled tool's roots if they don't exist (`mkdir -p`). Mid-life loss of a root still flips a tool to `unavailable` per US-11.
-- Agents (per-agent files) were therefore Claude-only in v0.4. v0.4.1 adds OpenCode as an agent sync target.
+- Agents (per-agent files) were therefore Claude-only in v0.4. v0.4.1 restores Codex custom agents under `~/.codex/agents/*.toml` and adds OpenCode as an agent sync target.
 - Generalised the sync algorithm from two named peers (`claude` / `codex`) to an N-tool registry. Adding another agentic tool is now an IO module + a config entry; the sync engine, conflict resolution, adoption, reconciliation, and removal-propagation paths are tool-agnostic.
 - Replaced the v0.2.1 "exit on missing root" startup behavior with per-tool status (`available` / `unavailable` / `disabled`). A missing root marks the tool unavailable for that poll and is logged once; the daemon continues to sync the remaining available tools. Removal-propagation never fires from an unavailable tool, so an uninstalled or unmounted tool never wipes your library.
 - Added first-boot reconciliation: when the same logical skill exists on multiple tools without a `pair_id`, the daemon merges them by most-recent mtime instead of failing on a slug collision.

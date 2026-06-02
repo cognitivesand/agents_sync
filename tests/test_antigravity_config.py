@@ -18,9 +18,14 @@ from pathlib import Path
 import pytest
 
 from agents_sync.cli import build_parser
-from agents_sync.config import merged_config, platform_defaults
+from agents_sync.config import (
+    ConfigError,
+    merged_config,
+    platform_defaults,
+    prepare_state_storage,
+    validate_config,
+)
 from agents_sync.sync import Syncer
-
 
 # ---------- per-OS defaults ----------
 
@@ -67,41 +72,131 @@ def test_cli_parser_accepts_opencode_flags():
     args = parser.parse_args([
         "--opencode-agents-dir",
         "/agents",
+        "--opencode-commands-dir",
+        "/commands",
         "--opencode-skills-dir",
         "/skills",
+        "--opencode-rules-dir",
+        "/rules",
         "--no-opencode-enabled",
     ])
     assert args.opencode_agents_dir == "/agents"
+    assert args.opencode_commands_dir == "/commands"
     assert args.opencode_skills_dir == "/skills"
+    assert args.opencode_rules_dir == "/rules"
     assert args.opencode_enabled is False
+
+
+def test_cli_parser_accepts_cursor_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--cursor-agents-dir",
+        "/cursor-agents",
+        "--cursor-commands-dir",
+        "/cursor-commands",
+        "--cursor-skills-dir",
+        "/cursor-skills",
+        "--cursor-rules-dir",
+        "/cursor-rules",
+        "--cursor-mcp-servers-file",
+        "/cursor/mcp.json",
+        "--no-cursor-enabled",
+    ])
+    assert args.cursor_agents_dir == "/cursor-agents"
+    assert args.cursor_commands_dir == "/cursor-commands"
+    assert args.cursor_skills_dir == "/cursor-skills"
+    assert args.cursor_rules_dir == "/cursor-rules"
+    assert args.cursor_mcp_servers_file == "/cursor/mcp.json"
+    assert args.cursor_enabled is False
+
+
+def test_cli_parser_accepts_slash_command_root_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--claude-commands-dir",
+        "/claude-commands",
+        "--codex-prompts-dir",
+        "/codex-prompts",
+    ])
+    assert args.claude_commands_dir == "/claude-commands"
+    assert args.codex_prompts_dir == "/codex-prompts"
+
+
+def test_cli_parser_accepts_rules_dir_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--claude-rules-dir",
+        "/claude",
+        "--codex-rules-dir",
+        "/codex",
+    ])
+
+    assert args.claude_rules_dir == "/claude"
+    assert args.codex_rules_dir == "/codex"
+
+
+def test_cli_parser_accepts_mcp_server_secret_policy_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--mcp-server-secret-policy", "redact"])
+
+    assert args.mcp_server_secret_policy == "redact"
+
+
+def test_cli_parser_accepts_copilot_flags():
+    parser = build_parser()
+    args = parser.parse_args([
+        "--copilot-cli-agents-dir",
+        "/copilot/agents",
+        "--copilot-cli-skills-dir",
+        "/copilot/skills",
+        "--copilot-vscode-user-instructions-dir",
+        "/copilot/instructions",
+        "--copilot-vscode-user-prompts-dir",
+        "/copilot/prompts",
+        "--no-copilot-cli-enabled",
+    ])
+
+    assert args.copilot_cli_agents_dir == "/copilot/agents"
+    assert args.copilot_cli_skills_dir == "/copilot/skills"
+    assert args.copilot_vscode_user_instructions_dir == "/copilot/instructions"
+    assert args.copilot_vscode_user_prompts_dir == "/copilot/prompts"
+    assert args.copilot_cli_enabled is False
 
 
 # ---------- merged_config ----------
 
 def _minimal_args(**overrides: object) -> argparse.Namespace:
-    base = dict(
-        config=None,
-        interval=None,
-        claude_agents_dir=None,
-        claude_skills_dir=None,
-        codex_agents_dir=None,
-        codex_skills_dir=None,
-        antigravity_skills_dir=None,
-        antigravity_enabled=None,
-        opencode_agents_dir=None,
-        opencode_skills_dir=None,
-        opencode_enabled=None,
-        state_path=None,
-        verbose=False,
-    )
+    """Build a minimal argparse Namespace driven by the merged_config table.
+
+    Phase 2.6 of the audit remediation: the previous fixture hand-listed
+    every CLI flag and silently fell behind whenever a new flag landed.
+    Sourcing the keys from ``config._ARG_TO_CONFIG_KEY`` (plus a couple of
+    parser-only attrs the loop does not consume) means a new flag is a
+    one-line addition to the table, not a two-place edit.
+    """
+    from agents_sync.config import _ARG_TO_CONFIG_KEY
+
+    base: dict[str, object] = {arg_attr: None for arg_attr, _ in _ARG_TO_CONFIG_KEY}
+    # Attributes the merged_config table doesn't read but every Namespace
+    # constructed from the parser still carries.
+    base["config"] = None
+    base["verbose"] = False
     base.update(overrides)
     return argparse.Namespace(**base)
 
 
-def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[str, str | float | bool]:
+def _test_config(
+    tmp_path: Path, *, antigravity_enabled: bool = True
+) -> dict[str, str | float | bool]:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
+    for sub in (
+        "ca", "cc", "cs", "cr",
+        "xa", "xp", "xs", "xr",
+        "cura", "curc", "curs", "curr",
+        "ga", "gc", "gs", "gr",
+        "oa", "oc", "os", "or",
+    ):
         (tmp_path / sub).mkdir()
     ag_root = tmp_path / "as"
     ag_root.mkdir(exist_ok=True)
@@ -109,13 +204,34 @@ def _test_config(tmp_path: Path, *, antigravity_enabled: bool = True) -> dict[st
         "poll_interval_seconds": 1.0,
         "state_path": str(state_dir / "state.json"),
         "claude_agents_dir": str(tmp_path / "ca"),
+        "claude_commands_dir": str(tmp_path / "cc"),
         "claude_skills_dir": str(tmp_path / "cs"),
+        "claude_rules_dir": str(tmp_path / "cr"),
+        "claude_mcp_servers_file": str(tmp_path / "claude-mcp.json"),
         "codex_agents_dir": str(tmp_path / "xa"),
+        "codex_prompts_dir": str(tmp_path / "xp"),
         "codex_skills_dir": str(tmp_path / "xs"),
+        "codex_rules_dir": str(tmp_path / "xr"),
+        "codex_config_file": str(tmp_path / "codex-config.toml"),
+        "cursor_agents_dir": str(tmp_path / "cura"),
+        "cursor_commands_dir": str(tmp_path / "curc"),
+        "cursor_skills_dir": str(tmp_path / "curs"),
+        "cursor_rules_dir": str(tmp_path / "curr"),
+        "cursor_mcp_servers_file": str(tmp_path / "cursor-mcp.json"),
+        "cursor_enabled": True,
         "antigravity_skills_dir": str(ag_root),
         "antigravity_enabled": antigravity_enabled,
+        "gemini_cli_agents_dir": str(tmp_path / "ga"),
+        "gemini_cli_commands_dir": str(tmp_path / "gc"),
+        "gemini_cli_skills_dir": str(tmp_path / "gs"),
+        "gemini_cli_rules_dir": str(tmp_path / "gr"),
+        "gemini_cli_settings_file": str(tmp_path / "gemini-settings.json"),
+        "gemini_cli_enabled": False,
         "opencode_agents_dir": str(tmp_path / "oa"),
+        "opencode_commands_dir": str(tmp_path / "oc"),
         "opencode_skills_dir": str(tmp_path / "os"),
+        "opencode_rules_dir": str(tmp_path / "or"),
+        "opencode_config_file": str(tmp_path / "opencode.json"),
         "opencode_enabled": True,
     }
 
@@ -124,9 +240,22 @@ def test_merged_config_falls_back_to_default_antigravity_dir():
     config = merged_config(_minimal_args())
     assert "antigravity_skills_dir" in config
     assert config["antigravity_enabled"] is True
+    assert "gemini_cli_agents_dir" in config
+    assert "gemini_cli_commands_dir" in config
+    assert "gemini_cli_skills_dir" in config
+    assert "gemini_cli_rules_dir" in config
+    assert "gemini_cli_settings_file" in config
+    assert config["gemini_cli_enabled"] is True
     assert "opencode_agents_dir" in config
+    assert "opencode_commands_dir" in config
     assert "opencode_skills_dir" in config
+    assert "opencode_rules_dir" in config
     assert config["opencode_enabled"] is True
+    assert "cursor_agents_dir" in config
+    assert "cursor_commands_dir" in config
+    assert "cursor_skills_dir" in config
+    assert "cursor_rules_dir" in config
+    assert config["cursor_enabled"] is True
 
 
 def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
@@ -138,6 +267,88 @@ def test_merged_config_honors_cli_antigravity_override(tmp_path: Path):
 def test_merged_config_honors_cli_disable_flag():
     config = merged_config(_minimal_args(antigravity_enabled=False))
     assert config["antigravity_enabled"] is False
+
+
+def test_merged_config_honors_secret_policy_override():
+    config = merged_config(_minimal_args(secret_policy="secrets_accepted"))
+    assert config["secret_policy"] == "secrets_accepted"
+
+
+def test_merged_config_accepts_legacy_mcp_secret_policy_flag_with_deprecation(
+    caplog: pytest.LogCaptureFixture,
+):
+    """The deprecated --mcp-server-secret-policy flag must keep working for
+    one release. Old values map to new ones; old key is consumed and
+    replaced by the canonical ``secret_policy`` with a DEPRECATION-WARNING.
+    """
+    with caplog.at_level("WARNING"):
+        config = merged_config(_minimal_args(mcp_server_secret_policy="permissive"))
+    assert config["secret_policy"] == "secrets_accepted"
+    assert "mcp_server_secret_policy" not in config
+    assert any("DEPRECATED" in r.message for r in caplog.records)
+
+
+def test_validate_config_is_read_only_and_does_not_create_state_dir(tmp_path: Path):
+    config = _test_config(tmp_path)
+    state_parent = tmp_path / "missing-state" / "nested"
+    config["state_path"] = str(state_parent / "state.json")
+    config["secret_policy"] = "refuse"
+    before = dict(config)
+
+    validate_config(config)
+
+    assert config == before
+    assert not state_parent.exists()
+
+
+def test_prepare_state_storage_creates_state_parent(tmp_path: Path):
+    config = _test_config(tmp_path)
+    state_parent = tmp_path / "prepared-state" / "nested"
+    config["state_path"] = str(state_parent / "state.json")
+
+    result = prepare_state_storage(config)
+
+    assert result == state_parent.resolve()
+    assert state_parent.is_dir()
+
+
+def test_sync_once_does_not_revalidate_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from agents_sync import sync as sync_module
+
+    syncer = Syncer(_test_config(tmp_path))
+
+    def fail_on_poll_validation(config: dict[str, object]) -> None:
+        raise AssertionError("sync_once should not revalidate config")
+
+    monkeypatch.setattr(sync_module, "validate_config", fail_on_poll_validation)
+
+    assert syncer.sync_once().changed == 0
+
+
+@pytest.mark.parametrize(
+    "flag_name",
+    [
+        "antigravity_enabled",
+        "cursor_enabled",
+        "gemini_cli_enabled",
+        "opencode_enabled",
+        "copilot_enabled",
+        "copilot_cli_enabled",
+        "copilot_vscode_user_profile_enabled",
+    ],
+)
+def test_validate_config_rejects_non_boolean_enable_flags(
+    tmp_path: Path,
+    flag_name: str,
+):
+    config = _test_config(tmp_path)
+    config[flag_name] = "false"
+
+    with pytest.raises(ConfigError, match=f"{flag_name} must be a boolean"):
+        validate_config(config)
 
 
 # ---------- Syncer status for antigravity ----------
@@ -214,7 +425,8 @@ def test_disabled_tool_skips_discovery_even_if_dir_has_artifacts(tmp_path: Path)
     )
 
     syncer = Syncer(config)
-    changed = syncer.sync_once()
+    result = syncer.sync_once()
+    changed = result.changed
     assert changed == 0
     # No projection landed on claude_skills_dir; antigravity bytes intact.
     assert list(syncer.tool_root("claude", "skill").iterdir()) == []

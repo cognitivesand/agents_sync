@@ -3,6 +3,7 @@
 Exercised over skills (the customization_type all three tools participate
 in). The status invariants are tool-agnostic.
 """
+
 from __future__ import annotations
 
 import json
@@ -35,6 +36,7 @@ def _read_state(syncer: Syncer) -> dict:
 
 # ---------- AC-1: missing root at startup ----------
 
+
 def test_missing_root_at_startup_does_not_raise(syncer: Syncer):
     """US-11 AC-1: a missing root marks the tool unavailable; daemon continues."""
     shutil.rmtree(syncer.tool_root("codex", "skill"))
@@ -56,6 +58,7 @@ def test_missing_root_at_startup_logs_info_line(syncer: Syncer, caplog: pytest.L
 
 
 # ---------- AC-2: going unavailable mid-life ----------
+
 
 def test_mid_life_unavailable_transition_logs_warning(
     syncer: Syncer, caplog: pytest.LogCaptureFixture
@@ -99,7 +102,10 @@ def test_unavailable_tool_does_not_propagate_removal(syncer: Syncer):
 
 # ---------- AC-3: returning to available ----------
 
-def test_returning_to_available_logs_info_and_extends(syncer: Syncer, caplog: pytest.LogCaptureFixture):
+
+def test_returning_to_available_logs_info_and_extends(
+    syncer: Syncer, caplog: pytest.LogCaptureFixture
+):
     """US-11 AC-3: tool returns to available ⇒ extension flow re-projects."""
     _write_claude_skill(syncer)
     syncer.sync_once()
@@ -123,9 +129,8 @@ def test_returning_to_available_logs_info_and_extends(syncer: Syncer, caplog: py
 
 # ---------- AC-5: log only on transition ----------
 
-def test_steady_state_polls_emit_no_status_logs(
-    syncer: Syncer, caplog: pytest.LogCaptureFixture
-):
+
+def test_steady_state_polls_emit_no_status_logs(syncer: Syncer, caplog: pytest.LogCaptureFixture):
     """US-11 AC-5: no per-poll log line when status hasn't changed."""
     _write_claude_skill(syncer)
     syncer.sync_once()  # startup transitions emitted here
@@ -135,14 +140,14 @@ def test_steady_state_polls_emit_no_status_logs(
         syncer.sync_once()
         syncer.sync_once()
 
-    status_records = [
-        r for r in caplog.records
-        if r.getMessage().startswith("agentic_tool ")
-    ]
-    assert status_records == [], f"unexpected status logs: {[r.getMessage() for r in status_records]}"
+    status_records = [r for r in caplog.records if r.getMessage().startswith("agentic_tool ")]
+    assert status_records == [], (
+        f"unexpected status logs: {[r.getMessage() for r in status_records]}"
+    )
 
 
 # ---------- AC-7: all tools unavailable ----------
+
 
 def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     """US-11 AC-7: even with every tool unavailable, sync_once continues."""
@@ -150,22 +155,31 @@ def test_all_tools_unavailable_is_a_no_op_poll(syncer: Syncer, tmp_path: Path):
     shutil.rmtree(syncer.tool_root("claude", "skill"))
     shutil.rmtree(syncer.tool_root("codex", "agent"))
     shutil.rmtree(syncer.tool_root("codex", "skill"))
+    shutil.rmtree(syncer.tool_root("cursor", "agent"))
+    shutil.rmtree(syncer.tool_root("cursor", "skill"))
+    shutil.rmtree(syncer.tool_root("gemini_cli", "agent"))
+    shutil.rmtree(syncer.tool_root("gemini_cli", "skill"))
     shutil.rmtree(syncer.tool_root("opencode", "agent"))
     shutil.rmtree(syncer.tool_root("opencode", "skill"))
     shutil.rmtree(tmp_path / "as")
 
     # No raise, zero changes.
-    changed = syncer.sync_once()
+    result = syncer.sync_once()
+    changed = result.changed
     assert changed == 0
     assert syncer.tool_status.snapshot() == {
         "antigravity": "unavailable",
         "claude": "unavailable",
         "codex": "unavailable",
+        "copilot": "disabled",
+        "cursor": "unavailable",
+        "gemini_cli": "disabled",
         "opencode": "unavailable",
     }
 
 
 # ---------- Removal propagation only from available tools ----------
+
 
 def test_removal_propagation_from_available_tool_still_works(syncer: Syncer):
     """Removing a skill on a tool whose status is `available` propagates normally."""

@@ -1,0 +1,48 @@
+name: Delete old stale branches
+
+# Weekly housekeeping: delete branches named stale/<YYYY-MM-DD>/<name>
+# whose date stamp is older than MAX_AGE_DAYS. The stamp is the merge date
+# written by the "Mark merged branch stale" workflow, so the clock starts at
+# merge — not at the branch's last commit. Branches without a parseable stamp
+# (e.g. hand-made stale/<name>) are left untouched.
+#
+# Scheduled workflows only fire from the default branch, so this file must
+# live on the default branch to ever run. Use workflow_dispatch to run it
+# on demand.
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Mondays 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const MAX_AGE_DAYS = 30;
+            const branches = await github.paginate(github.rest.repos.listBranches, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            let deleted = 0;
+            for (const b of branches) {
+              const m = b.name.match(/^stale\/(\d{4}-\d{2}-\d{2})\//);
+              if (!m) continue;
+              const ageDays = (Date.now() - Date.parse(m[1])) / 86400000;
+              if (ageDays >= MAX_AGE_DAYS) {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `heads/${b.name}`,
+                });
+                core.info(`Deleted ${b.name} (${ageDays.toFixed(0)} days old)`);
+                deleted++;
+              }
+            }
+            core.info(`Done. Deleted ${deleted} stale branch(es).`);

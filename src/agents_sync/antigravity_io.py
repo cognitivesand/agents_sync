@@ -16,19 +16,14 @@ and round-trip only through the Claude projection.
 """
 from __future__ import annotations
 
-import io as _io
 from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
-from agents_sync.claude_io import (
-    FRONTMATTER_RE,
-    _make_yaml,
-    _normalize_markdown_text,
-    _strip_bom_prefix,
-    _yaml_load,
-    extract_pair_id_from_md,
+from agents_sync.markdown_yaml_metadata_block import (
+    frontmatter_for_render,
+    split_frontmatter,
+    yaml_dump,
 )
-
 
 # Frontmatter keys the Antigravity canonical maps explicitly. Anything else
 # is preserved in canonical["per_agentic_tool_extra"]["antigravity"].
@@ -53,12 +48,6 @@ OPTIONAL_ANTIGRAVITY_FIELDS: tuple[str, ...] = (
 )
 
 
-def _yaml_dump(data: Any) -> str:
-    buf = _io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
-
-
 def parse_antigravity_skill_md(
     text: str,
     prior_canonical: dict[str, Any] | None = None,
@@ -71,21 +60,7 @@ def parse_antigravity_skill_md(
     new frontmatter are dropped from the antigravity-extra bag (the user's
     Antigravity frontmatter is the source of truth for that bag).
     """
-    text = _normalize_markdown_text(text)
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        frontmatter_data: dict[str, Any] = {}
-        body = _strip_bom_prefix(text.strip())
-    else:
-        raw_frontmatter, body_raw = match.groups()
-        body = _strip_bom_prefix(body_raw.strip())
-        loaded = _yaml_load(raw_frontmatter)
-        if loaded is None:
-            frontmatter_data = {}
-        elif not isinstance(loaded, dict):
-            raise ValueError("Antigravity SKILL.md frontmatter must be a YAML mapping")
-        else:
-            frontmatter_data = dict(loaded)
+    frontmatter_data, body = split_frontmatter(text, label="Antigravity SKILL.md")
 
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
@@ -138,17 +113,7 @@ def render_antigravity_skill_md(
     permissionMode, disallowedTools, effort) — those belong to the Claude
     projection only.
     """
-    yml = _make_yaml()
-
-    prior_text = _normalize_markdown_text(prior_text) if prior_text is not None else None
-    prior_match = FRONTMATTER_RE.match(prior_text) if prior_text is not None else None
-
-    if prior_match is not None:
-        raw, _ = prior_match.groups()
-        loaded = _yaml_load(raw)
-        frontmatter = loaded if isinstance(loaded, dict) else yml.load("{}\n")
-    else:
-        frontmatter = yml.load("{}\n")
+    frontmatter = frontmatter_for_render(prior_text)
 
     frontmatter["pair_id"] = canonical["pair_id"]
     frontmatter["name"] = canonical["name"]
@@ -165,7 +130,7 @@ def render_antigravity_skill_md(
         frontmatter[key] = value
 
     body = canonical.get("body", "")
-    rendered_fm = _yaml_dump(frontmatter).rstrip("\n")
+    rendered_fm = yaml_dump(frontmatter).rstrip("\n")
     if body:
         return f"---\n{rendered_fm}\n---\n{body}\n"
     return f"---\n{rendered_fm}\n---\n"
@@ -174,7 +139,6 @@ def render_antigravity_skill_md(
 __all__ = [
     "KNOWN_ANTIGRAVITY_FIELDS",
     "OPTIONAL_ANTIGRAVITY_FIELDS",
-    "extract_pair_id_from_md",
     "parse_antigravity_skill_md",
     "render_antigravity_skill_md",
 ]

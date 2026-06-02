@@ -10,6 +10,7 @@ Two flavours:
   - `archive_move`: moves the source into the archive; original is gone.
     Used during conflict-loser overwrite and symmetric delete.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -18,7 +19,26 @@ from pathlib import Path
 
 from agents_sync.filesystem_windows_retry import retry_fs
 from agents_sync.identity import validate_pair_id
-from agents_sync.state import ignored_tree_names
+from agents_sync.state import ignored_tree_names, slugify
+
+_MAX_SLOT_COMPONENT_LEN = 128
+
+
+def _safe_slot_component(slot_name: str) -> str:
+    """Return a filesystem-safe form of ``slot_name`` for use as an archive
+    filename component.
+
+    Slot names are derived from raw user-supplied keys in MCP server maps
+    (``mcpServers`` in ``.claude.json``, ``mcp_servers`` in
+    ``~/.codex/config.toml``, ``mcp`` in ``opencode.json``). A malicious
+    or accidental key like ``"../../../tmp/pwned"`` would otherwise
+    escape ``<state_dir>/archive/<pair_id>/<side>/``. We slugify with the
+    same rules as artifact names and cap the length; the original key
+    remains untouched in ``canonical['name']``.
+    """
+    if not isinstance(slot_name, str):
+        slot_name = str(slot_name)
+    return slugify(slot_name)[:_MAX_SLOT_COMPONENT_LEN]
 
 
 def iso_timestamp(now: _dt.datetime | None = None) -> str:
@@ -29,7 +49,7 @@ def iso_timestamp(now: _dt.datetime | None = None) -> str:
     adoption that archives pre-injection bytes followed immediately by a
     conflict-loser archive in the same second.
     """
-    moment = now or _dt.datetime.now(tz=_dt.timezone.utc)
+    moment = now or _dt.datetime.now(tz=_dt.UTC)
     return moment.strftime("%Y-%m-%dT%H-%M-%S-%fZ")
 
 
@@ -39,8 +59,18 @@ def archive_dir_for(state_dir: Path, pair_id: str, side: str) -> Path:
 
 
 def _archive_target(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:
+    """Compute the per-pair archive target path and ensure its parent exists.
+
+    The ``mkdir(parents=True, exist_ok=True)`` is wrapped in ``retry_fs`` so a
+    transient Windows ``ERROR_SHARING_VIOLATION`` from an antivirus scanner
+    indexing the parent directory does not abort a data-preservation archive
+    operation (audit slice 09 · CQ-08).
+    """
     target_dir = archive_dir_for(state_dir, pair_id, side)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    retry_fs(
+        lambda: target_dir.mkdir(parents=True, exist_ok=True),
+        operation=f"mkdir {target_dir}",
+    )
     return target_dir / f"{source.name}.{iso_timestamp()}"
 
 
@@ -51,6 +81,40 @@ def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
         shutil.copytree(source, target, ignore=lambda _dir, names: ignored_tree_names(names))
     else:
         shutil.copy2(source, target)
+    return target
+
+
+def archive_text(
+    state_dir: Path,
+    pair_id: str,
+    side: str,
+    slot_name: str,
+    extension: str,
+    content: str,
+) -> Path:
+    """Archive a literal text payload (used for SharedKeyedMapLayout slots,
+    where the prior bytes are an in-memory serialisation of one map entry,
+    not a file on disk).
+
+    Stored at ``archive/<pair_id>/<side>/<slot_name><extension>.<ts>`` so
+    per-slot granularity matches the existing per-file convention.
+    """
+    validate_pair_id(pair_id)
+    target_dir = archive_dir_for(state_dir, pair_id, side)
+    retry_fs(
+        lambda: target_dir.mkdir(parents=True, exist_ok=True),
+        operation=f"mkdir {target_dir}",
+    )
+    safe_slot = _safe_slot_component(slot_name)
+    target = target_dir / f"{safe_slot}{extension}.{iso_timestamp()}"
+    resolved_target = target.resolve()
+    resolved_dir = target_dir.resolve()
+    if not resolved_target.is_relative_to(resolved_dir):
+        raise ValueError(
+            f"archive target {resolved_target} escapes per-pair directory "
+            f"{resolved_dir} (slot_name={slot_name!r}); refusing to write."
+        )
+    target.write_text(content, encoding="utf-8")
     return target
 
 
@@ -66,6 +130,26 @@ def archive_move(state_dir: Path, pair_id: str, side: str, source: Path) -> Path
         operation=f"archive_move {source} -> {target}",
     )
     return target
+
+
+def archive_canonical(state_dir: Path, pair_id: str) -> Path | None:
+    """Archive-and-remove a pair's canonical record before it is dropped.
+
+    Moves ``canonical/<pair_id>.json`` to
+    ``archive/<pair_id>/_canonical/<pair_id>.json.<ts>`` (US-05 AC-5). The
+    ``_canonical`` segment is reserved (leading underscore) and never collides
+    with an agentic_tool name. Returns the archive path, or ``None`` when there
+    is no canonical to archive. Used when a pair is fully dropped, so a stale
+    canonical can never be re-projected (NFR-16).
+    """
+    # Lazy import: canonical.py is a higher-level module; importing it at load
+    # time would couple this archive primitive to the canonical schema.
+    from agents_sync.canonical import canonical_path
+
+    source = canonical_path(state_dir, pair_id)
+    if not source.exists():
+        return None
+    return archive_move(state_dir, pair_id, "_canonical", source)
 
 
 # Back-compat alias used by callers written for Phase 2.

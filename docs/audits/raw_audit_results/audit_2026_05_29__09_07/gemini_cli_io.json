@@ -1,0 +1,160 @@
+{
+  "project_version": "v0.5",
+  "scope": "file:src/agents_sync/gemini_cli_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 367,
+
+  "detailed_analysis": "src/agents_sync/gemini_cli_io.py is a Layer-3 interface adapter implementing the CustomizationTypeIO triple (parse/render/extract_pair_id) for five Gemini CLI customization_types: agent (.md), skill (SKILL.md), rules (GEMINI.md), slash_command (.toml), and mcp_server (delegated via the spec factory). The module is well within size limits (367 lines vs 300-line soft target — slightly over but it is a flat collection of small functions, not a God Module), every function is short and single-purpose, names follow the two-word minimum convention, and all public functions carry type annotations. There are no hardcoded secrets, no injection vectors, no silent exception swallowing, no mutable default arguments, and no global mutable state. The module correctly leaves secret_policy enforcement to the sync core / mcp_server_io layer (goal 6 says secret_policy is evaluated by the sync core, not per adapter), so its absence here is correct, not a deviation. The strongest concern is structural duplication between the agent and skill parse/render pairs (DRY) and one round-trip-stability concern: render_gemini_agent_md injects a default kind=\"local\" when the canonical has no kind, which can break the parse(render(c))==c subset contract (US-10 AC-1 rule 1 / NFR-06) for agents that never declared a kind. The Law-of-Demeter chains in the render functions (canonical.get(...).get(...).get(...)) are a readability/coupling smell. Overall the adapter is clean and conformant; findings are minor to warning level with one low-confidence MAJOR-bordering round-trip concern flagged as WARNING.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "gemini_cli_io.py", "imported_by": 1},
+    "highest_fan_out": {"module": "gemini_cli_io.py", "imports": 4},
+    "dependency_rule_compliance": "Conformant. Imports only intra-package adapter/entity helpers (artifact_names, canonical, markdown_yaml_metadata_block, rules_io, slash_command_io). No imports from Layer-4 (cli/daemon/config) and no imports of use-case modules (sync/adoption/discovery). No concrete tool name leaks into use-case layer — the tool name 'gemini_cli' lives only in this adapter and the tool_specs factory, as required by §1 stable-abstractions rule."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/gemini_cli_io.py",
+      "lines": 367,
+      "function_count": 12,
+      "class_count": 0,
+      "correctness": 0.75,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "correctness",
+      "finding_count": 5
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/gemini_cli_io.py",
+      "line": 191,
+      "function_or_class": "render_gemini_agent_md",
+      "anti_pattern": "W2",
+      "variant": "Message Chain / Law of Demeter",
+      "severity": "WARNING",
+      "metrics": {"chain_depth": 3},
+      "evidence": "gemini_only = canonical.get(\"per_agentic_tool_only\", {}).get(\"gemini_cli\", {})\n...\nfor key, value in canonical.get(\"per_agentic_tool_extra\", {}).get(\n    \"gemini_cli\", {}\n).items():",
+      "evidence_lines": "191, 201-203, 273, 279-281",
+      "problem": "Repeated two-level dict drill-down canonical.get(BAG, {}).get(\"gemini_cli\", {}) across all four parse/render functions (lines 149-165, 191, 201-203, 235-248, 273, 279-281). The implicit schema of the canonical per_agentic_tool bags is reconstructed by hand in every function. A change to the bag shape requires coordinated edits in four places (borderline M4 shotgun surgery). The chain also couples the adapter to the internal structure of the canonical bags rather than a typed accessor.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/gemini_cli_io.py",
+      "line": 192,
+      "function_or_class": "render_gemini_agent_md",
+      "anti_pattern": "I4",
+      "variant": "Magic String / round-trip-affecting default injection",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "set_or_remove_empty_metadata_field(\n    frontmatter, \"kind\", gemini_only.get(\"kind\") or \"local\",\n)",
+      "evidence_lines": "192-194",
+      "problem": "render injects a hardcoded default kind=\"local\" when the canonical carries no kind. parse_gemini_agent_md only records kind when it is present in the source frontmatter (via metadata_subset on OPTIONAL_GEMINI_AGENT_FIELDS, lines 150-156). Consequently parse(render(c, prior)) for an agent that never declared a kind yields gemini_only[\"kind\"]==\"local\", which differs from the original canonical subset. This is a potential violation of the round-trip-stability contract parse(render(c))==c over the agentic_tool-relevant subset (US-10 AC-1 rule 1 / NFR-06). The literal \"local\" is also an unnamed magic string. Confidence is moderate: the injection may be a deliberate Gemini-required field default, but it is undocumented in the module and asymmetric with parse.",
+      "affected_axis": "correctness"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/gemini_cli_io.py",
+      "line": 119,
+      "function_or_class": "parse_gemini_agent_md / parse_gemini_skill_md",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated structure",
+      "severity": "SMELL",
+      "metrics": {"duplicated_function_pairs": 2},
+      "evidence": "per_only = dict(canonical.get(\"per_agentic_tool_only\") or {})\n... per_only[\"gemini_cli\"] = ...\ncanonical[\"per_agentic_tool_only\"] = per_only\nper_extra = dict(canonical.get(\"per_agentic_tool_extra\") or {})\nper_extra[\"gemini_cli\"] = unknown_metadata_fields(...)\ncanonical[\"per_agentic_tool_extra\"] = per_extra\nif \"pair_id\" in frontmatter_data: ... elif prior_canonical is None: canonical[\"pair_id\"] = new_pair_id()",
+      "evidence_lines": "149-172 vs 235-255, 199-207 vs 273-285",
+      "problem": "parse_gemini_agent_md (119-172) and parse_gemini_skill_md (214-255) share an almost identical skeleton: frontmatter/body split, name/description copy, per_agentic_tool_only fill, per_agentic_tool_extra fill via unknown_metadata_fields, and the identical pair_id assignment block (167-171 == 250-253). The same pair_id block and per_extra block also recur in render. The pattern has repeated 3+ times (Rule of Three), so the shared pair_id-injection and per-bag-fill logic is a candidate for extraction. Not a defect, but it raises the cost of changing the canonical bag protocol.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/gemini_cli_io.py",
+      "line": 119,
+      "function_or_class": "parse_gemini_agent_md",
+      "anti_pattern": "W8",
+      "variant": "Primitive Obsession on canonical dict",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "def parse_gemini_agent_md(text: str, prior_canonical: dict[str, Any] | None = None, *, artifact_path: Path | None = None, artifact_root: Path | None = None) -> dict[str, Any]:",
+      "evidence_lines": "119-125, 175-178, 214-220, 258-261",
+      "problem": "The canonical document is passed and returned as a raw dict[str, Any] and immediately indexed by implicit string keys (\"body\", \"name\", \"description\", \"model\", \"pair_id\", \"per_agentic_tool_only\", \"per_agentic_tool_extra\"). The dict has an implicit, hand-maintained schema enforced nowhere at this boundary. This is the project-wide canonical representation (entity layer ships it as dict in canonical.py), so it is a systemic choice rather than a local defect, but it leaves the adapter with no fail-fast guard on the shape it receives (e.g. canonical[\"pair_id\"] / canonical[\"name\"] are read in render at lines 184-185, 267-268 with no validation that they exist). A missing key would raise KeyError deep in render rather than a descriptive boundary error.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/gemini_cli_io.py",
+      "line": 175,
+      "function_or_class": "render_gemini_agent_md / render_gemini_skill_md",
+      "anti_pattern": "fail-fast",
+      "variant": "Missing boundary assertion",
+      "severity": "SMELL",
+      "metrics": {},
+      "evidence": "frontmatter[\"pair_id\"] = canonical[\"pair_id\"]\nfrontmatter[\"name\"] = canonical[\"name\"]",
+      "evidence_lines": "184-185, 267-268",
+      "problem": "render_gemini_agent_md and render_gemini_skill_md directly subscript canonical[\"pair_id\"] and canonical[\"name\"] (required fields) without a fail-fast check, while reading every other field defensively via .get(). If a malformed canonical reaches the renderer the failure surfaces as a bare KeyError without naming the artifact or field — at odds with §8 fail-fast guidance and NFR-13 structured-error expectations. Low severity because the renderer is internal and the canonical is constructed upstream, but the asymmetry (subscript for required, .get for optional) is an undocumented implicit contract.",
+      "affected_axis": "correctness"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 0.75,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "correctness"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 1},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 1, "total": 1},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 1, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"warning": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "user_story",
+        "reference": "US-10 AC-1 rule 1 (round-trip stability) / NFR-06",
+        "file": "src/agents_sync/gemini_cli_io.py",
+        "line": 192,
+        "description": "render_gemini_agent_md injects a default kind=\"local\" (lines 192-194) when the canonical has no kind, but parse_gemini_agent_md only records kind when present in source frontmatter (lines 150-156). For an agent that never declared a kind, parse(render(c, prior)) yields per_agentic_tool_only.gemini_cli.kind==\"local\", which differs from the original canonical subset c. This can violate the boundary contract parse(render(c, prior)) == c over the agentic_tool-relevant subset (architecture §5.1 rule 1) and the round-trip-stability NFR-06. Moderate confidence: the injection may reflect a Gemini-required field default, but the asymmetry with parse is undocumented in the module."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, conformant Layer-3 adapter; no critical/major defects. One moderate-confidence round-trip-stability deviation (kind=\"local\" default injection) and minor maintainability smells (Demeter chains, DRY between agent/skill pairs, missing fail-fast on required canonical keys)."
+}

@@ -11,6 +11,10 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.integration  # audit slice 10 · TQ-01
+
 from agents_sync.sync import Syncer
 
 
@@ -61,7 +65,7 @@ def test_two_tool_duplicate_with_drifted_content_merges_to_one(syncer: Syncer):
     syncer.sync_once()
 
     state = _list_state(syncer)
-    assert state["schema_version"] == 3
+    assert state["schema_version"] == 4
     customization_artifacts = state["customization_artifacts"]
     assert len(customization_artifacts) == 1
     entry = next(iter(customization_artifacts.values()))
@@ -111,7 +115,8 @@ def test_singleton_new_artifact_is_unaffected_by_reconcile(syncer: Syncer):
     """An artifact present on only one tool still adopts normally."""
     _write_skill(syncer.tool_root("claude", "skill"), "solo")
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once()
+    changed = result.changed
     assert changed == 1
 
     state = _list_state(syncer)
@@ -134,55 +139,9 @@ def test_intra_tool_slug_collision_still_blocks(syncer: Syncer):
     (first / "SKILL.md").write_text(_skill_md("same"))
     (second / "SKILL.md").write_text(_skill_md("same"))
 
-    changed = syncer.sync_once()
+    result = syncer.sync_once()
+    changed = result.changed
     assert changed == 0
 
     state = _list_state(syncer)
     assert state == {} or state.get("customization_artifacts", {}) == {}
-
-
-def test_mixed_managed_and_new_at_same_slug_is_blocked(tmp_path: Path):
-    """When one side carries a pair_id and the other is a no-id duplicate at
-    the same bare slug, both targets collide on the opposite side. Current
-    behavior: both pair_ids are blocked and state stays empty.
-
-    The v0.4 plan §5.5 prescribes a "managed wins, new bytes archived" merge
-    for this case, but my Phase 1.6 commit deferred that implementation. This
-    test documents the present block-and-log behavior so we notice when the
-    deferred §5.5 mixed handler lands.
-    """
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    for sub in ("ca", "cs", "xa", "xs", "oa", "os"):
-        (tmp_path / sub).mkdir()
-    config = {
-        "poll_interval_seconds": 1.0,
-        "state_path": str(state_dir / "state.json"),
-        "claude_agents_dir": str(tmp_path / "ca"),
-        "claude_skills_dir": str(tmp_path / "cs"),
-        "codex_agents_dir": str(tmp_path / "xa"),
-        "codex_skills_dir": str(tmp_path / "xs"),
-        "antigravity_skills_dir": str(tmp_path / "as"),
-        "antigravity_enabled": False,
-        "opencode_agents_dir": str(tmp_path / "oa"),
-        "opencode_skills_dir": str(tmp_path / "os"),
-        "opencode_enabled": False,
-    }
-    syncer = Syncer(config)
-
-    claude_dir = syncer.tool_root("claude", "skill") / "managed"
-    claude_dir.mkdir()
-    (claude_dir / "SKILL.md").write_text(
-        "---\n"
-        "pair_id: 00000000-0000-4000-8000-000000000000\n"
-        "name: managed\n"
-        "description: from-claude\n"
-        "---\n"
-        "body\n"
-    )
-    _write_skill(syncer.tool_root("codex", "skill"), "managed", "from-codex")
-
-    syncer.sync_once()
-
-    state = _list_state(syncer)
-    assert state.get("customization_artifacts", {}) == {}

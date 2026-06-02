@@ -1,0 +1,188 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/config.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 442,
+
+  "detailed_analysis": "config.py is the Layer-4 (Frameworks & Drivers) configuration module: it computes per-OS platform default paths, loads an external TOML config, merges CLI overrides, and structurally validates the merged dict. The code is security-clean (no hardcoded secrets, no injection vectors, no unsafe deserialization, no silent error swallowing — every error path raises a descriptive ConfigError or normalizes through mcp_secret_policy). The dominant problems are structural and size-driven: the file is 442 lines (well over the project's 300-line module limit, and 2.6x the 171 lines architecture §4 claims for it — the architecture doc is now stale). Two functions exceed the 40-line limit: platform_defaults (~68 lines, a single giant dict literal mixing seven tools' path conventions) and validate_config (~74 lines, with cyclomatic complexity > 10 across five distinct validation concerns). The module also carries an import-time side effect (DEFAULTS = platform_defaults() at line 204 reads os.environ and Path.home() on import). secret_policy validation is duplicated between merged_config and validate_config. None of these are defects that produce wrong results today; they are change-risk and maintainability costs. No CRITICAL findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "config.py", "imported_by": "use cases via expand_path (D-2)"},
+    "highest_fan_out": {"module": "config.py", "imports": "mcp_secret_policy (only intra-package import)"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/config.py",
+      "lines": 442,
+      "function_count": 10,
+      "class_count": 2,
+      "correctness": 1.0,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 6
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/config.py",
+      "line": 1,
+      "function_or_class": "<module>",
+      "anti_pattern": "M1",
+      "variant": "God Module / oversized file",
+      "severity": "MAJOR",
+      "metrics": {"lines": 442, "module_limit": 300, "architecture_claimed_lines": 171},
+      "evidence": "File spans 442 non-trivial lines (line 1 -> 442).",
+      "evidence_lines": "1-442",
+      "problem": "The module is 442 lines, exceeding the project's explicit 300-line module limit (AGENTS.md §3) by 47%. It is also 2.6x the 171 lines architecture.md §4 records for config.py, so the architecture doc is now stale. The bulk is the seven-tool default-path dictionary (platform_defaults) plus three flat key-tuple tables (_ARG_TO_CONFIG_KEY, REQUIRED_DIR_KEYS, OPTIONAL_PATH_KEYS, OPTIONAL_BOOL_KEYS) and validate_config; the file mixes path-convention data, CLI-mapping data, and validation logic in one place.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/config.py",
+      "line": 134,
+      "function_or_class": "platform_defaults",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 68, "function_limit": 40},
+      "evidence": "def platform_defaults(*, os_name=None, env=None, home=None) -> dict[str, Any]:\n    ... returns a single dict literal with ~50 keys across seven tools (lines 152-201)",
+      "evidence_lines": "134-201",
+      "problem": "platform_defaults is ~68 lines, exceeding the 40-line function limit (AGENTS.md §3). It assembles default roots for all seven agentic_tools in one dict literal, giving the function more than one reason to change: every new tool or path-convention edit lands here. This is the config-side manifestation of architecture deviation D-5 (built-in defaults centralised in config.py).",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/config.py",
+      "line": 368,
+      "function_or_class": "validate_config",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 74, "function_limit": 40, "estimated_cyclomatic_complexity": 13},
+      "evidence": "def validate_config(config: dict[str, Any]) -> None:\n    ... interval check, REQUIRED_DIR_KEYS loop, OPTIONAL_PATH_KEYS loop, OPTIONAL_BOOL_KEYS loop, strategy check, secret_policy normalize, state_path mkdir/dir/writable checks",
+      "evidence_lines": "368-441",
+      "problem": "validate_config is ~74 lines with at least 5 try/except + 6 loops/conditionals (estimated cyclomatic complexity > 10). It validates five unrelated concerns in one body: numeric interval, required dir keys, optional path keys, optional bool keys, collision strategy, secret_policy, and state-path writability. SRP violation (AGENTS.md §3): one function, many reasons to change.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/config.py",
+      "line": 204,
+      "function_or_class": "<module>",
+      "anti_pattern": "W5",
+      "variant": "Import Side Effect",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "DEFAULTS: dict[str, Any] = platform_defaults()",
+      "evidence_lines": "204",
+      "problem": "Module-level DEFAULTS = platform_defaults() executes I/O-adjacent environment reads (os.environ via _windows_data_dir, Path.home()) at import time. The module's documented dependency-injection seams (os_name/env/home parameters) are bypassed for the module-global DEFAULTS, so DEFAULTS is frozen to whatever HOME/APPDATA were when the module was first imported. This makes the import non-idempotent with respect to environment and complicates testing of merged_config, which reads DEFAULTS rather than re-deriving defaults.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/config.py",
+      "line": 414,
+      "function_or_class": "validate_config / merged_config",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated logic",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "merged_config (315-318): config['secret_policy'] = normalize_secret_policy(str(raw_policy), source='config', warn_deprecated=True)\nvalidate_config (418-430): raw_policy = config.get('secret_policy') or mcp_server_secret_policy fallback; normalized = normalize_secret_policy(...); config['secret_policy'] = normalized",
+      "evidence_lines": "302-318, 414-430",
+      "problem": "secret_policy resolution (legacy-key fallback + normalize + write-back) is implemented twice: once in merged_config and again in validate_config, with subtly different handling of the mcp_server_secret_policy alias (merged_config pops it at line 302; validate_config still reads it at line 420 as a fallback that, after merged_config has run, can never be present). The two copies can drift; the validate_config alias-fallback branch is effectively dead when validate_config is called after merged_config (the documented pipeline, architecture §5.5).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/config.py",
+      "line": 153,
+      "function_or_class": "platform_defaults",
+      "anti_pattern": "I4",
+      "variant": "Magic Numbers / Strings",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "\"poll_interval_seconds\": 2.0,   # line 153\n\"import_collision_strategy\": \"mtime_wins\",  # line 199, repeated as a literal default at line 407\n\"secret_policy\": \"secrets_refused\",  # line 200, repeated at line 420",
+      "evidence_lines": "153, 199-200, 407, 420",
+      "problem": "Default poll interval 2.0 is an unnamed inline literal (AGENTS.md §9 asks for named constants with unit/intent, e.g. DEFAULT_POLL_INTERVAL_SECONDS). The default collision strategy 'mtime_wins' and default policy 'secrets_refused' are re-typed as bare string literals in validate_config (lines 407, 420) instead of referencing the DEFAULTS entries, so the two sites can drift.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 1, "total": 1},
+    "M2_long_function": {"major": 2, "total": 2},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 1, "total": 1},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0},
+    "DRY_duplication": {"warning": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "file": "src/agents_sync/config.py",
+        "line": 1,
+        "description": "NFR-14 mandates Clean Code: small cohesive functions and the project's explicit 300-line module / 40-line function limits (AGENTS.md §3). config.py is 442 lines; platform_defaults is ~68 lines; validate_config is ~74 lines with cyclomatic complexity > 10. Three breaches of the stated maintainability requirement."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map)",
+        "file": "src/agents_sync/config.py",
+        "line": 1,
+        "description": "The Module map records config.py at 171 lines (Layer 4). The file is actually 442 lines. The governance artifact is stale with respect to the code; per architecture's own preamble ('any future change should leave this document either true or amended') this is a conformance gap."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §11 D-5",
+        "file": "src/agents_sync/config.py",
+        "line": 134,
+        "description": "D-5 acknowledges that built-in platform defaults remain centralised in config.py (platform_defaults, lines 134-201). This is documented technical debt rather than a hidden violation, but it is the direct cause of CQ-01/CQ-02 (oversized module and long function); flagged for traceability."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Security-clean and functionally correct, but structure axis capped at 0.5 by an oversized module (442 lines) and two over-limit functions; violates NFR-14 / AGENTS.md size limits and leaves architecture §4 stale."
+}

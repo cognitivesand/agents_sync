@@ -5,20 +5,25 @@ back into the canonical and propagated to the Claude side.
 """
 from __future__ import annotations
 
-import io
 import json
 import re
 import tomllib
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from agents_sync.canonical import empty_canonical, new_pair_id
+from agents_sync.formats.toml_format import normalize_toml_text
+from agents_sync.markdown_yaml_metadata_block import (
+    frontmatter_for_render,
+    render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
+    split_frontmatter,
+    unknown_metadata_fields,
+)
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 PAIR_ID_RE = re.compile(r'^pair_id\s*=\s*"([^"]+)"', re.MULTILINE)
-_CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
 
 KNOWN_CODEX_TOML_KEYS = {
     "pair_id",
@@ -45,29 +50,6 @@ CODEX_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 # v0.1 used to append a JSON metadata blob to developer_instructions; strip it
 # on parse so adopted v0.1 artifacts don't leak the marker into canonical.body.
 _LEGACY_REVIEW_MARKER = "\n\n---\nConverted Claude-specific metadata for manual review:"
-
-
-def _make_yaml() -> YAML:
-    yml = YAML(typ="rt")
-    yml.preserve_quotes = True
-    yml.width = 4096
-    yml.indent(mapping=2, sequence=4, offset=2)
-    return yml
-
-
-def _yaml_dump(data: Any) -> str:
-    buf = io.StringIO()
-    _make_yaml().dump(data, buf)
-    return buf.getvalue()
-
-
-def _normalize_toml_text(text: str) -> str:
-    if text.startswith("\ufeff"):
-        return text[1:]
-    # Defensive handling for already-corrupted BOM bytes rendered as text.
-    if text.startswith(_CORRUPTED_UTF8_BOM):
-        return text[3:]
-    return text
 
 
 def toml_string(value: str) -> str:
@@ -185,12 +167,34 @@ def infer_codex_sandbox(tools: list[str], disallowed_tools: list[str]) -> str | 
 
 
 def extract_pair_id(toml_text: str) -> str | None:
-    toml_text = _normalize_toml_text(toml_text)
+    toml_text = normalize_toml_text(toml_text)
     match = PAIR_ID_RE.search(toml_text)
     return match.group(1) if match else None
 
 
-def _strip_legacy_review_metadata(body: str) -> str:
+def _strip_legacy_review_metadata(
+    body: str, *, prior_canonical: dict[str, Any] | None,
+) -> str:
+    """Strip the v0.1-era 'Converted Claude-specific metadata for manual review'
+    block from a body — but only when the prior canonical is older than v0.4
+    (schema_version < 4) or absent (first sight of the artifact).
+
+    The marker is a free-text 75-char string a user could legitimately type
+    into a v0.4+ body. Version-gating the strip (audit slice 07 · CQ-16)
+    keeps the migration behaviour for legacy artifacts while letting a v0.4+
+    body contain the same prose without surprise truncation.
+    """
+    if prior_canonical is not None:
+        from agents_sync.canonical import SCHEMA_VERSION
+
+        prior_version = prior_canonical.get("schema_version", SCHEMA_VERSION)
+        try:
+            if int(prior_version) >= 4:
+                return body
+        except (TypeError, ValueError):
+            # Unparseable schema_version is treated as "modern" — refuse to
+            # truncate user data we cannot positively identify as legacy.
+            return body
     idx = body.find(_LEGACY_REVIEW_MARKER)
     return body[:idx] if idx >= 0 else body
 
@@ -247,9 +251,7 @@ def parse_codex_agent_toml(
     If `prior_canonical` is given, per-agentic-tool state for other agentic
     tools survives untouched; Codex-owned fields reflect the current TOML.
     """
-    from agents_sync.canonical import empty_canonical, new_pair_id
-
-    text = _normalize_toml_text(text)
+    text = normalize_toml_text(text)
     data = tomllib.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Codex agent TOML must be a table at root")
@@ -262,7 +264,8 @@ def parse_codex_agent_toml(
         canonical["description"] = str(data["description"])
     if "developer_instructions" in data:
         canonical["body"] = _strip_legacy_review_metadata(
-            str(data["developer_instructions"])
+            str(data["developer_instructions"]),
+            prior_canonical=prior_canonical,
         )
     if "model" in data:
         canonical["model"] = data["model"]
@@ -288,26 +291,26 @@ def parse_codex_agent_toml(
 
 # ---------- skill ----------
 
-def render_codex_skill_md(canonical: dict[str, Any]) -> str:
+def render_codex_skill_md(
+    canonical: dict[str, Any],
+    prior_text: str | None = None,
+) -> str:
     """Render the SKILL.md file for the Codex side of a skill pair.
 
     No leading auto-comment is emitted so that parsing the rendered file
     back into a canonical is a clean fixed point (NFR-06).
     """
-    frontmatter = {"pair_id": canonical["pair_id"], "name": canonical["name"]}
-    if canonical.get("description"):
-        frontmatter["description"] = canonical["description"]
-
+    frontmatter = frontmatter_for_render(prior_text)
+    frontmatter["pair_id"] = canonical["pair_id"]
+    frontmatter["name"] = canonical["name"]
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    for key, value in canonical.get("per_agentic_tool_extra", {}).get("codex", {}).items():
+        if key not in {"pair_id", "name", "description"}:
+            frontmatter[key] = value
     body = canonical.get("body", "").strip()
-
-    parts = [
-        "---",
-        _yaml_dump(frontmatter).rstrip(),
-        "---",
-        "",
-        body,
-    ]
-    return "\n".join(parts).rstrip() + "\n"
+    return render_markdown_with_metadata_block(frontmatter, body)
 
 
 def parse_codex_skill_md(
@@ -315,23 +318,7 @@ def parse_codex_skill_md(
     prior_canonical: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Parse a Codex skill SKILL.md into a canonical dict."""
-    from agents_sync.canonical import empty_canonical, new_pair_id
-    from agents_sync.claude_io import FRONTMATTER_RE, _yaml_load
-
-    match = FRONTMATTER_RE.match(text)
-    if match is None:
-        frontmatter_data: dict[str, Any] = {}
-        body = text.strip()
-    else:
-        raw, body_raw = match.groups()
-        body = body_raw.strip()
-        loaded = _yaml_load(raw)
-        if loaded is None:
-            frontmatter_data = {}
-        elif not isinstance(loaded, dict):
-            raise ValueError("Codex SKILL.md frontmatter must be a YAML mapping")
-        else:
-            frontmatter_data = dict(loaded)
+    frontmatter_data, body = split_frontmatter(text, label="Codex SKILL.md")
 
     canonical = dict(prior_canonical) if prior_canonical else empty_canonical("skill")
     canonical["body"] = body
@@ -342,11 +329,10 @@ def parse_codex_skill_md(
         canonical["description"] = str(frontmatter_data["description"])
 
     per_agentic_tool_extra = dict(canonical.get("per_agentic_tool_extra") or {})
-    per_agentic_tool_extra["codex"] = {
-        key: value
-        for key, value in frontmatter_data.items()
-        if key not in {"pair_id", "name", "description"}
-    }
+    per_agentic_tool_extra["codex"] = unknown_metadata_fields(
+        frontmatter_data,
+        frozenset({"pair_id", "name", "description"}),
+    )
     canonical["per_agentic_tool_extra"] = per_agentic_tool_extra
 
     if "pair_id" in frontmatter_data:

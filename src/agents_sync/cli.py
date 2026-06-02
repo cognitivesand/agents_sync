@@ -5,16 +5,21 @@ import logging
 import os
 from pathlib import Path
 
-from agents_sync.agentic_tool_spec import default_agentic_tools
-from agents_sync.config import ConfigError, merged_config, validate_config
+from agents_sync.config import (
+    AgentsSyncConfig,
+    ConfigError,
+    expand_path,
+    merged_config,
+    validate_config,
+)
 from agents_sync.daemon import watch
 from agents_sync.portable_archive import (
     PortableArchiveError,
     export_to_zip,
     import_from_zip,
+    preview_import,
 )
 from agents_sync.sync import Syncer
-
 
 # v0.1 install paths. Phase 4 declines to auto-migrate; if either of these
 # exists we emit a clear error and exit so the user can clean up.
@@ -23,12 +28,14 @@ _LEGACY_PATHS = [
     Path.home() / ".local/state/claude-codex-sync",
 ]
 if os.name == "nt":
-    _LEGACY_PATHS.extend([
-        Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
-        / "claude-codex-sync",
-        Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
-        / "claude-codex-sync",
-    ])
+    _LEGACY_PATHS.extend(
+        [
+            Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+            / "claude-codex-sync",
+            Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+            / "claude-codex-sync",
+        ]
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,8 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Continuous sync of Claude Code, Codex, Antigravity, "
-            "and opencode customizations."
+            "Continuous sync of Claude Code, Codex, Copilot, Cursor, "
+            "Gemini CLI, Antigravity, and opencode customizations."
         ),
     )
     parser.add_argument(
@@ -49,9 +56,70 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--interval", type=float, help="Polling interval in seconds.")
     parser.add_argument("--claude-agents-dir", type=str)
+    parser.add_argument(
+        "--claude-commands-dir",
+        type=str,
+        help="Claude Code user slash-command root. Defaults to ~/.claude/commands.",
+    )
     parser.add_argument("--claude-skills-dir", type=str)
+    parser.add_argument(
+        "--claude-rules-dir",
+        type=str,
+        help="Claude Code rules root. Defaults to ~/.claude, containing CLAUDE.md.",
+    )
+    parser.add_argument(
+        "--claude-mcp-servers-file",
+        type=str,
+        help="Claude Code user MCP config file. Defaults to ~/.claude.json.",
+    )
     parser.add_argument("--codex-agents-dir", type=str)
+    parser.add_argument(
+        "--codex-prompts-dir",
+        type=str,
+        help="Codex CLI custom prompts root. Defaults to ~/.codex/prompts.",
+    )
     parser.add_argument("--codex-skills-dir", type=str)
+    parser.add_argument(
+        "--codex-rules-dir",
+        type=str,
+        help="Codex rules root. Defaults to ~/.codex, containing AGENTS.md.",
+    )
+    parser.add_argument(
+        "--codex-config-file",
+        type=str,
+        help="Codex config.toml file containing [mcp_servers.*]. Defaults to ~/.codex/config.toml.",
+    )
+    parser.add_argument(
+        "--cursor-agents-dir",
+        type=str,
+        help="Cursor user subagents root. Defaults to ~/.cursor/agents.",
+    )
+    parser.add_argument(
+        "--cursor-skills-dir",
+        type=str,
+        help="Cursor Agent Skills root. Defaults to ~/.cursor/skills.",
+    )
+    parser.add_argument(
+        "--cursor-rules-dir",
+        type=str,
+        help="Cursor user rules root. Defaults to ~/.cursor/rules.",
+    )
+    parser.add_argument(
+        "--cursor-commands-dir",
+        type=str,
+        help="Cursor slash-command root. Defaults to ~/.cursor/commands.",
+    )
+    parser.add_argument(
+        "--cursor-mcp-servers-file",
+        type=str,
+        help="Cursor MCP config file. Defaults to ~/.cursor/mcp.json.",
+    )
+    parser.add_argument(
+        "--cursor-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle Cursor participation in the sync (default: enabled).",
+    )
     parser.add_argument(
         "--antigravity-skills-dir",
         type=str,
@@ -64,20 +132,152 @@ def build_parser() -> argparse.ArgumentParser:
         help="Toggle Antigravity participation in the sync (default: enabled).",
     )
     parser.add_argument(
+        "--gemini-cli-agents-dir",
+        type=str,
+        help="Gemini CLI agents root. Defaults to ~/.gemini/agents.",
+    )
+    parser.add_argument(
+        "--gemini-cli-commands-dir",
+        type=str,
+        help="Gemini CLI slash-command root. Defaults to ~/.gemini/commands.",
+    )
+    parser.add_argument(
+        "--gemini-cli-skills-dir",
+        type=str,
+        help="Gemini CLI skills root. Defaults to ~/.gemini/skills.",
+    )
+    parser.add_argument(
+        "--gemini-cli-rules-dir",
+        type=str,
+        help="Gemini CLI rules root. Defaults to ~/.gemini, containing GEMINI.md.",
+    )
+    parser.add_argument(
+        "--gemini-cli-settings-file",
+        type=str,
+        help="Gemini CLI settings.json file containing mcpServers. "
+        "Defaults to ~/.gemini/settings.json.",
+    )
+    parser.add_argument(
+        "--gemini-cli-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle Gemini CLI participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
         "--opencode-agents-dir",
         type=str,
-        help="opencode agents root. Defaults to ~/.config/opencode/agents on POSIX and APPDATA\\opencode\\agents on Windows.",
+        help="opencode agents root. Defaults to ~/.config/opencode/agents on POSIX "
+        "and APPDATA\\opencode\\agents on Windows.",
+    )
+    parser.add_argument(
+        "--opencode-commands-dir",
+        type=str,
+        help="opencode slash-command root. Defaults to ~/.config/opencode/commands on POSIX "
+        "and APPDATA\\opencode\\commands on Windows.",
     )
     parser.add_argument(
         "--opencode-skills-dir",
         type=str,
-        help="opencode skills root. Defaults to ~/.config/opencode/skills on POSIX and APPDATA\\opencode\\skills on Windows.",
+        help="opencode skills root. Defaults to ~/.config/opencode/skills on POSIX "
+        "and APPDATA\\opencode\\skills on Windows.",
+    )
+    parser.add_argument(
+        "--opencode-rules-dir",
+        type=str,
+        help="opencode rules root. Defaults to ~/.config/opencode on POSIX "
+        "and APPDATA\\opencode on Windows, containing AGENTS.md.",
+    )
+    parser.add_argument(
+        "--opencode-config-file",
+        type=str,
+        help="opencode JSON/JSONC config file containing mcp. "
+        "Defaults to opencode.json in the opencode config root.",
     )
     parser.add_argument(
         "--opencode-enabled",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Toggle opencode participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--copilot-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle GitHub Copilot participation in the sync (default: enabled).",
+    )
+    parser.add_argument(
+        "--copilot-cli-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle the Copilot CLI/user-home half (agents and skills).",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-profile-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Toggle the VS Code user-profile Copilot half (instructions and prompts).",
+    )
+    parser.add_argument(
+        "--copilot-cli-agents-dir",
+        type=str,
+        help="GitHub Copilot user agents root. Defaults to ~/.copilot/agents.",
+    )
+    parser.add_argument(
+        "--copilot-cli-skills-dir",
+        type=str,
+        help="GitHub Copilot Agent Skills root. Defaults to ~/.copilot/skills.",
+    )
+    parser.add_argument(
+        "--copilot-cli-mcp-config-file",
+        type=str,
+        help="GitHub Copilot CLI MCP config file reserved for v0.5 MCP support.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-agents-dir",
+        type=str,
+        help="VS Code user-profile Copilot agents root. Reserved for multi-root agent support.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-instructions-dir",
+        type=str,
+        help="VS Code user-profile Copilot instructions root for *.instructions.md.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-prompts-dir",
+        type=str,
+        help="VS Code user-profile Copilot prompts root for *.prompt.md.",
+    )
+    parser.add_argument(
+        "--copilot-vscode-user-mcp-file",
+        type=str,
+        help="VS Code user-profile MCP file reserved for v0.5 MCP support.",
+    )
+    parser.add_argument(
+        "--secret-policy",
+        choices=["secrets_refused", "secrets_accepted"],
+        default=None,
+        help=(
+            "How to handle customization_artifacts that carry literal "
+            "secret material (default: secrets_refused). "
+            "Applied at every artifact-egress boundary (parse, customization "
+            "library export, customization library import)."
+        ),
+    )
+    # Deprecated alias for the canonical --secret-policy flag. Accepts the
+    # old value spellings (refuse / redact / permissive) plus the new ones,
+    # so existing scripts keep working while the deprecation warning
+    # surfaces in the logs. Retained for pre-1.0 compatibility.
+    parser.add_argument(
+        "--mcp-server-secret-policy",
+        choices=[
+            "refuse",
+            "redact",
+            "permissive",
+            "secrets_refused",
+            "secrets_accepted",
+        ],
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
@@ -88,24 +288,21 @@ def build_parser() -> argparse.ArgumentParser:
         "export",
         help="Write a portable library snapshot zip from the local canonical store.",
     )
-    export_parser.add_argument(
-        "output", type=Path, help="Destination zip file path."
-    )
+    export_parser.add_argument("output", type=Path, help="Destination zip file path.")
 
     import_parser = subparsers.add_parser(
         "import",
         help="Restore a portable library snapshot zip into the local install.",
     )
+    import_parser.add_argument("input", type=Path, help="Source zip file path.")
     import_parser.add_argument(
-        "input", type=Path, help="Source zip file path."
-    )
-    import_parser.add_argument(
-        "--collision-strategy",
-        choices=["skip", "mtime_wins", "overwrite"],
-        default=None,
+        "--force",
+        action="store_true",
         help=(
-            "Override the config's import_collision_strategy for this "
-            "invocation only."
+            "Required when the import would replace local pairs under the "
+            "last_modified_wins rule. Without --force the import aborts and "
+            "prints the pairs it would overwrite so you can confirm before "
+            "running again with --force."
         ),
     )
 
@@ -126,34 +323,59 @@ def _check_legacy_install() -> int | None:
     return 2
 
 
-def _run_export(args: argparse.Namespace, config: dict) -> int:
-    from agents_sync.config import expand_path
+def _run_export(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
+    secret_policy = str(config["secret_policy"])
     try:
-        report = export_to_zip(state_dir, args.output)
+        report = export_to_zip(state_dir, args.output, secret_policy=secret_policy)
     except OSError:
         logging.exception("Export failed")
         return 1
-    logging.info(
-        "Exported %d artifact(s) to %s", report.artifact_count, report.archive_path
-    )
+    logging.info("Exported %d artifact(s) to %s", report.artifact_count, report.archive_path)
+    if report.skipped_secret_artifacts:
+        logging.info(
+            "Skipped %d secret-bearing artifact(s) under secret_policy=secrets_refused: %s",
+            len(report.skipped_secret_artifacts),
+            report.skipped_secret_artifacts,
+        )
+    if report.contains_secret_literals:
+        logging.info(
+            "Export carries literal secret material (manifest.contains_secret_literals=true)."
+        )
     return 0
 
 
-def _run_import(args: argparse.Namespace, config: dict) -> int:
-    from agents_sync.config import expand_path
+def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
 
     state_dir = expand_path(config["state_path"]).parent
-    strategy = args.collision_strategy or config["import_collision_strategy"]
-    agentic_tools = default_agentic_tools()
+    force = bool(getattr(args, "force", False))
+
+    # Compute a preview before committing to disk; require --force if any
+    # local pair would be overwritten under last_modified_wins so the user
+    # has a chance to confirm (audit slice 08 · CQ-07).
+    try:
+        would_overwrite, _would_skip = preview_import(state_dir, args.input)
+    except PortableArchiveError:
+        logging.exception("Import rejected")
+        return 1
+    except OSError:
+        logging.exception("Import failed")
+        return 1
+    if would_overwrite and not force:
+        logging.error(
+            "Import would overwrite %d local pair(s) under last_modified_wins. "
+            "Re-run with --force to proceed. Affected pair_ids: %s",
+            len(would_overwrite),
+            ", ".join(sorted(set(would_overwrite))),
+        )
+        return 2
+
     try:
         report = import_from_zip(
             state_dir,
             args.input,
-            strategy=strategy,
             config=config,
-            agentic_tools=agentic_tools,
         )
     except PortableArchiveError:
         logging.exception("Import rejected")
@@ -163,8 +385,19 @@ def _run_import(args: argparse.Namespace, config: dict) -> int:
         return 1
     logging.info(
         "Import complete: accepted=%d skipped=%d archived_local=%d",
-        len(report.accepted), len(report.skipped), len(report.archived_local),
+        len(report.accepted),
+        len(report.skipped),
+        len(report.archived_local),
     )
+    if report.skipped_secret_artifacts:
+        logging.info(
+            "Skipped %d secret-bearing artifact(s) under secret_policy=secrets_refused: %s",
+            len(report.skipped_secret_artifacts),
+            report.skipped_secret_artifacts,
+        )
+    # Canonical-only import only writes canonicals; run one sync poll now so the
+    # one-shot CLI import takes effect without the daemon running.
+    Syncer(config).sync_once()
     return 0
 
 
@@ -192,8 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_import(args, config)
 
     syncer = Syncer(config)
-    watch(syncer, float(config["poll_interval_seconds"]))
-    return 0
+    return watch(syncer, float(config["poll_interval_seconds"]))
 
 
 if __name__ == "__main__":

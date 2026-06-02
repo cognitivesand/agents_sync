@@ -1,0 +1,132 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/discovery/collision_blocker.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 155,
+
+  "detailed_analysis": "collision_blocker.py is a small (155-line), well-factored Layer-2 use-case helper that supplies the CollisionBlockerMixin to DiscoveryWalker. It is structurally sound: every function is well under the 40-line limit, nesting never exceeds 4, names are two-word/role-bearing, and it honours the Dependency Rule (imports only inward — agentic_tool_spec, rendering, shared_keyed_map_io, state, sync_types — and references no concrete tool name). The architecture's I-4/NFR-13 structured-logging invariant is largely respected: collision log lines name pair_id, target path and slot. Two broad `except Exception` blocks exist; neither is a classic C3 silent-swallow — both log via logging.exception/logging.error and deliberately fail closed (treat as collision / block). The strongest residual concerns are (a) a borderline NFR-13 completeness gap: the plan-failure branch logs only pair_id, not the agentic_tool or path AC-10 calls for; (b) a recurring three-field parameter clump (targets / target_display / blocked accumulators with verbose tuple-keyed dict types) shared across three methods — a data-clump / primitive-obsession smell; (c) a bare module-level logging call rather than a module logger. No CRITICAL findings, no secrets, no injection, no God Class. Security axis is clean (no input boundary handled here beyond read_slots, which is delegated). Verdict: AUDIT_PASS.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "collision_blocker.py", "imported_by": "discovery package (walker mixin composition)"},
+    "highest_fan_out": {"module": "collision_blocker.py", "imports": 5}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/discovery/collision_blocker.py",
+      "lines": 155,
+      "function_count": 4,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "maintainability",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/discovery/collision_blocker.py",
+      "line": 70,
+      "function_or_class": "CollisionBlockerMixin (block_target_collisions / _collect_targets_and_detect_collisions / _detect_multi_pair_collisions)",
+      "anti_pattern": "W4",
+      "variant": "Data Clumps / Primitive Obsession",
+      "severity": "WARNING",
+      "metrics": {"signatures_sharing_clump": 3, "clump_size": 2},
+      "evidence": "targets: dict[tuple[str, str | None], list[str]] = {}\ntarget_display: dict[tuple[str, str | None], PlannedTarget] = {}\n... and the same pair are threaded as parameters into _collect_targets_and_detect_collisions and _detect_multi_pair_collisions",
+      "evidence_lines": "70-71, 94-95, 142-143",
+      "problem": "The pair (targets, target_display), both keyed by the verbose primitive tuple type `tuple[str, str | None]`, co-occurs across three method signatures (block_target_collisions locals, _collect_targets_and_detect_collisions params lines 94-95, _detect_multi_pair_collisions params lines 142-143). They are two facets of one concept (a collision-key registry). Fowler Data Clumps / Primitive Obsession: a small accumulator type (e.g. a CollisionTargetRegistry with the tuple key abstracted) would remove the repeated 2-field threading and the repeated raw tuple-dict type annotations.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/discovery/collision_blocker.py",
+      "line": 102,
+      "function_or_class": "CollisionBlockerMixin._collect_targets_and_detect_collisions",
+      "anti_pattern": "C3",
+      "variant": "Broad catch (defensible fail-closed) with incomplete structured context",
+      "severity": "INFO",
+      "metrics": {"caught_type": "Exception", "logs": true, "swallows": false},
+      "evidence": "try:\n    planned_targets = self._planned_adoption_targets(info)\nexcept Exception:\n    logging.exception(\"Cannot plan adoption target: pair_id=%s\", pair_id)\n    return True",
+      "evidence_lines": "102-106",
+      "problem": "This is NOT a silent swallow — it logs via logging.exception and fails closed by blocking the pair, which is the safe choice and is consistent with US-03 AC-10 (a malformed/unplannable artifact is excluded and does not block other pairs). The residual concern is NFR-13/I-4 completeness: the structured line names only pair_id, while NFR-13 asks for the agentic_tool and US-03 AC-10 expects the agentic_tool and path of the offending artifact. `info` carries per-tool/path detail that is not surfaced. Catching bare Exception (rather than the specific planning/IO error type) also widens the net beyond the intended failure mode.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/discovery/collision_blocker.py",
+      "line": 14,
+      "function_or_class": "module",
+      "anti_pattern": "I5",
+      "variant": "Module logging via root logger",
+      "severity": "INFO",
+      "metrics": {"module_logger_defined": false, "root_logging_calls": 6},
+      "evidence": "import logging\n...\nlogging.exception(...)\nlogging.error(...)",
+      "evidence_lines": "14, 43, 118, 126, 132, 150",
+      "problem": "All six log calls go through the root logging facade rather than a module-scoped logger (`logger = logging.getLogger(__name__)`). Every other invariant (I-4) call site is structured, but using the root logger forfeits per-module level control and the module name in records, weakening the structured-error contract's traceability. Style/maintainability hint, not a defect.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/discovery/collision_blocker.py",
+      "line": 124,
+      "function_or_class": "CollisionBlockerMixin._collect_targets_and_detect_collisions",
+      "anti_pattern": "I2",
+      "variant": "Duplicated log-emission branch (minor DRY)",
+      "severity": "INFO",
+      "metrics": {"duplicated_branches": 2},
+      "evidence": "if target.slot is None:\n    logging.error(\"Target collision with unmanaged entry: ...\", pair_id, target.path, target.slot)\nelse:\n    logging.error(\"Keyed-map slot collision with unmanaged entry: ...\", pair_id, target.path, target.slot)",
+      "evidence_lines": "124-137",
+      "problem": "The two arms of the slot-None / slot-set branch differ only by a fixed message prefix and pass identical arguments. A single log call with a computed prefix would remove the duplication. Minor; the explicit branching is readable and arguably intentional, so this is an INFO-level DRY hint only.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "maintainability"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 1},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 1, "total": 1},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-factored Layer-2 collision-blocking mixin; one WARNING data-clump and three INFO hints, no CRITICAL/MAJOR findings, Dependency Rule and NFR-13 substantially upheld."
+}

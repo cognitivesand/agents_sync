@@ -1,0 +1,194 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/portable_archive.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 748,
+
+  "detailed_analysis": "portable_archive.py implements US-12 (customization library export/import). The export path is clean: small, focused helpers (_build_manifest, _agents_sync_version), atomic temp-file-then-os.replace materialisation with a BaseException cleanup, and a correct per-artifact secret filter matching AC-12/13/14. The import path is where the structural cost concentrates: import_from_zip spans ~200 lines (534-733), well over the project's 40-line limit, and bundles at least five distinct responsibilities (strategy validation, zip parsing, secret filtering, three-phase staged write, and per-decision tool projection). The module is 748 lines, far over the 300-line module limit. Security posture is good: zip entries are validated structurally and semantically (pair_id canonicality, schema version ceiling, JSON-object shape) before use, the secret policy is applied at both egress boundaries, and writes are staged atomically. No hardcoded secrets, no injection vectors, no silent error swallowing. The main concerns are (a) a God Module / Long Function structural decay, (b) a spec/architecture traceability gap — the module is absent from architecture.md §4 module map and §9 traceability table — and (c) NFR-15/Goal-6 design tension: the secret heuristic is invoked directly here (find_mcp_secret_literals imported at line 49) rather than mediated by a single sync-core egress gateway, though the architecture text in Goal 6 explicitly anticipates export/import as egress boundaries so this is arguable rather than a hard violation.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "n/a (single-file scope)", "imported_by": 0},
+    "highest_fan_out": {"module": "portable_archive.py", "imports": 13}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/portable_archive.py",
+      "lines": 748,
+      "function_count": 16,
+      "class_count": 4,
+      "correctness": 1.0,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.5,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 6
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 534,
+      "function_or_class": "import_from_zip",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 200, "cyclomatic_complexity": 18},
+      "evidence": "def import_from_zip(state_dir, zip_path, *, strategy, config, agentic_tools) -> ImportReport:\n    ... (lines 534-733) ...",
+      "evidence_lines": "534-733",
+      "problem": "Function spans ~200 lines (5x the 40-line project limit) with at least five distinct responsibilities: (1) strategy validation 561-565, (2) zip parse + manifest version check 567-571, (3) receiver-side secret filter 573-612, (4) three-phase staged-then-promoted canonical write 619-647, (5) per-decision displacement archiving + tool projection + state update 653-732. Estimated cyclomatic complexity ~18 (>10 threshold) from nested loops and branch chains in phases A and C. SRP/SOC violation; this is the dominant maintenance liability in the file.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "God Module",
+      "severity": "MAJOR",
+      "metrics": {"module_lines": 748, "limit": 300},
+      "evidence": "748-line module covering export, zip parsing/validation, collision decision, slug indexing, tool-file archiving, participation filtering, preview, full import orchestration, and canonical staging I/O.",
+      "evidence_lines": "1-748",
+      "problem": "Module is 748 lines, 2.5x the project's 300-line file limit (AGENTS.md §3). It carries multiple cohesive concern clusters that could be separated: export (98-209), zip read/validate (215-288), collision decision/classify (291-424), tool-side archiving + projection (427-733), and low-level canonical staging I/O (736-747). Divergent Change risk: a change to the zip format, the collision rule, or the projection pipeline all land in the same file.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 333,
+      "function_or_class": "_decide_collision",
+      "anti_pattern": "I3",
+      "variant": "Too Many Parameters",
+      "severity": "INFO",
+      "metrics": {"parameters": 7},
+      "evidence": "def _decide_collision(*, imported_pair_id, imported_last_modified, imported_generation, local_pair_id, local_last_modified, local_generation, strategy)",
+      "evidence_lines": "333-342",
+      "problem": "Seven keyword parameters (>5 threshold). The imported_* triple and local_* triple are a data clump (W4) that would read as two small value objects (an imported candidate vs a local candidate). Keyword-only mitigates call-site confusion, so this is INFO rather than higher.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 200,
+      "function_or_class": "export_to_zip",
+      "anti_pattern": "M2",
+      "variant": "Long Function",
+      "severity": "MAJOR",
+      "metrics": {"lines": 92, "cyclomatic_complexity": 9},
+      "evidence": "def export_to_zip(state_dir, zip_path, *, secret_policy=...): ... (lines 118-209)",
+      "evidence_lines": "118-209",
+      "problem": "Function body is ~92 lines (>40 limit). It mixes state loading, per-artifact secret classification (143-177), manifest assembly (179-182), and atomic zip materialisation (183-203). The secret-classification loop and the zip-writing block are independently testable concerns that warrant extraction.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 248,
+      "function_or_class": "_read_zip_entries",
+      "anti_pattern": "I4",
+      "variant": "Magic String",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "pair_id = name[len(CANONICAL_PREFIX) : -len(\".json\")]   # and repeated \".json\" literals at 246, 248",
+      "evidence_lines": "246-248",
+      "problem": "The \".json\" suffix is an inline literal used three times (246 endswith, 248 slice length) and again at 626. Per AGENTS.md §9 it should be a named constant (e.g. CANONICAL_SUFFIX = \".json\") alongside the existing CANONICAL_PREFIX / MANIFEST_NAME constants. Minor; the duplication is local and self-evident.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/portable_archive.py",
+      "line": 736,
+      "function_or_class": "save_canonical_to / _agents_sync_version",
+      "anti_pattern": "W5",
+      "variant": "Function-local deferred import (not module side effect)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "from agents_sync.state import atomic_write_text   (line 742, inside function body)\nfrom agents_sync import __version__               (line 99, inside function body)",
+      "evidence_lines": "99,742",
+      "problem": "Two function-body imports used to dodge import cycles (state.atomic_write_text at 742; agents_sync.__version__ at 99). This is a common cycle-avoidance idiom rather than a true import side effect, and it is honest about its purpose in the docstring, but it hides a real dependency from the module header and from static import-graph tools. Not a defect; flagged as a coupling/clarity hint.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map)",
+        "description": "portable_archive.py is absent from the §4 module-map table (which still lists '19 modules, 2 852 lines'). A 748-line production module carrying the entirety of US-12 has no row, no declared layer assignment, and no inward-dependency list. The architecture document is stated (§1, §9) to be the governance source of truth and 'current as of v0.5'; this module is undocumented in it.",
+        "file": "src/agents_sync/portable_archive.py",
+        "line": 1
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §9 (Traceability)",
+        "description": "§9 asserts 'Every requirement ... and every story under docs/stories/ has at least one module carrying it' and that 'Any future requirement that has no carrying module is a defect.' US-12 (and its AC-1..AC-16) is carried by this module, yet there is no §9 traceability row mapping portable_archive.py to US-12 / NFR-15 / NFR-01 / NFR-03. The traceability table is incomplete with respect to the shipped code.",
+        "file": "src/agents_sync/portable_archive.py",
+        "line": 1
+      },
+      {
+        "artifact": "requirement",
+        "reference": "NFR-01 / US-12 AC-5 / AC-11",
+        "description": "By the module's own docstring (lines 556-559) and import_from_zip Phase C comment (649-651), tool-side files projected during import are NOT archive-protected mid-import: 'a mid-import failure during tool projection still leaves the already-projected tool files in place.' More importantly, render_to_agentic_tool is invoked at 705 onto existing_path (703) without a preceding archive_copy/archive_move on that tool file. For the no-collision / fresh-install path (AC-5/AC-11) no user bytes exist so NFR-01 holds; but architecture §8 I-3 ('no destructive write without prior archive') and §5.3 require every use-case path that can overwrite a tool file to route through archive_* first. Whether AC-6/AC-7 displacement is fully covered depends on _archive_displaced_tool_files (427-481) running before projection — it does (665) — but the same-pair_id re-render branch (displaces_local_pair_id == pair_id, move=False at 478-479 archive_copy) and the no-displacement accepted branch render directly without an archive guard. This is a latent I-3 edge worth an explicit test (§10 names the missing guard test as D-6).",
+        "file": "src/agents_sync/portable_archive.py",
+        "line": 705
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §1 Goal 6 / NFR-15",
+        "description": "Goal 6's architectural consequence is stated as 'The configured secret_policy is evaluated by the sync core at every egress boundary ... not per adapter.' This module evaluates the policy by importing the low-level heuristic find_mcp_secret_literals directly (line 49-52) and re-implementing the refuse/accept branching inline in both export_to_zip (151-177) and import_from_zip (588-612), rather than delegating to the shared apply_mcp_secret_policy gateway in mcp_secret_policy.py. The behaviour conforms to NFR-15/AC-12..16, but the policy-application logic is duplicated across two functions here and a third (apply_mcp_secret_policy) elsewhere — a DRY/single-egress-gateway tension against the 'evaluated by the sync core ... not per adapter' wording.",
+        "file": "src/agents_sync/portable_archive.py",
+        "line": 49
+      }
+    ]
+  },
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.5,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 1, "total": 1},
+    "M2_long_function": {"major": 2, "total": 2},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 1},
+    "W5_import_side_effects": {"warning": 0, "total": 1},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 1, "total": 1},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Correct and secure, but structurally over-limit (748-line module, ~200-line import_from_zip) and undocumented in architecture §4/§9; MAJOR structural findings cap the score at 0.5."
+}

@@ -1,0 +1,190 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/copilot_io.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 489,
+
+  "detailed_analysis": "copilot_io.py is a Layer-3 interface adapter implementing the CustomizationTypeIO triple (parse / render / extract_pair_id) for four GitHub Copilot customization surfaces: agents, skills, VS Code user-profile instructions (rules), and prompts (slash commands). The code is functionally sound and secure: no hardcoded secrets, no injection vectors, no silent exception swallowing, no mutable default arguments, and no no-op production bodies. Parsing is delegated to the shared bounded-YAML helpers in markdown_yaml_metadata_block, so the alias-bomb / pathological-input protection (SEC-C-01) is inherited rather than re-implemented. Every function respects the project's 40-line limit; there is no God Class and no deep nesting. The dominant defects are structural and DRY-related. First, at 489 lines the module is well over the project's hard 300-line file limit (NFR-14 / Clean Code). Second, the four parse functions and the four render functions are near-identical templates that differ only in their field/known-set constants and a handful of per-kind branches; this is textbook duplication that the rest of the codebase has elsewhere factored into shared helpers (resolve_artifact_name, metadata_subset, unknown_metadata_fields) but which here is still copy-pasted four ways. Third, the four extract_pair_id_from_copilot_* functions are pure one-line delegations to extract_pair_id_from_md with no added behaviour (Middle Man). Minor issues include an unused artifact_root parameter on parse_copilot_skill_md, a magic 64-character truncation constant in copilot_skill_slug, and a hardcoded literal slug fallback. The spec contract (architecture §5.1 rules 1-5) appears honored: unknown fields are routed to per_agentic_tool_extra, the 'copilot' name appears only in this adapter layer (permitted), and extract_pair_id cannot raise. NFR-15 secret-policy egress does not apply here because this module handles no env/headers/auth.* fields — those live in the mcp_server_io modules.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "copilot_io.py", "imported_by": "tool_specs/copilot.py (registry wiring)"},
+    "highest_fan_out": {"module": "copilot_io.py", "imports": 4}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/copilot_io.py",
+      "lines": 489,
+      "function_count": 16,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.5,
+      "security": 1.0,
+      "maintainability": 0.5,
+      "code_score": 0.5,
+      "weakest_axis": "structure",
+      "finding_count": 7
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 1,
+      "function_or_class": "module",
+      "anti_pattern": "M1",
+      "variant": "God Module (file-length limit)",
+      "severity": "MAJOR",
+      "metrics": {"module_lines": 489, "limit": 300},
+      "evidence": "489-line module spanning four customization surfaces (agents, skills, instructions/rules, prompts/slash_commands), each with its own field-constant set, parse, and render.",
+      "evidence_lines": "1-489",
+      "problem": "The module is 489 lines, 63% over the project's hard 300-line file limit (AGENTS.md §3; NFR-14 Clean Code). It carries four distinct customization-type translation concerns in one file. The other Copilot surfaces (instructions, prompts) are VS Code user-profile concerns, distinct from the Copilot CLI agent/skill concerns called out in the module docstring, so the file mixes two product surfaces.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 203,
+      "function_or_class": "parse_copilot_agent_md / parse_copilot_skill_md / parse_copilot_instruction_md / parse_copilot_prompt_md",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated parse template",
+      "severity": "MAJOR",
+      "metrics": {"duplicated_functions": 4},
+      "evidence": "Each of the four parse_* functions runs the identical skeleton: split_frontmatter -> dict(prior) or empty_canonical(kind) -> canonical['body'] = body -> resolve name -> copy description -> _set_per_tool_data(only=metadata_subset(...), extra=unknown_metadata_fields(...)) -> _set_pair_id(...). Only the kind string, the *_TOOL_ONLY_FIELDS tuple, and the KNOWN_*_FIELDS set differ.",
+      "evidence_lines": "203-237, 273-297, 331-365, 397-434",
+      "problem": "The same parse algorithm is copy-pasted four times, differing only in constant sets and a few per-kind field copies. This is the duplication US-10 Notes explicitly flags as a defect ('Each parallel set of _add_claude_* / _add_codex_* methods that survives the refactor is a defect') and that AGENTS.md §3 Rule of Three targets. A change to the parse skeleton (e.g. a new shared field) must be edited in four places — Shotgun Surgery risk.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 240,
+      "function_or_class": "render_copilot_agent_md / render_copilot_skill_md / render_copilot_instruction_md / render_copilot_prompt_md",
+      "anti_pattern": "DRY",
+      "variant": "Duplicated render template",
+      "severity": "MAJOR",
+      "metrics": {"duplicated_functions": 4},
+      "evidence": "Each render_* runs: frontmatter_for_render(prior_text) -> set pair_id + name -> set_or_remove_empty_metadata_field(description) -> per-field set_or_remove loop over the *_TOOL_ONLY_FIELDS -> per_agentic_tool_extra passthrough loop guarded by KNOWN_*_FIELDS -> render_markdown_with_metadata_block. Only the constant sets and a couple of extra fields differ.",
+      "evidence_lines": "240-263, 300-321, 368-387, 437-471",
+      "problem": "The render algorithm is duplicated four times. The per_agentic_tool_extra passthrough loop (lines 259-261, 317-319, 383-385, 463-465) is byte-identical save for the KNOWN_*_FIELDS constant. Same Shotgun-Surgery maintenance hazard as CQ-02.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 199,
+      "function_or_class": "extract_pair_id_from_copilot_agent_md / _skill_md / _instruction_md / _prompt_md",
+      "anti_pattern": "W7",
+      "variant": "Middle Man / pure delegation",
+      "severity": "WARNING",
+      "metrics": {"delegating_functions": 4},
+      "evidence": "def extract_pair_id_from_copilot_agent_md(text: str) -> str | None:\n    return extract_pair_id_from_md(text)",
+      "evidence_lines": "199-200, 269-270, 327-328, 393-394",
+      "problem": "Four named functions each do nothing but return extract_pair_id_from_md(text). They add no behaviour, no validation, and no kind-specific logic. They exist only to give the registry four distinct callables; a single shared reference would serve identically. Pure indirection (Fowler Middle Man).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-05",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 273,
+      "function_or_class": "parse_copilot_skill_md",
+      "anti_pattern": "I2",
+      "variant": "Unused parameter",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "def parse_copilot_skill_md(text, prior_canonical=None, *, artifact_path=None, artifact_root=None) -> dict[str, Any]:  # artifact_root never referenced in body",
+      "evidence_lines": "273-297",
+      "problem": "artifact_root is declared keyword-only but never used in the function body (only artifact_path is consulted, line 286-287). It is present for callable-signature uniformity across the registry, but as written it is dead surface that misleads a reader into thinking skill naming considers the root the way prompt naming does.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-06",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 159,
+      "function_or_class": "copilot_skill_slug",
+      "anti_pattern": "I4",
+      "variant": "Magic number + hardcoded fallback string",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "    return slug[:64].rstrip(\"-\") or \"converted\"",
+      "evidence_lines": "159",
+      "problem": "The slug length cap 64 is an inline magic number with no named constant stating its unit/intent (AGENTS.md §9). The fallback string \"converted\" is also a hardcoded literal with no named constant; both should be module-level named constants (e.g. COPILOT_SKILL_SLUG_MAX_LEN, DEFAULT_SKILL_SLUG).",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-07",
+      "file": "src/agents_sync/copilot_io.py",
+      "line": 132,
+      "function_or_class": "_prompt_name_from_path",
+      "anti_pattern": "I5",
+      "variant": "Ambiguous single-word local name",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "        relative = artifact_path.relative_to(artifact_root) if artifact_root else artifact_path.name\n    except ValueError:\n        relative = artifact_path.name\n    if isinstance(relative, str):\n        parts = [relative]",
+      "evidence_lines": "138-149",
+      "problem": "The local `relative` is overloaded: on one branch it is a Path (relative_to result), on another a str (artifact_path.name), forcing the downstream isinstance(relative, str) type-switch. A name like `relative_path_or_name` plus splitting the two cases would remove the type ambiguity. Minor (AGENTS.md §4 two-word-minimum / single-concept naming).",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.5,
+    "security": 1.0,
+    "maintainability": 0.5,
+    "code_score": 0.5,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 1, "total": 1},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "DRY_duplication": {"major": 2, "total": 2},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 1, "total": 1},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "requirement",
+        "reference": "NFR-14",
+        "description": "489-line module exceeds the project hard 300-line file limit and re-implements the parse/render skeleton four times instead of factoring shared cohesive helpers. Violates the 'small cohesive functions, minimal duplication' clause of NFR-14 / Clean Code."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (module map, file-length convention)"
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_WEAK",
+  "verdict_summary": "Functionally correct and secure adapter, but over the 300-line file limit with the parse/render skeleton duplicated four ways — structural/DRY MAJOR findings, zero CRITICAL."
+}

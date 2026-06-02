@@ -1,0 +1,152 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/archive.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 136,
+
+  "detailed_analysis": "archive.py is the data-preservation gateway (Layer 3, NFR-01 / I-3 / US-05). At 136 lines it is well under the 300-line module limit; every function is short (largest is archive_text at ~31 effective lines) and well-named. There are no God Classes, no long functions, no deep nesting, no global mutable state, no hardcoded secrets, no injection sinks, and no silent error swallowing — errors propagate (US-05 AC-4 abort-on-failure is satisfied by letting retry_fs/shutil/write_text raise). The one substantive security observation is asymmetric path-traversal hardening: archive_text (which consumes raw user-supplied MCP map keys via slot_name) slugifies and then performs an explicit resolve()+is_relative_to() containment check (lines 107-115), but archive_dir_for / _archive_target interpolate the `side` argument directly into the path (line 57) with no validation, and archive_copy/archive_move build their target dir through that path without any containment guard. pair_id is validated via validate_pair_id; `side` is not. In current call sites `side` is always a registered tool name (trusted, internal), so the practical risk is low, but it is an unvalidated component on the path-construction boundary of the file that NFR-01 hinges on. Secondary findings are minor: a dead back-compat alias (archive_file, line 135, referenced nowhere outside this module), a couple of magic constants, and the use of the legacy `pair_id`/`side` primitive-string vocabulary rather than the v0.5 customization_artifact_id/agentic_tool_name domain terms. Spec conformance is strong: the archive layout, ISO-timestamp scheme, copy-vs-move split, and abort-on-archive-failure all match US-05 and NFR-01/07. The module never references a concrete tool name (goal 5). No CRITICAL findings.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "inward_imports": ["filesystem_windows_retry (L4 infra shim)", "identity (L1)", "state (L1/L3)"],
+    "dependency_rule": "respected — archive (L3) imports only L1 and an L4 infra shim per architecture §3 / §4; no use-case or adapter-name import",
+    "imported_by": ["adoption/*", "sync.py", "portable_archive.py"]
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/archive.py",
+      "lines": 136,
+      "function_count": 7,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 1.0,
+      "security": 0.75,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "security",
+      "finding_count": 4
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/archive.py",
+      "line": 55,
+      "function_or_class": "archive_dir_for / _archive_target / archive_copy / archive_move",
+      "anti_pattern": "C2",
+      "variant": "Path traversal — unvalidated path component",
+      "severity": "MAJOR",
+      "metrics": {"validated_components": 1, "unvalidated_components": 1},
+      "evidence": "def archive_dir_for(state_dir: Path, pair_id: str, side: str) -> Path:\n    validate_pair_id(pair_id)\n    return state_dir / \"archive\" / pair_id / side",
+      "evidence_lines": "55-57",
+      "problem": "`side` is interpolated directly into the archive directory path with no validation, while `pair_id` is validated via validate_pair_id. archive_copy and archive_move build their target dir through archive_dir_for and never apply the resolve()+is_relative_to() containment guard that archive_text applies (lines 109-115). A `side` value such as '..' would escape <state_dir>/archive/<pair_id>/. Today all call sites pass a registered tool name (internal/trusted), so practical risk is low, but this is the unguarded path-construction boundary of the module on which NFR-01 / I-3 depends, and the file demonstrates it knows the guard is needed (it applies it on the archive_text path only). Asymmetric hardening on a security-load-bearing module.",
+      "affected_axis": "security"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/archive.py",
+      "line": 135,
+      "function_or_class": "archive_file",
+      "anti_pattern": "I2",
+      "variant": "Dead code — unreferenced back-compat alias",
+      "severity": "INFO",
+      "metrics": {"external_references": 0},
+      "evidence": "# Back-compat alias used by callers written for Phase 2.\narchive_file = archive_copy",
+      "evidence_lines": "134-135",
+      "problem": "A repo-wide grep for `archive_file` matches only this file; no caller in src/ uses the alias. The comment refers to 'Phase 2' callers that no longer exist at v0.5. Dead public symbol that misleads readers into thinking two distinct copy operations exist. (Reported, not removed — pre-existing per surgical-change policy.)",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/archive.py",
+      "line": 23,
+      "function_or_class": "_MAX_SLOT_COMPONENT_LEN / iso_timestamp",
+      "anti_pattern": "I4",
+      "variant": "Magic number / unexplained literal",
+      "severity": "INFO",
+      "metrics": {"literals": 2},
+      "evidence": "_MAX_SLOT_COMPONENT_LEN = 128  # line 23\nreturn moment.strftime(\"%Y-%m-%dT%H-%M-%S-%fZ\")  # line 52",
+      "evidence_lines": "23,52",
+      "problem": "_MAX_SLOT_COMPONENT_LEN = 128 is a named constant (good) but carries no unit/rationale comment for why 128 (filesystem component limits vary; 255 is the common per-component cap). Minor. The timestamp format string at line 52 is an inline literal rather than a named constant; it is duplicated conceptually with the docstring contract (US-05 AC-1 ISO-UTC scheme) and would benefit from a named constant given its cross-module significance.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-04",
+      "file": "src/agents_sync/archive.py",
+      "line": 55,
+      "function_or_class": "module-wide",
+      "anti_pattern": "W8",
+      "variant": "Primitive obsession / legacy vocabulary",
+      "severity": "INFO",
+      "metrics": {"str_params_with_implicit_schema": 3},
+      "evidence": "def archive_copy(state_dir: Path, pair_id: str, side: str, source: Path) -> Path:",
+      "evidence_lines": "55,76,86,120",
+      "problem": "pair_id and side are raw str on every public signature. pair_id has a real domain invariant (canonical UUIDv4, I-1) that is enforced only by an interior call, and `side` is an agentic_tool_name with no type. The architecture glossary (§13) flags that new code should use customization_artifact_id / agentic_tool_name; this module retains the legacy pair_id/side primitives. Low severity — consistent with other Layer-3 modules — but a domain type for pair_id would move the I-1 invariant into the type and would have surfaced the unvalidated `side` boundary (CQ-01). I1 note: public functions are well annotated; only minor style.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 1.0,
+    "security": 0.75,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "security"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 1},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 1},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 1, "total": 1},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 1, "total": 1},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "notes": [
+      "NFR-01 / US-05 AC-1: archive_copy snapshots before overwrite; layout archive/<pair_id>/<side>/<source.name>.<ts> matches the spec'd path. CONFORMS.",
+      "US-05 AC-2: archive_move uses shutil.move (never rm/unlink) to relocate into archive. CONFORMS.",
+      "US-05 AC-4 (fail-fast on archive failure): no exception is swallowed; retry_fs, shutil.copy/move, mkdir, and write_text all propagate, so the triggering destructive op aborts. CONFORMS (§8 I-4 structured-error reporting is the caller's responsibility, satisfied at call sites in adoption/*).",
+      "NFR-07 (bounded archive growth): archive entries created only on the explicit copy/move/text calls invoked by destructive branches; no unconditional writes. CONFORMS.",
+      "Architecture §3 Dependency Rule: archive (L3) imports identity (L1), state (L1/L3), filesystem_windows_retry (L4 infra shim per §4) only — no use-case or *_io adapter import. CONFORMS.",
+      "Goal 5 / NFR-11: no concrete tool name appears; `side` is opaque. CONFORMS.",
+      "§5.3: archive_copy and archive_move are the two operations preceding destructive writes. CONFORMS."
+    ],
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §8 (I-1: pair_id is canonical UUIDv4 anywhere it appears; archive-path construction listed as a verifier) / §13 glossary",
+        "file": "src/agents_sync/archive.py",
+        "line": 55,
+        "description": "The path-component verifier role assigned to archive-path construction in §8 is only partially upheld: pair_id is validated (validate_pair_id, line 56) but the sibling `side` component is interpolated into <state_dir>/archive/<pair_id>/<side> with no validation, and archive_copy/archive_move apply no containment guard (unlike archive_text, lines 109-115). NFR-01 / I-3 depend on this module never escaping the per-pair archive root; the boundary is asymmetrically guarded. Low practical risk today (callers pass trusted tool names) but a real gap against the invariant the architecture assigns to this construction site."
+      }
+    ]
+  }
+}

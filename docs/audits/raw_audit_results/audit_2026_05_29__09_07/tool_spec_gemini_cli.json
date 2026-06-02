@@ -1,0 +1,124 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/tool_specs/gemini_cli.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 103,
+
+  "detailed_analysis": "src/agents_sync/tool_specs/gemini_cli.py is a single declarative AgenticToolSpec factory in Layer 3 (the port/wiring layer per architecture §4). It is 103 lines, well under the 300-line module limit. It contains exactly one public function, build_gemini_cli_spec(config), which constructs and returns a frozen AgenticToolSpec dataclass describing the five Gemini CLI customization_type cells (agent, skill, rules, slash_command, mcp_server). No secrets, no module-level I/O, no mutable default arguments, no bare excepts, no global mutable state, no injection vectors. Every IO callable referenced (parse_/render_/extract_pair_id_from_gemini_* from gemini_cli_io, slash_command_slug from slash_command_io, build_mcp_server_io from _mcp_server_factory, McpServerDialect from mcp_server_io) was verified to exist with a matching signature; the McpServerDialect kwargs passed (render_name_field, render_transport_field, url_fields, transport_from_fields, url_render_fields, auth_fields, auth_render_field, env_reference_style) all match the dataclass fields, and build_mcp_server_io accepts config=/dialect= keywords. The factory respects Goal 5 / the stable-abstractions rule: the concrete tool name 'gemini_cli' appears only here in the adapter/wiring layer, never leaking into the use cases. The deferred (function-body) imports follow the established convention used by every sibling tool_specs factory and the agentic_tool_spec registry, and avoid an import cycle with the *_io adapters. The single structural note is that build_gemini_cli_spec spans 88 lines (15-102), above the project's 40-line function guideline; however it is a flat dataclass literal with cyclomatic complexity 1 and no nesting, matching the codebase-wide pattern for all tool_specs factories, so it is a benign convention-derogation rather than a defect. One DRY/consistency observation: the 'rules' cell is hand-built inline here (lines 57-65) whereas a shared _rules_factory.build_global_rules_io helper exists; siblings vary on this too, so it is a minor consistency smell, not a fault. On the spec side the code conforms to the authoritative v0.5 surface (README 'What It Syncs' table, project_description, CHANGELOG: Gemini CLI supports agents, skills, rules, slash commands, MCP servers). US-10 AC-3 contains a stale illustrative example listing gemini_cli as {agent, rules, slash_command, mcp_server} (omitting skill); that is documentation drift in the story example, superseded by README/architecture, not a code defect.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "module_imports": [
+      "agents_sync.agentic_tool_spec (AgenticToolSpec, CustomizationTypeIO, RulesFileLayout)",
+      "agents_sync.tool_specs._mcp_server_factory (build_mcp_server_io)",
+      "agents_sync.mcp_server_io (McpServerDialect) [deferred]",
+      "agents_sync.gemini_cli_io (12 parse/render/extract callables) [deferred]",
+      "agents_sync.slash_command_io (slash_command_slug) [deferred]"
+    ],
+    "notes": "All imports point inward / sideways within Layer 3; no use-case or framework (Layer 4) import. Dependency Rule honoured. Deferred imports break the adapter<->factory cycle, matching project convention."
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/tool_specs/gemini_cli.py",
+      "lines": 103,
+      "function_count": 1,
+      "class_count": 0,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 1.0,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 2
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/tool_specs/gemini_cli.py",
+      "line": 15,
+      "function_or_class": "build_gemini_cli_spec",
+      "anti_pattern": "M2",
+      "variant": "Long Function (benign / convention-derogation)",
+      "severity": "SMELL",
+      "metrics": {"lines": 88, "cyclomatic_complexity": 1, "max_nesting": 4},
+      "evidence": "def build_gemini_cli_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpec:\n    ...\n    return AgenticToolSpec(\n        name=\"gemini_cli\",\n        config_dir_keys={...},\n        io={ \"agent\": CustomizationTypeIO(...), ... \"mcp_server\": build_mcp_server_io(...) },\n        disable_config_key=\"gemini_cli_enabled\",\n    )",
+      "evidence_lines": "15-102",
+      "problem": "The function body (88 lines) exceeds the project's 40-line guideline (AGENTS.md §3). It is a single flat dataclass-literal return with zero branching (cyclomatic complexity 1) and no logic, so it carries no defect risk; it is identical in shape to every sibling tool_specs factory. Flagged for visibility only — not a structural defect.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/tool_specs/gemini_cli.py",
+      "line": 57,
+      "function_or_class": "build_gemini_cli_spec (rules cell)",
+      "anti_pattern": "DRY",
+      "variant": "Inline construction where shared factory exists",
+      "severity": "MINOR",
+      "metrics": {},
+      "evidence": "\"rules\": CustomizationTypeIO(\n    parse=parse_gemini_rules_md,\n    render=render_gemini_rules_md,\n    extract_pair_id=extract_pair_id_from_gemini_rules_md,\n    file_layout=RulesFileLayout(extension=\".md\", fixed_file_name=\"GEMINI.md\"),\n),",
+      "evidence_lines": "57-65",
+      "problem": "The rules cell is constructed inline with tool-specific gemini parse/render functions, while a shared _rules_factory.build_global_rules_io helper exists and is used for the global-rules pattern elsewhere. Gemini's rules use a dedicated GEMINI.md fixed file with gemini-specific IO, so inlining may be intentional; siblings (cursor.py) also inline. Recorded as a minor consistency observation, not a fault.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 1.0,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 1},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 0, "total": 0},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 0, "total": 0},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0},
+    "DRY_consistency": {"minor": 1, "total": 1}
+  },
+
+  "spec_adherence": {
+    "conforms": true,
+    "deviations": [
+      {
+        "artifact": "user_story",
+        "reference": "US-10 AC-3",
+        "file": "src/agents_sync/tool_specs/gemini_cli.py",
+        "line": 50,
+        "description": "US-10 AC-3's illustrative example lists gemini_cli's supported_customization_types as {agent, rules, slash_command, mcp_server}, omitting skill. The code declares a skill cell (lines 50-56). This is NOT a code defect: README §'What It Syncs' (skills at ~/.gemini/skills/*/SKILL.md), project_description, and the v0.5 CHANGELOG ('Added Gemini CLI support for agents, skills, rules, slash commands, and MCP servers') are the authoritative v0.5 surface and all include skill. The deviation is stale documentation drift in the US-10 example text, which is explicitly labelled 'Example:' and non-normative. Code conforms to the authoritative spec; story example should be refreshed."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean declarative spec factory; zero CRITICAL/MAJOR findings, code_score 0.75 (one benign over-length function and one minor DRY consistency note); conforms to the authoritative v0.5 spec surface and the Dependency Rule / stable-abstractions invariant."
+}

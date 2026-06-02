@@ -1,7 +1,7 @@
 [project]
 name = "agents_sync"
-version = "0.4.3"
-description = "Bidirectional sync of Claude Code, Codex, Antigravity, and opencode customizations."
+version = "0.6.0"
+description = "Bidirectional sync of Claude Code, Codex, Copilot, Cursor, Gemini CLI, Antigravity, and opencode customizations."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -15,6 +15,8 @@ agents-sync = "agents_sync.cli:main"
 [dependency-groups]
 dev = [
   "pytest>=7.0",
+  "ruff>=0.6",
+  "mypy>=1.11",
 ]
 
 [build-system]
@@ -23,3 +25,30 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_sync"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Start with the high-value, low-noise rule families; tighten over time.
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test modules set a module-level `pytestmark` before importing fixtures by
+# project convention, which trips E402 (import-not-at-top).
+"tests/*" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+# Audit slice 10 · CQ-15: register slow / integration markers so a developer
+# can opt out of the integration layer with ``pytest -m 'not integration'``
+# for fast feedback during inner loops.
+markers = [
+  "slow: tests that take more than ~2s wall-clock; opt out with -m 'not slow'",
+  "integration: tests that build a multi-tool Syncer over a tmp_path tree (the dominant cost in the suite); opt out with -m 'not integration'",
+]

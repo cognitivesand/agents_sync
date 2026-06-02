@@ -1,0 +1,136 @@
+{
+  "project_version": "0.5.0",
+  "scope": "file:src/agents_sync/shared_keyed_map_formats.py",
+  "date": "2026-05-29",
+  "files_analyzed": 1,
+  "total_lines": 78,
+
+  "detailed_analysis": "shared_keyed_map_formats.py is a small (78-line), well-named pluggable registry that maps a format name ('json'/'toml') to a frozen SharedKeyedMapFormat dataclass holding an extension plus a deserialize/serialize callable pair. It is consumed by shared_keyed_map_io.py via get_format(layout.file_format). The code is clean and intention-revealing: get_format implements proper fail-fast (descriptive KeyError listing known formats), the dataclass is frozen, and the imported json_format/toml_format modules expose matching deserialize(text)->MutableMapping and serialize(Mapping)->str signatures. There are no security smells in this module itself (no secrets, no injection, no unsafe deserialization here; the SafeLoader/secret-policy concerns live in the format handlers and the I/O gateway respectively). The two genuine code-health concerns are structural, not behavioural: (1) the module keeps a module-level mutable dict _FORMAT_REGISTRY mutated by register_format (M7 global mutable state), and (2) the two register_format(...) calls at module scope (lines 60-77) execute on import, making import non-idempotent and the populated registry an import-order side effect (W5 import side effects). register_format is also documented to silently overwrite an existing entry (last-writer-wins), which is a deliberate design choice but trades away fail-fast on accidental double-registration. Spec-wise, the module is functional but is entirely absent from architecture.md's module map (§4) and traceability table (§9), and from the cross-cutting-invariant treatment — a governance/traceability gap given §9's claim that every module's requirement coverage is recorded.",
+
+  "dependency_graph_summary": {
+    "total_modules": 1,
+    "cyclic_dependencies": [],
+    "highest_fan_in": {"module": "shared_keyed_map_formats.py", "imported_by": "shared_keyed_map_io.py (get_format)"},
+    "highest_fan_out": {"module": "shared_keyed_map_formats.py", "imports": "agents_sync.formats.json_format, agents_sync.formats.toml_format"}
+  },
+
+  "per_file_scores": [
+    {
+      "file": "src/agents_sync/shared_keyed_map_formats.py",
+      "lines": 78,
+      "function_count": 2,
+      "class_count": 1,
+      "correctness": 1.0,
+      "structure": 0.75,
+      "security": 1.0,
+      "maintainability": 0.75,
+      "code_score": 0.75,
+      "weakest_axis": "structure",
+      "finding_count": 3
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "CQ-01",
+      "file": "src/agents_sync/shared_keyed_map_formats.py",
+      "line": 39,
+      "function_or_class": "_FORMAT_REGISTRY / register_format",
+      "anti_pattern": "M7",
+      "variant": "Module-level mutable",
+      "severity": "MAJOR",
+      "metrics": {},
+      "evidence": "_FORMAT_REGISTRY: dict[str, SharedKeyedMapFormat] = {}\n\ndef register_format(name: str, format_handler: SharedKeyedMapFormat) -> None:\n    _FORMAT_REGISTRY[name] = format_handler",
+      "evidence_lines": "39-46",
+      "problem": "A top-level mutable dict (_FORMAT_REGISTRY) is mutated by register_format and read by get_format. This is module-global mutable state: all callers and all importers share one hidden, order-dependent registry instance. Re-registration is silent last-writer-wins (lines 43-45 docstring), so an accidental duplicate or import-order collision overwrites a handler with no error — a quiet coupling point and a fail-fast gap.",
+      "affected_axis": "structure"
+    },
+    {
+      "id": "CQ-02",
+      "file": "src/agents_sync/shared_keyed_map_formats.py",
+      "line": 60,
+      "function_or_class": "module scope",
+      "anti_pattern": "W5",
+      "variant": "Import Side Effects",
+      "severity": "WARNING",
+      "metrics": {},
+      "evidence": "register_format(\n    \"json\",\n    SharedKeyedMapFormat(\n        extension=\".json\",\n        deserialize=json_format.deserialize,\n        serialize=json_format.serialize,\n    ),\n)",
+      "evidence_lines": "60-77",
+      "problem": "Two register_format(...) statements run at module import time, mutating global state as a side effect of `import`. The registry is therefore populated implicitly by import order rather than by an explicit, testable initialisation call. This makes the import non-idempotent in spirit (re-import is fine here only because the dict assignment is idempotent), couples correctness to whether this module is imported before any get_format call, and complicates isolated testing of the empty-registry / KeyError path.",
+      "affected_axis": "maintainability"
+    },
+    {
+      "id": "CQ-03",
+      "file": "src/agents_sync/shared_keyed_map_formats.py",
+      "line": 42,
+      "function_or_class": "register_format",
+      "anti_pattern": "M7",
+      "variant": "Silent overwrite (fail-fast gap)",
+      "severity": "INFO",
+      "metrics": {},
+      "evidence": "def register_format(name: str, format_handler: SharedKeyedMapFormat) -> None:\n    \"\"\"Register a handler under ``name``. Re-registration replaces the\n    prior entry (last writer wins) ...\"\"\"\n    _FORMAT_REGISTRY[name] = format_handler",
+      "evidence_lines": "42-46",
+      "problem": "register_format performs no validation: it does not check that `name` is non-empty, does not warn on overwriting an existing key, and accepts any object as format_handler without asserting the callable contract. AGENTS.md §8 (Fail Fast, validate at boundaries) favours an explicit guard or at least a debug log on silent replacement. Low severity because the documented contract is deliberate; flagged as a boundary-validation hint.",
+      "affected_axis": "maintainability"
+    }
+  ],
+
+  "aggregate_scores": {
+    "correctness": 1.0,
+    "structure": 0.75,
+    "security": 1.0,
+    "maintainability": 0.75,
+    "code_score": 0.75,
+    "weakest_axis": "structure"
+  },
+
+  "summary_table": {
+    "C1_hardcoded_secrets": {"critical": 0, "total": 0},
+    "C2_injection": {"critical": 0, "total": 0},
+    "C3_silent_swallowing": {"critical": 0, "total": 0},
+    "C4_mutable_default": {"critical": 0, "total": 0},
+    "C5_noop_implementation": {"critical": 0, "total": 0},
+    "M1_god_class_module": {"major": 0, "total": 0},
+    "M2_long_function": {"major": 0, "total": 0},
+    "M3_feature_envy": {"major": 0, "total": 0},
+    "M4_shotgun_surgery": {"major": 0, "total": 0},
+    "M5_deep_nesting": {"major": 0, "total": 0},
+    "M6_cyclic_dependencies": {"major": 0, "total": 0},
+    "M7_global_mutable_state": {"major": 1, "total": 2},
+    "M8_divergent_change": {"major": 0, "total": 0},
+    "W1_complex_conditional": {"warning": 0, "total": 0},
+    "W2_message_chain": {"warning": 0, "total": 0},
+    "W3_inappropriate_intimacy": {"warning": 0, "total": 0},
+    "W4_data_clumps": {"warning": 0, "total": 0},
+    "W5_import_side_effects": {"warning": 1, "total": 1},
+    "W6_star_imports": {"warning": 0, "total": 0},
+    "W7_middle_man": {"warning": 0, "total": 0},
+    "W8_primitive_obsession": {"warning": 0, "total": 0},
+    "I1_missing_types": {"info": 0, "total": 0},
+    "I2_dead_code": {"info": 0, "total": 0},
+    "I3_too_many_params": {"info": 0, "total": 0},
+    "I4_magic_numbers": {"info": 0, "total": 0},
+    "I5_inconsistent_naming": {"info": 0, "total": 0}
+  },
+
+  "spec_adherence": {
+    "conforms": false,
+    "deviations": [
+      {
+        "artifact": "architecture",
+        "reference": "architecture §4 (Module map)",
+        "file": "src/agents_sync/shared_keyed_map_formats.py",
+        "description": "shared_keyed_map_formats.py (and the whole formats/ package + shared_keyed_map_io.py) is absent from the §4 module map table. The map claims '19 modules, 2 852 lines' and assigns every module a layer and inward-dependency list; this Layer-3-style format registry/port has no row, so the architecture document is stale relative to the v0.5 MCP-server shared keyed-map code it governs."
+      },
+      {
+        "artifact": "architecture",
+        "reference": "architecture §9 (Traceability)",
+        "file": "src/agents_sync/shared_keyed_map_formats.py",
+        "description": "§9 asserts 'Every requirement ... has at least one module carrying it' and 'Any future requirement that has no carrying module is a defect.' shared_keyed_map_formats.py carries the format-handler seam that FR-09 (mcp_server matrix) and the shared keyed-map render/discovery paths depend on, yet it appears nowhere in the traceability table and has no listed verifying test, leaving the FR-09 / shared-keyed-map mapping undocumented."
+      }
+    ]
+  },
+
+  "verdict": "AUDIT_PASS",
+  "verdict_summary": "Clean, well-named 78-line format registry; only structural smell is a module-level mutable registry populated by import-time side effects (M7/W5). No security or correctness defects. Spec gap: module is undocumented in architecture §4/§9."
+}
