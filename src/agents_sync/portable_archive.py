@@ -40,8 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec
-from agents_sync.archive import archive_canonical
+from agents_sync.archive import archive_canonical, archive_text
 from agents_sync.canonical import (
     canonical_content,
     canonical_last_modified,
@@ -60,7 +59,6 @@ from agents_sync.state import (
     load_state,
     target_slug,
 )
-from agents_sync.tool_status import ToolStatusTracker
 
 PORTABLE_ARCHIVE_SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -438,12 +436,35 @@ def preview_import(
     return would_overwrite, would_skip
 
 
+def _archive_intra_import_losers(
+    state_dir: Path, decisions: list[_ImportDecision]
+) -> None:
+    """Archive bytes of intra-import losers (NFR-01 / US-12 AC-17).
+
+    A loser retired by another imported artifact at the same slug was never
+    written to disk, so we serialise its canonical bytes directly into the
+    archive store instead of moving a file.
+    """
+    for decision in decisions:
+        if not decision.lost_intra_import:
+            continue
+        content = (
+            json.dumps(decision.canonical, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        )
+        archive_text(
+            state_dir, decision.pair_id, "_canonical", decision.pair_id, ".json", content
+        )
+        logging.info(
+            "Import: archived intra-import loser bytes (NFR-01): pair_id=%s",
+            decision.pair_id,
+        )
+
+
 def import_from_zip(
     state_dir: Path,
     zip_path: Path,
     *,
     config: Mapping[str, Any],
-    agentic_tools: dict[str, AgenticToolSpec],
 ) -> ImportReport:
     """Restore artifacts from a customization library export.
 
@@ -464,11 +485,9 @@ def import_from_zip(
     _validate_manifest_version(manifest)
 
     decisions = _classify(canonicals, state_dir)
+    _archive_intra_import_losers(state_dir, decisions)
 
     skipped_secret_artifacts = _filter_secret_bearing_decisions(decisions, config)
-
-    tool_status = ToolStatusTracker(config, agentic_tools)
-    tool_status.refresh()
 
     accepted_decisions = [d for d in decisions if d.accepted]
 

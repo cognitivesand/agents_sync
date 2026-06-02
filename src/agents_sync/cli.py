@@ -5,7 +5,6 @@ import logging
 import os
 from pathlib import Path
 
-from agents_sync.agentic_tool_spec import default_agentic_tools
 from agents_sync.config import (
     AgentsSyncConfig,
     ConfigError,
@@ -372,13 +371,11 @@ def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
         )
         return 2
 
-    agentic_tools = default_agentic_tools(config)
     try:
         report = import_from_zip(
             state_dir,
             args.input,
             config=config,
-            agentic_tools=agentic_tools,
         )
     except PortableArchiveError:
         logging.exception("Import rejected")

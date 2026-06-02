@@ -239,38 +239,74 @@ outside.
 
 ## 4. Module map
 
-| Module | Lines | Layer | Role | Inward dependencies (intra-package) |
-|---|---:|:---:|---|---|
-| `identity.py` | 19 | 1 | UUIDv4 invariant | — |
-| `sync_types.py` | 25 | 1 | Per-poll observation types | — |
-| `canonical.py` | 72 | 1 / 3 | Canonical schema + JSON I/O (D-1) | `state`, `identity` |
-| `state.py` (dataclasses + slug) | ~110 of 221 | 1 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug` | `identity` (validation), `filesystem_windows_retry` (I/O half) |
-| `state.py` (load/save/digest/atomic_write) | ~110 of 221 | 3 | State JSON gateway | `identity`, `filesystem_windows_retry` |
-| `agentic_tool_spec.py` | ~310 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports `tool_specs` factories lazily |
-| `tool_specs/*.py` | varies | 3 | Per-tool `AgenticToolSpec` factories | concrete IO adapters |
-| `*_io.py` adapters | varies | 3 | Per-tool parsers/renderers for native formats | `canonical`, shared IO helpers |
-| `archive.py` | 72 | 3 | Archive-copy / archive-move gateway | `filesystem_windows_retry`, `identity`, `state` |
-| `rendering.py` | 185 | 3 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
-| `discovery.py` | 313 | 2 | Per-poll discovery + collision blocking | `agentic_tool_spec`, `canonical`, `config`, `identity`, `rendering`, `state`, `sync_types`, `tool_status` |
-| `tool_status.py` | 152 | 2 | US-11 availability tracking | `agentic_tool_spec`, `config` |
-| `adoption.py` | 391 | 2 | Per-pair adopt / sync / conflict / extend / remove | `archive`, `agentic_tool_spec`, `canonical`, `rendering`, `state`, `sync_types`, `tool_status` |
-| `sync.py` | 218 | 2 | Top-level orchestrator | `archive`, `adoption`, `agentic_tool_spec`, `config`, `discovery`, `rendering`, `state`, `sync_types`, `tool_status` |
-| `daemon.py` | 37 | 4 | Polling loop | `sync` |
-| `cli.py` | 94 | 4 | argparse + entry point | `config`, `daemon`, `sync` |
-| `config.py` | 171 | 4 | TOML config, platform defaults, validation | — |
-| `filesystem_windows_retry.py` | 50 | 4 | OS quirk retry shim | — |
-| `__main__.py` | 3 | 4 | `python -m agents_sync` entry | `cli` |
-| `__init__.py` | 1 | — | Empty | — |
+### Layer 1 — Entities (pure domain types, no I/O)
 
-Totals (v0.5 snapshot): 19 modules, 2 852 lines.
+| Module | Lines | Role |
+|---|---:|---|
+| `identity.py` | 19 | UUIDv4 invariant |
+| `sync_types.py` | 25 | Per-poll observation types |
+| `canonical.py` | 308 | Canonical schema + JSON I/O (D-1) |
+| `state.py` | 434 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug`, state JSON gateway, `atomic_write_text` |
+| `artifact_names.py` | — | Artifact name helpers |
+| `field_names.py` | — | Canonical field name constants |
+| `identity.py` | 19 | UUIDv4 pair_id validation |
 
-> **Note (v0.6):** this table predates the v0.6 split. `adoption.py` became the
-> `adoption/` package (`engine`, `_host`, `removal_propagator`, `privacy_gate`),
-> `discovery.py` became the `discovery/` package (`walker`, `enumerator`,
-> `collision_blocker`, …), and `portable_archive.py` (canonical export/import,
-> FR-12/13) was added. The current tree is ~65 modules; the layer assignments and
-> dependency rules above still hold. A full per-module re-tabulation is tracked as
-> doc-debt and intentionally not done in this coherence pass.
+### Layer 3 — Adapters / ports (I/O boundary)
+
+| Module | Lines | Role | Key inward deps |
+|---|---:|---|---|
+| `agentic_tool_spec.py` | 344 | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | `tool_specs/` lazily |
+| `tool_specs/*.py` | varies | Per-tool `AgenticToolSpec` factories (claude, codex, cursor, copilot, gemini_cli, opencode, antigravity) | concrete IO adapters |
+| `claude_io.py` | 154 | Claude SKILL.md / agent / command parser+renderer | `canonical`, markdown helpers |
+| `codex_io.py` | 343 | Codex TOML / YAML adapter | `canonical`, `formats/` |
+| `cursor_io.py` | 400 | Cursor MDC adapter | `canonical`, markdown helpers |
+| `copilot_io.py` | 504 | Copilot instructions adapter | `canonical` |
+| `gemini_cli_io.py` | 360 | Gemini CLI adapter | `canonical`, markdown helpers |
+| `opencode_io.py` | 333 | OpenCode adapter | `canonical`, `formats/` |
+| `antigravity_io.py` | 144 | Antigravity adapter | `canonical` |
+| `rules_io.py` | 296 | Global rules file adapter | `canonical`, markdown helpers |
+| `slash_command_io.py` | 311 | Slash-command adapter | `canonical` |
+| `shared_keyed_map_io.py` | 235 | Shared keyed-map layout (MCP servers in multi-tool files) | `canonical`, `shared_keyed_map_formats` |
+| `mcp_server_io/` (8 files) | ~886 | MCP server parse/render pipeline, dialect detection, slot codec | `canonical`, `formats/` |
+| `formats/` (4 files) | ~260 | JSON/JSONC/TOML round-trip parsers | — |
+| `markdown_yaml_metadata_block.py` | 310 | YAML front-matter extraction, `extract_pair_id_from_md` (FR-11) | — |
+| `archive.py` | 156 | `archive_copy` / `archive_move` / `archive_text` / `archive_canonical` gateway (NFR-01) | `filesystem_windows_retry`, `identity`, `state` |
+| `rendering.py` | 407 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
+| `mcp_secret_policy.py` | 423 | MCP secret literal detection + policy enforcement (NFR-15) | — |
+| `parser_bounds.py` | 163 | Parse-buffer boundary helpers | — |
+| `filesystem_lock.py` | — | File-based lock primitives | — |
+| `filesystem_windows_retry.py` | ~60 | OS-quirk retry shim | — |
+
+### Layer 2 — Use cases (application logic)
+
+| Module | Lines | Role | Key inward deps |
+|---|---:|---|---|
+| `tool_status.py` | 225 | US-11 availability tracking (`ToolStatusTracker`) | `agentic_tool_spec`, `config` |
+| `discovery/walker.py` | 125 | On-disk directory walk, file-event enumeration | `agentic_tool_spec`, `state` |
+| `discovery/enumerator.py` | 322 | Per-tool artifact enumeration | `canonical`, `rendering`, `walker` |
+| `discovery/collision_blocker.py` | 162 | Duplicate-pair blocking (identity collision) | `canonical`, `state` |
+| `discovery/adoption_planner.py` | 163 | Per-poll adoption plan builder | `enumerator`, `state`, `sync_types` |
+| `discovery/_host.py` | 41 | Discovery host Protocol | — |
+| `adoption/canonical_projection.py` | 210 | `CanonicalProjectionMixin`: extend / project / reproject (CQ-01/CQ-03) | `archive`, `canonical`, `rendering`, `state` |
+| `adoption/engine.py` | 631 | Per-pair adopt / sync / conflict / remove orchestrator | `canonical_projection`, `archive`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `adoption/removal_propagator.py` | 233 | Orphan-state removal + glitch-guard propagation (US-11 AC-9) | `archive`, `canonical`, `state`, `tool_status` |
+| `adoption/privacy_gate.py` | 120 | Per-tool secret-field redaction at projection boundary | `canonical`, `mcp_secret_policy` |
+| `adoption/_host.py` | 53 | Adoption host Protocol | — |
+| `sync.py` | 517 | Top-level orchestrator: `sync_once`, `_process_discovered_pairs`, `_reconcile_deleted_pairs`, `_record_canonical_baselines`, `_adopt_orphan_canonicals` | `archive`, `adoption`, `agentic_tool_spec`, `config`, `discovery`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `portable_archive.py` | 633 | Customization library export/import (US-12 / FR-12/13): `export_to_zip`, `import_from_zip`, `preview_import`, canonical-only import, `last_modified_wins` cross-machine merge | `archive`, `canonical`, `mcp_secret_policy`, `state` |
+
+### Layer 4 — Infrastructure / entry points
+
+| Module | Lines | Role |
+|---|---:|---|
+| `daemon.py` | 37 | Polling loop (`watch`) |
+| `cli.py` | 432 | argparse + entry point (import / export / sync / watch) |
+| `config.py` | 472 | TOML config, platform defaults, validation |
+| `__main__.py` | 3 | `python -m agents_sync` entry |
+| `__init__.py` | 1 | Package version |
+
+**Totals (v0.6 snapshot):** ~65 modules across 5 packages, ~10 600 lines.
+Amendment 007 Step 4 completed: table re-tabulated to reflect `adoption/`, `discovery/`, and `portable_archive.py` added in v0.6.
 
 ---
 

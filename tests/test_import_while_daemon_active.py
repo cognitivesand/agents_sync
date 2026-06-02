@@ -70,7 +70,6 @@ def _import(syncer, zip_path: Path):
         syncer.state_dir,
         zip_path,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
 
