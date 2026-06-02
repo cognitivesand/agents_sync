@@ -400,7 +400,7 @@ archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 
 ## 🧪 Development
 
-Run the local CI gate before every push. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite — the static checks live here on purpose, because the GitHub workflow runs only the cross-platform `pytest` matrix:
+Run the local CI gate before every push. It runs `ruff check`, `mypy --strict`, and the full `pytest` suite — this is the project's primary CI gate. GitHub Actions runs only the Windows `pytest` job, because Windows-specific runtime behaviour (file locking, path handling) cannot be reproduced on a Linux developer machine; everything else is verified locally here:
 
 ```bash
 ./scripts/ci.sh
