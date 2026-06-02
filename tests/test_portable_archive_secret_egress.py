@@ -270,7 +270,6 @@ def test_ac15_import_under_secrets_refused_skips_literal_bearing_with_warning(
             target_dir,
             zip_path,
             config=config,
-            agentic_tools={},
         )
 
     assert isinstance(report, ImportReport)
@@ -314,7 +313,6 @@ def test_ac16_import_under_secrets_accepted_takes_literals_verbatim_with_warning
             target_dir,
             zip_path,
             config=config,
-            agentic_tools={},
         )
 
     # Both canonicals accepted; the literal landed verbatim on disk.

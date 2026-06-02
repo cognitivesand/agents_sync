@@ -257,7 +257,6 @@ def test_import_last_modified_wins_ignores_generation_uses_wall_clock(
         syncer.state_dir,
         bumped_zip,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
     # Generation is ignored cross-host; the newer local wall-clock wins.
@@ -297,7 +296,6 @@ def test_import_into_empty_install_creates_canonicals_and_projects(syncer: Synce
         target.state_dir,
         zip_path,
         config=target.config,
-        agentic_tools=target.agentic_tools,
     )
 
     assert len(report.accepted) == 2
@@ -330,7 +328,6 @@ def test_import_then_first_sync_projects_second_is_noop(syncer: Syncer, tmp_path
         target.state_dir,
         zip_path,
         config=target.config,
-        agentic_tools=target.agentic_tools,
     )
 
     first = target.sync_once()
@@ -367,7 +364,6 @@ def test_import_pair_id_collision_last_modified_wins_import_newer_overwrites(
         syncer.state_dir,
         zip_path,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
     assert report.accepted == [pair_id]
@@ -399,7 +395,6 @@ def test_import_pair_id_collision_last_modified_wins_local_newer_keeps_local(
         syncer.state_dir,
         zip_path,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
     assert report.accepted == []
@@ -427,7 +422,6 @@ def test_import_pair_id_collision_last_modified_wins_tie_keeps_local(
         syncer.state_dir,
         zip_path,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
     assert report.accepted == []
@@ -459,7 +453,6 @@ def test_import_slug_collision_different_pair_id_last_modified_wins(syncer: Sync
         syncer.state_dir,
         zip_path,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
     # AC-7: slug collision with different id reconciles to one artifact;
@@ -484,7 +477,6 @@ def test_import_rejects_missing_manifest(tmp_path: Path):
             target.state_dir,
             bad,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
 
@@ -499,7 +491,6 @@ def test_import_rejects_future_schema_version(tmp_path: Path):
             target.state_dir,
             bad,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
 
@@ -515,7 +506,6 @@ def test_import_rejects_invalid_pair_id_filename(tmp_path: Path):
             target.state_dir,
             bad,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
 
@@ -532,7 +522,6 @@ def test_import_rejects_unparseable_canonical(tmp_path: Path):
             target.state_dir,
             bad,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
 
@@ -553,7 +542,6 @@ def test_import_rejects_mismatched_pair_id(tmp_path: Path):
             target.state_dir,
             bad,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
 
@@ -591,7 +579,6 @@ def test_import_failure_midway_leaves_state_json_unchanged(
             target.state_dir,
             zip_path,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
     # state.json never written.
@@ -638,7 +625,6 @@ def test_import_partial_promotion_adopted_by_next_sync(syncer: Syncer, tmp_path:
             target.state_dir,
             zip_path,
             config=target.config,
-            agentic_tools=target.agentic_tools,
         )
 
     # Exactly one canonical promoted; state not written.
@@ -677,7 +663,6 @@ def test_export_then_reimport_is_byte_identical_for_canonicals(syncer: Syncer, t
         syncer.state_dir,
         zip_path,
         config=syncer.config,
-        agentic_tools=syncer.agentic_tools,
     )
 
     after = {p.name: p.read_bytes() for p in canonical_dir.glob("*.json")}

@@ -1,12 +1,12 @@
 # agents_sync — Architecture
 
 This document describes the architecture of `agents_sync` as it stands at
-v0.5, organised around the layers of *Clean Architecture* (Martin, 2017).
+v0.6, organised around the layers of *Clean Architecture* (Martin, 2017).
 It is intended to be useful as both a reader's map of the code and a
 governance artefact: any future change should leave this document either
 true or amended.
 
-- **Status**: current as of v0.6 (v0.5.6). The Layer-1 canonical store is the
+- **Status**: current as of v0.6.0. The Layer-1 canonical store is the
   source of truth (NFR-16); import is canonical-only and per-artifact atomic
   (FR-12/13). The §4 module map predates the v0.6 package split — see the note there.
 - **Sources of truth**: the code under `src/agents_sync/`,
@@ -239,38 +239,74 @@ outside.
 
 ## 4. Module map
 
-| Module | Lines | Layer | Role | Inward dependencies (intra-package) |
-|---|---:|:---:|---|---|
-| `identity.py` | 19 | 1 | UUIDv4 invariant | — |
-| `sync_types.py` | 25 | 1 | Per-poll observation types | — |
-| `canonical.py` | 72 | 1 / 3 | Canonical schema + JSON I/O (D-1) | `state`, `identity` |
-| `state.py` (dataclasses + slug) | ~110 of 221 | 1 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug` | `identity` (validation), `filesystem_windows_retry` (I/O half) |
-| `state.py` (load/save/digest/atomic_write) | ~110 of 221 | 3 | State JSON gateway | `identity`, `filesystem_windows_retry` |
-| `agentic_tool_spec.py` | ~310 | 3 (port) | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | imports `tool_specs` factories lazily |
-| `tool_specs/*.py` | varies | 3 | Per-tool `AgenticToolSpec` factories | concrete IO adapters |
-| `*_io.py` adapters | varies | 3 | Per-tool parsers/renderers for native formats | `canonical`, shared IO helpers |
-| `archive.py` | 72 | 3 | Archive-copy / archive-move gateway | `filesystem_windows_retry`, `identity`, `state` |
-| `rendering.py` | 185 | 3 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
-| `discovery.py` | 313 | 2 | Per-poll discovery + collision blocking | `agentic_tool_spec`, `canonical`, `config`, `identity`, `rendering`, `state`, `sync_types`, `tool_status` |
-| `tool_status.py` | 152 | 2 | US-11 availability tracking | `agentic_tool_spec`, `config` |
-| `adoption.py` | 391 | 2 | Per-pair adopt / sync / conflict / extend / remove | `archive`, `agentic_tool_spec`, `canonical`, `rendering`, `state`, `sync_types`, `tool_status` |
-| `sync.py` | 218 | 2 | Top-level orchestrator | `archive`, `adoption`, `agentic_tool_spec`, `config`, `discovery`, `rendering`, `state`, `sync_types`, `tool_status` |
-| `daemon.py` | 37 | 4 | Polling loop | `sync` |
-| `cli.py` | 94 | 4 | argparse + entry point | `config`, `daemon`, `sync` |
-| `config.py` | 171 | 4 | TOML config, platform defaults, validation | — |
-| `filesystem_windows_retry.py` | 50 | 4 | OS quirk retry shim | — |
-| `__main__.py` | 3 | 4 | `python -m agents_sync` entry | `cli` |
-| `__init__.py` | 1 | — | Empty | — |
+### Layer 1 — Entities (pure domain types, no I/O)
 
-Totals (v0.5 snapshot): 19 modules, 2 852 lines.
+| Module | Lines | Role |
+|---|---:|---|
+| `identity.py` | 19 | UUIDv4 invariant |
+| `sync_types.py` | 25 | Per-poll observation types |
+| `canonical.py` | 308 | Canonical schema + JSON I/O (D-1) |
+| `state.py` | 434 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug`, state JSON gateway, `atomic_write_text` |
+| `artifact_names.py` | — | Artifact name helpers |
+| `field_names.py` | — | Canonical field name constants |
+| `identity.py` | 19 | UUIDv4 pair_id validation |
 
-> **Note (v0.6):** this table predates the v0.6 split. `adoption.py` became the
-> `adoption/` package (`engine`, `_host`, `removal_propagator`, `privacy_gate`),
-> `discovery.py` became the `discovery/` package (`walker`, `enumerator`,
-> `collision_blocker`, …), and `portable_archive.py` (canonical export/import,
-> FR-12/13) was added. The current tree is ~65 modules; the layer assignments and
-> dependency rules above still hold. A full per-module re-tabulation is tracked as
-> doc-debt and intentionally not done in this coherence pass.
+### Layer 3 — Adapters / ports (I/O boundary)
+
+| Module | Lines | Role | Key inward deps |
+|---|---:|---|---|
+| `agentic_tool_spec.py` | 344 | `AgenticToolSpec`, `CustomizationTypeIO`, default registry | `tool_specs/` lazily |
+| `tool_specs/*.py` | varies | Per-tool `AgenticToolSpec` factories (claude, codex, cursor, copilot, gemini_cli, opencode, antigravity) | concrete IO adapters |
+| `claude_io.py` | 154 | Claude SKILL.md / agent / command parser+renderer | `canonical`, markdown helpers |
+| `codex_io.py` | 343 | Codex TOML / YAML adapter | `canonical`, `formats/` |
+| `cursor_io.py` | 400 | Cursor MDC adapter | `canonical`, markdown helpers |
+| `copilot_io.py` | 504 | Copilot instructions adapter | `canonical` |
+| `gemini_cli_io.py` | 360 | Gemini CLI adapter | `canonical`, markdown helpers |
+| `opencode_io.py` | 333 | OpenCode adapter | `canonical`, `formats/` |
+| `antigravity_io.py` | 144 | Antigravity adapter | `canonical` |
+| `rules_io.py` | 296 | Global rules file adapter | `canonical`, markdown helpers |
+| `slash_command_io.py` | 311 | Slash-command adapter | `canonical` |
+| `shared_keyed_map_io.py` | 235 | Shared keyed-map layout (MCP servers in multi-tool files) | `canonical`, `shared_keyed_map_formats` |
+| `mcp_server_io/` (8 files) | ~886 | MCP server parse/render pipeline, dialect detection, slot codec | `canonical`, `formats/` |
+| `formats/` (4 files) | ~260 | JSON/JSONC/TOML round-trip parsers | — |
+| `markdown_yaml_metadata_block.py` | 310 | YAML front-matter extraction, `extract_pair_id_from_md` (FR-11) | — |
+| `archive.py` | 156 | `archive_copy` / `archive_move` / `archive_text` / `archive_canonical` gateway (NFR-01) | `filesystem_windows_retry`, `identity`, `state` |
+| `rendering.py` | 407 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
+| `mcp_secret_policy.py` | 423 | MCP secret literal detection + policy enforcement (NFR-15) | — |
+| `parser_bounds.py` | 163 | Parse-buffer boundary helpers | — |
+| `filesystem_lock.py` | — | File-based lock primitives | — |
+| `filesystem_windows_retry.py` | ~60 | OS-quirk retry shim | — |
+
+### Layer 2 — Use cases (application logic)
+
+| Module | Lines | Role | Key inward deps |
+|---|---:|---|---|
+| `tool_status.py` | 225 | US-11 availability tracking (`ToolStatusTracker`) | `agentic_tool_spec`, `config` |
+| `discovery/walker.py` | 125 | On-disk directory walk, file-event enumeration | `agentic_tool_spec`, `state` |
+| `discovery/enumerator.py` | 322 | Per-tool artifact enumeration | `canonical`, `rendering`, `walker` |
+| `discovery/collision_blocker.py` | 162 | Duplicate-pair blocking (identity collision) | `canonical`, `state` |
+| `discovery/adoption_planner.py` | 163 | Per-poll adoption plan builder | `enumerator`, `state`, `sync_types` |
+| `discovery/_host.py` | 41 | Discovery host Protocol | — |
+| `adoption/canonical_projection.py` | 210 | `CanonicalProjectionMixin`: extend / project / reproject (CQ-01/CQ-03) | `archive`, `canonical`, `rendering`, `state` |
+| `adoption/engine.py` | 631 | Per-pair adopt / sync / conflict / remove orchestrator | `canonical_projection`, `archive`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `adoption/removal_propagator.py` | 233 | Orphan-state removal + glitch-guard propagation (US-11 AC-9) | `archive`, `canonical`, `state`, `tool_status` |
+| `adoption/privacy_gate.py` | 120 | Per-tool secret-field redaction at projection boundary | `canonical`, `mcp_secret_policy` |
+| `adoption/_host.py` | 53 | Adoption host Protocol | — |
+| `sync.py` | 517 | Top-level orchestrator: `sync_once`, `_process_discovered_pairs`, `_reconcile_deleted_pairs`, `_record_canonical_baselines`, `_adopt_orphan_canonicals` | `archive`, `adoption`, `agentic_tool_spec`, `config`, `discovery`, `rendering`, `state`, `sync_types`, `tool_status` |
+| `portable_archive.py` | 633 | Customization library export/import (US-12 / FR-12/13): `export_to_zip`, `import_from_zip`, `preview_import`, canonical-only import, `last_modified_wins` cross-machine merge | `archive`, `canonical`, `mcp_secret_policy`, `state` |
+
+### Layer 4 — Infrastructure / entry points
+
+| Module | Lines | Role |
+|---|---:|---|
+| `daemon.py` | 37 | Polling loop (`watch`) |
+| `cli.py` | 432 | argparse + entry point (import / export / sync / watch) |
+| `config.py` | 472 | TOML config, platform defaults, validation |
+| `__main__.py` | 3 | `python -m agents_sync` entry |
+| `__init__.py` | 1 | Package version |
+
+**Totals (v0.6 snapshot):** ~65 modules across 5 packages, ~10 600 lines.
+Amendment 007 Step 4 completed: table re-tabulated to reflect `adoption/`, `discovery/`, and `portable_archive.py` added in v0.6.
 
 ---
 
@@ -322,12 +358,12 @@ Five rules every adapter must obey (US-10 AC-1, AC-4, AC-5, AC-6):
 
 `state.load_state(state_dir) -> dict[pair_id, CustomizationArtifactState]`
 and `state.save_state(state_dir, state) -> None` are the only entry
-points. `state.json` is schema-versioned (`schema_version=3`); any other
-shape is treated as missing (the project is pre-1.0, hence the cutover
-without a migration reader — see `state.load_state` docstring).
-Schema-v3 entries may contain legacy `last_modified` / `generation` fields
-from older builds; readers ignore those keys because the canonical metadata
-block is now authoritative.
+points. `state.json` is schema-versioned (`schema_version=4`). Schema-v3 files
+are accepted and migrated in memory by deriving missing `canonical_digest`
+baselines from the canonical store; older shapes are treated as missing (the
+project is pre-1.0, hence the cutover policy — see `state.load_state`
+docstring). Readers ignore legacy `last_modified` / `generation` fields because
+the canonical metadata block is now authoritative.
 
 ### 5.3 Use case → archive (the preservation gateway)
 
@@ -377,7 +413,7 @@ persisted state, log lines)`.
 sync_once
 ├── validate_config(config)                 ─ fail-closed structural check
 ├── tool_status.refresh()                   ─ US-11 per-poll status probe
-├── load_state(state_dir)                   ─ schema_version=3 envelope
+├── load_state(state_dir)                   ─ schema_version=4 envelope
 ├── discovery.discover(state)               ─ walk available tools, group by pair_id
 ├── _reconcile_new_groups(discovery, state) ─ v0.4 plan §5.5 multi-tool dedup
 ├── discovery.block_target_collisions(…)    ─ refuse to clobber unmanaged paths
@@ -393,10 +429,10 @@ sync_once
 │         add to blocked, no sync, no removal (US-03 AC-11 / FR-11)
 │
 ├── for pair_id in state \ discovery:
-│       adoption.propagate_orphan_state(pair_id, state)
+│       adoption.propagate_orphan_state(pair_id, state, glitch_tools)
 │         (skips entries owned only by `unavailable` tools — US-11 AC-4)
 │
-└── save_state(state_dir, state)             ─ schema_version=2 envelope
+└── save_state(state_dir, state)             ─ schema_version=4 envelope
 ```
 
 Properties this control flow gives us:
@@ -415,16 +451,15 @@ content-only canonical digest baseline for each managed pair.
 | **FR-04** trusted removal source | `_propagate_removal` only fires when an **available** tool's view is missing the artifact; entries owned only by **unavailable** tools are preserved (`propagate_orphan_state` short-circuit). |
 | **FR-14** content-only canonical detection | `canonical_digest(canonical_content(...))` excludes `metadata`; imports or external canonical content edits reproject, while metadata-only stamps do not. |
 
-### 6.1 Import as a merge — BUILT (amendments 002–004; v0.5.2–v0.5.6)
+### 6.1 Import as a merge — BUILT (v0.6.0)
 
 > **Status: implemented and shipping.** The sections below describe running
 > behaviour as of the v0.6 canonical-as-truth work (amendment 002 design;
-> amendments 003–004 follow-ups), landed across commits P1–P5 (v0.5.2–v0.5.6):
+> amendments 003–004 follow-ups), landed across commits P1–P5:
 > NFR-16, FR-12/13/14/15, US-12 AC-5/17/18/19, US-11 AC-8/AC-9, US-05 AC-5. The
 > canonical store is the source of truth; `import_from_zip` is canonical-only and
-> per-artifact atomic. (One known gap remains open: FR-15's "identical to
-> sequential" guarantee is not yet enforced by a cross-process lock on the shared
-> state record — see amendment 003 follow-up.)
+> per-artifact atomic. The importer never writes `state.json`, so the daemon is
+> the single state writer while orphan canonicals are adopted on the next poll.
 
 The inversion: **the canonical store becomes the source of truth** (NFR-16); every
 tool-side file is a projection. `sync_once` gains a step that projects any managed
@@ -434,42 +469,40 @@ remove (US-11 AC-8); an authored deletion (absence of a *recorded* file) stays a
 removal. Dropping a canonical archives it first (US-05 AC-5).
 
 On that foundation, `portable_archive.import_from_zip` becomes a **second entry
-point** that feeds `sync_once`, not a parallel writer. It writes only the
+point** that feeds `sync_once`, not a parallel state writer. It writes only the
 **canonical store** — never `state.json` and never an agentic_tool root (US-12
-AC-5, canonical-only); the next `sync_once` adopts those orphan canonicals and
-projects the imported artifacts through the unchanged adoption pipeline, so all
-tool-side writes keep the archive-before-write discipline (NFR-01).
+AC-5, canonical-only); the next `sync_once` adopts orphan canonicals into state
+and projects the imported artifacts through the unchanged adoption pipeline, so
+all tool-side writes keep the archive-before-write discipline (NFR-01).
 
 Import is a **merge keyed by `(customization_type, target_slug(name))`**, not a
-blind restore. `_classify` folds an **incremental** slug index — seeded from local
-state and updated as each candidate is accepted — so that two canonicals with the
-same slug but different `customization_artifact_id`s (the cross-machine case:
+blind restore. `_classify` seeds its slug index from the local canonical store
+and folds same-slug import candidates before any write, so two canonicals with
+the same slug but different `customization_artifact_id`s (the cross-machine case:
 the same artifact independently minted on two hosts) reconcile to **one** winner
 by the `last_modified_wins` rule: the candidate with the higher `last_modified`
-timestamp in its canonical metadata wins; the loser is archived (FR-12, AC-7).
-Ties (equal `last_modified`) are broken deterministically by
-`customization_artifact_id` in lexicographic order, so the outcome is identical
-regardless of which host runs the import first. Note: `generation` is a
+timestamp in its canonical metadata wins; displaced local canonicals are archived
+before overwrite (FR-12, AC-7). Ties against a locally-present artifact favour
+the local artifact; ties within the imported set are resolved by stable
+lexicographic `customization_artifact_id` order. Note: `generation` is a
 host-local counter that tracks content changes on a single machine — it is not a
 cross-host discriminator and is not used in the collision comparison. This makes
 import idempotent and prevents it from manufacturing the slug collisions that
 US-03 AC-8 would block.
 
-Writes are **per-artifact atomic** (FR-13): each `(canonical + state stub)` lands
-as a unit or not at all, so a failure on one artifact leaves the rest intact and
-the failed one retried next run — no partial canonical, no state entry without its
-canonical.
+Writes are **per-artifact atomic** (FR-13): each accepted canonical is staged and
+then promoted with `os.replace`, so a failure leaves either the previous
+canonical or the complete new canonical — never a partial canonical. Because
+import never writes `state.json`, there is no state entry without its canonical.
 
 Because import is a second entry point onto the same `sync_once` foundation rather
-than a parallel writer, it may run **while the daemon is active** (FR-15). Two
-mechanisms make the interleaving safe. First, every `state.json` write goes through
-`state.atomic_write_text`, which writes a unique per-process temp file and
-`os.replace`s it onto the target — so a daemon poll never reads a torn record and a
-concurrent import write lands all-or-nothing. Second, the daemon reconciles from the
-**canonical store** (the heal foundation above, FR-14), so a poll that races an import
+than a parallel state writer, it may run **while the daemon is active** (FR-15).
+Every daemon `state.json` write goes through `state.atomic_write_text`, and import
+does not write `state.json` at all. The daemon reconciles from the **canonical
+store** (the heal foundation above, FR-14), so a poll that races an import
 converges regardless of ordering: at worst it defers projection of a just-imported
-canonical to a later poll, never corrupting state. The net managed state is identical
-to running the import and the poll sequentially.
+canonical to a later poll, never corrupting state. The net managed state is
+identical to running the import and the poll sequentially.
 
 ---
 

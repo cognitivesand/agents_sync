@@ -5,7 +5,6 @@ import logging
 import os
 from pathlib import Path
 
-from agents_sync.agentic_tool_spec import default_agentic_tools
 from agents_sync.config import (
     AgentsSyncConfig,
     ConfigError,
@@ -267,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Deprecated alias for the canonical --secret-policy flag. Accepts the
     # old value spellings (refuse / redact / permissive) plus the new ones,
     # so existing scripts keep working while the deprecation warning
-    # surfaces in the logs. To be removed in v0.6.
+    # surfaces in the logs. Retained for pre-1.0 compatibility.
     parser.add_argument(
         "--mcp-server-secret-policy",
         choices=[
@@ -372,13 +371,11 @@ def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
         )
         return 2
 
-    agentic_tools = default_agentic_tools(config)
     try:
         report = import_from_zip(
             state_dir,
             args.input,
             config=config,
-            agentic_tools=agentic_tools,
         )
     except PortableArchiveError:
         logging.exception("Import rejected")
@@ -398,8 +395,8 @@ def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
             len(report.skipped_secret_artifacts),
             report.skipped_secret_artifacts,
         )
-    # Canonical-only import only writes canonicals + state stubs; project them now
-    # so the one-shot CLI import takes effect without the daemon running.
+    # Canonical-only import only writes canonicals; run one sync poll now so the
+    # one-shot CLI import takes effect without the daemon running.
     Syncer(config).sync_once()
     return 0
 

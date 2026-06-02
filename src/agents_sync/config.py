@@ -320,7 +320,7 @@ def normalize_config(
     # canonical ``secret_policy`` slot (only when no explicit canonical
     # value was provided), and emit one DEPRECATION-WARNING at startup.
     # The deprecated key is then discarded so downstream code never sees
-    # it. To be removed in v0.6.
+    # it. Retained for pre-1.0 compatibility with existing local configs.
     legacy_value = normalized.pop("mcp_server_secret_policy", None)
     if legacy_value is not None:
         if (

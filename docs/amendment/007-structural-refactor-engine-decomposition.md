@@ -1,6 +1,6 @@
 # Amendment 007 — Structural refactor: decompose the adoption God-module and long functions
 
-- status: in-progress
+- status: applied
 - branch: feat/v0.5-cross-machine-merge
 - date: 2026-05-31
 - relates to: v0.6 code-quality audit (findings CQ-01..CQ-05)
@@ -60,6 +60,8 @@ Full `uv run pytest` + `mypy --strict` + `ruff` green after each step.
 - Step 3 (CQ-04) applied: `import_from_zip` split into
   `_filter_secret_bearing_decisions`, `_stage_and_promote_canonicals`,
   `_apply_import_to_state`; orchestrator now ~20 lines. Suite 516 green,
-  mypy/ruff clean. (Observation, not changed per the surgical rule: the
-  `tool_status = ToolStatusTracker(...).refresh()` in `import_from_zip` is
-  pre-existing dead code in the canonical-only path — flagged, not removed.)
+  mypy/ruff clean.
+- Step 4 applied: architecture §4 module map re-tabulated to v0.6 layout
+  (`adoption/`, `discovery/`, `portable_archive.py`). Dead
+  `ToolStatusTracker` construction removed from `import_from_zip`; `agentic_tools`
+  parameter dropped; `_archive_intra_import_losers` added (NFR-01 / US-12 AC-17).

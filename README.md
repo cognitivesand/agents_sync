@@ -312,7 +312,7 @@ agents-sync export ~/my-library.zip
 agents-sync import ~/my-library.zip
 ```
 
-The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only**: `import` writes the canonical document and touches neither `state.json` nor any agentic_tool file; the next daemon `sync_once` adopts the orphan canonical and projects it onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
+The archive contains one canonical document per managed artifact plus a small manifest. It deliberately excludes `state.json` and the on-disk `archive/` directory — those hold host-specific bytes. On import, each accepted artifact is written **canonical-only**: only its canonical document is promoted into the local canonical store. The import primitive never writes `state.json` and never touches an agentic_tool file; `agents-sync import` then invokes one normal `sync_once` so one-shot CLI imports appear immediately even when the daemon is not running. A daemon poll can also adopt the orphan canonical and project it onto every locally enabled, supporting, and available agentic_tool. Import may run while the daemon is active.
 
 When an imported artifact collides with a locally-managed one (same `pair_id`, or same slugified name under the same kind), the `last_modified_wins` rule applies: the candidate with the higher `last_modified` timestamp wins, and ties favour the local artifact. Every operation that would displace local bytes archives them first under `<state_dir>/archive/<pair_id>/<tool>/` (NFR-01), so an unwanted import is recoverable.
 
@@ -369,7 +369,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -CleanupData
 **State layout:**
 
 ```text
-state.json                                pair_id -> paths and digests
+state.json                                pair_id -> paths, tool digests, canonical_digest
 canonical/<pair_id>.json                  one canonical document per pair
 archive/<pair_id>/<tool>/<filename>.<ISO> preserved prior bytes
 ```
@@ -426,9 +426,12 @@ For the end-to-end export/import flow against two throwaway installs, run `./scr
 
 **Canonical store as source of truth + cross-machine merge**
 
-- Promotes the canonical store to the behavioural source of truth: the daemon detects a canonical that changed independently of its tool files and re-projects it (FR-14), heals a disk-absent canonical, and archives displaced bytes.
-- Adds the portable customization-library export/import for cross-machine merge under the `last_modified_wins` rule (US-12).
-- Folds in the round-2 P0 audit fixes, the US-15 framework-specific rules egress guard, `AgentsSyncConfig`/`Mapping` boundary typing, and line-ending-insensitive change detection.
+- Promoted the canonical store to the authoritative library: tool-side files are projections, and the daemon detects a canonical that changed independently of its tool files and re-projects it (FR-14), heals a disk-absent canonical, and archives displaced bytes.
+- Added schema `4` state baselines with per-pair `canonical_digest`, including migration from schema `3` so canonical-only imports and external canonical edits re-project cleanly.
+- Finished canonical-only import (US-12): `import` writes only canonical documents, never `state.json` or tool roots, and the daemon adopts orphan canonicals on the next poll; the `agents-sync import` CLI runs one `sync_once` so one-shot imports take effect without the daemon.
+- Added the portable customization-library export/import for cross-machine merge: reconciliation by `(customization_type, target_slug(name))` under `last_modified_wins`, with displaced local canonicals and tool bytes archived before overwrite.
+- Added bulk-disappearance protection: two or more recorded artifacts vanishing from one available tool are treated as a glitch and re-projected instead of being propagated as deletions.
+- Folded in the round-2 P0 audit fixes, the US-15 framework-specific rules egress guard, `AgentsSyncConfig`/`Mapping` boundary typing, and line-ending-insensitive change detection.
 
 ### 0.5.8
 
@@ -449,7 +452,7 @@ For the end-to-end export/import flow against two throwaway installs, run `./scr
 - Documentation coherence: the architecture and README now describe the shipped v0.6 canonical-as-truth behaviour.
 - Internal refactor (behaviour-preserving): extracted the canonical-projection mixin and split `sync_once` / `import_from_zip` into per-concern helpers.
 
-### 0.5.6 (v0.6 canonical-as-truth)
+### 0.5.6 (canonical-as-truth preview)
 
 **Canonical store is the source of truth**
 
@@ -496,7 +499,7 @@ For the end-to-end export/import flow against two throwaway installs, run `./scr
 
 - Added portable library snapshot: `agents-sync export <file.zip>` serialises every managed agent and skill into a single zip, and `agents-sync import <file.zip>` restores or merges that zip into a local install. See [Backup, Restore, Share](#backup-restore-share).
 - Bumped `state.json` to `schema_version: 3` with a per-pair `last_modified` timestamp at the time; this was later superseded by canonical `metadata.last_modified` as the source of truth for the `last_modified_wins` collision rule. Pre-1.0 cutover: v2 state files are regenerated on first boot.
-- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in v0.6 / 0.5.6: import is now canonical-only and the next `sync_once` projects — see above.)*
+- Imports project every accepted artifact onto every available agentic_tool synchronously, before the command returns — the daemon does not need to be running. Displaced local bytes are archived under the existing `archive/<pair_id>/<tool>/` layout per NFR-01. *(Superseded in 0.6.0: import is now canonical-only and the next `sync_once` projects — see above.)*
 
 ### 0.4.1
 

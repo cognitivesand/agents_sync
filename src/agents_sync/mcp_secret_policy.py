@@ -141,8 +141,8 @@ def normalize_secret_policy(
     and the v0.5 pre-hardening spellings (``refuse``, ``redact``,
     ``permissive``). When an old spelling is supplied, logs one WARNING
     naming ``source`` (typically a config file or CLI flag) so the operator
-    knows where to make the change. The deprecation shim is intended to be
-    removed in v0.6.
+    knows where to make the change. The deprecation shim is retained for
+    pre-1.0 compatibility.
 
     Raises :class:`ValueError` for any other input.
     """

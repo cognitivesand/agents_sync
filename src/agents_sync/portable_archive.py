@@ -12,13 +12,15 @@ Two operations:
     state directory; the zip is materialised atomically (write to a
     sibling temp file, then `os.replace`).
   - `import_from_zip`: reads an export and writes only the canonical store
-    + state stubs. Decisions are made fully in memory before any disk write,
-    so a mid-import failure cannot leave `state.json` half-updated (AC-10).
+    (never `state.json` or tool roots). Decisions are made fully in memory
+    before any disk write, so a mid-import failure cannot leave `state.json`
+    half-updated (AC-10).
 
 `last_modified` is a wall-clock POSIX timestamp in the canonical metadata.
-It is the source of truth for the `last_modified_wins` rule. Wall-clock is
-not monotonic across hosts; clock skew is tie-broken lexicographically by
-`customization_artifact_id` in favour of the local artifact (AC-6 tie rule).
+It is the source of truth for the `last_modified_wins` rule. Wall-clock is not
+monotonic across hosts; ties against a local artifact favour the local artifact,
+and ties within the imported set are resolved by stable lexicographic
+`customization_artifact_id` order.
 """
 
 from __future__ import annotations
@@ -38,8 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agents_sync.agentic_tool_spec import AgenticToolSpec
-from agents_sync.archive import archive_canonical
+from agents_sync.archive import archive_canonical, archive_text
 from agents_sync.canonical import (
     canonical_content,
     canonical_last_modified,
@@ -58,7 +59,6 @@ from agents_sync.state import (
     load_state,
     target_slug,
 )
-from agents_sync.tool_status import ToolStatusTracker
 
 PORTABLE_ARCHIVE_SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -436,12 +436,35 @@ def preview_import(
     return would_overwrite, would_skip
 
 
+def _archive_intra_import_losers(
+    state_dir: Path, decisions: list[_ImportDecision]
+) -> None:
+    """Archive bytes of intra-import losers (NFR-01 / US-12 AC-17).
+
+    A loser retired by another imported artifact at the same slug was never
+    written to disk, so we serialise its canonical bytes directly into the
+    archive store instead of moving a file.
+    """
+    for decision in decisions:
+        if not decision.lost_intra_import:
+            continue
+        content = (
+            json.dumps(decision.canonical, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        )
+        archive_text(
+            state_dir, decision.pair_id, "_canonical", decision.pair_id, ".json", content
+        )
+        logging.info(
+            "Import: archived intra-import loser bytes (NFR-01): pair_id=%s",
+            decision.pair_id,
+        )
+
+
 def import_from_zip(
     state_dir: Path,
     zip_path: Path,
     *,
     config: Mapping[str, Any],
-    agentic_tools: dict[str, AgenticToolSpec],
 ) -> ImportReport:
     """Restore artifacts from a customization library export.
 
@@ -452,25 +475,19 @@ def import_from_zip(
        first; only after *all* stagings succeed are the staged files
        promoted into the live ``canonical/`` directory via ``os.replace``.
        If staging raises midway, the pending directory is removed and no
-       canonical is touched.
-    3. ``state.json`` is the last thing written. A failure during the
-       tool-side projection step does not corrupt state.json — the next
-       sync poll will reconcile from a clean ``canonical/`` directory.
-
-    Note: tool-side files are *not* staged in Phase 1; a mid-import
-    failure during tool projection still leaves the already-projected
-    tool files in place. Adding tool-side staging requires the
-    polymorphic ``FileLayout`` from Phase 2; it is tracked separately.
+       canonical is touched. If promotion raises midway, each already-promoted
+       canonical is complete and later artifacts keep their prior bytes.
+    3. ``state.json`` and tool roots are never written by import. The next
+       sync poll adopts orphan canonicals or re-projects overwritten canonicals
+       from the canonical digest mismatch.
     """
     manifest, canonicals = _read_zip_entries(zip_path)
     _validate_manifest_version(manifest)
 
     decisions = _classify(canonicals, state_dir)
+    _archive_intra_import_losers(state_dir, decisions)
 
     skipped_secret_artifacts = _filter_secret_bearing_decisions(decisions, config)
-
-    tool_status = ToolStatusTracker(config, agentic_tools)
-    tool_status.refresh()
 
     accepted_decisions = [d for d in decisions if d.accepted]
 
