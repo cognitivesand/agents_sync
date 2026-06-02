@@ -32,9 +32,8 @@ from agents_sync.state import (
     CustomizationArtifactState,
     atomic_write_text,
     ignored_tree_names,
-    sha256_file,
+    sha256_skill_tree_snapshot,
     sha256_text,
-    sha256_tree,
     target_slug,
 )
 from agents_sync.sync_types import RenderResult
@@ -351,9 +350,13 @@ def update_state_n_way(
     """Record ``results`` (one per tool) into ``state[pair_id]``, computing
     digests.
 
-    For ``SharedKeyedMapLayout`` results the digest is over the slot text
-    (re-read from the shared file via ``read_slots``); for per-file
-    results it is the existing ``sha256_file`` / ``sha256_tree``.
+    The recorded digest must be computed the same way the discovery walker
+    computes it (``enumerator``), or a poll would see a phantom change: both
+    hash the universal-newline-normalized text the daemon reads, so a CRLF
+    artifact and its LF form are the same content. ``SharedKeyedMapLayout``
+    hashes the slot text (re-read via ``read_slots``); ``SingleFileLayout``
+    hashes the read artifact text; ``DirectorySkillLayout`` hashes the tree
+    with ``SKILL.md`` taken from its read-text snapshot.
     """
     ps = state.setdefault(pair_id, CustomizationArtifactState(kind=kind))
     ps.kind = kind
@@ -366,9 +369,9 @@ def update_state_n_way(
             slot_text = slots.get(result.slot or "", "")
             digest = sha256_text(slot_text)
         elif isinstance(layout, SingleFileLayout):
-            digest = sha256_file(result.path)
+            digest = sha256_text(read_artifact_text(io, result.path))
         elif isinstance(layout, DirectorySkillLayout):
-            digest = sha256_tree(result.path)
+            digest = sha256_skill_tree_snapshot(result.path, read_artifact_text(io, result.path))
         else:
             raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         ps.agentic_tools[tool_name] = AgenticToolState(
