@@ -38,11 +38,7 @@ def build_cursor_spec(config: Mapping[str, Any] | None = None) -> AgenticToolSpe
     def secret_policy() -> str:
         if config is None:
             return "secrets_refused"
-        return str(
-            config.get("secret_policy")
-            or config.get("mcp_server_secret_policy")
-            or "secrets_refused"
-        )
+        return str(config.get("secret_policy", "secrets_refused"))
 
     def parse_mcp_server(
         text: str,

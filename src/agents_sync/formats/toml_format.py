@@ -10,10 +10,20 @@ from typing import Any
 from agents_sync.formats.jsonc_tokenizer import strip_utf8_bom
 from agents_sync.parser_bounds import enforce_text_bound
 
+_CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
+
+
+def normalize_toml_text(text: str) -> str:
+    """Strip TOML BOM variants before parsing."""
+    text = strip_utf8_bom(text)
+    if text.startswith(_CORRUPTED_UTF8_BOM):
+        return text[len(_CORRUPTED_UTF8_BOM):]
+    return text
+
 
 def deserialize(text: str) -> MutableMapping[str, Any]:
     text = enforce_text_bound(text, label="shared keyed-map TOML")
-    text = strip_utf8_bom(text)
+    text = normalize_toml_text(text)
     if not text or not text.strip():
         return {}
     result = tomllib.loads(text)

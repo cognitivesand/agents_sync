@@ -11,17 +11,19 @@ import tomllib
 from typing import Any
 
 from agents_sync.canonical import empty_canonical, new_pair_id
+from agents_sync.formats.toml_format import normalize_toml_text
 from agents_sync.markdown_yaml_metadata_block import (
+    frontmatter_for_render,
+    render_markdown_with_metadata_block,
+    set_or_remove_empty_metadata_field,
     split_frontmatter,
     unknown_metadata_fields,
-    yaml_dump,
 )
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob", "LS"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 PAIR_ID_RE = re.compile(r'^pair_id\s*=\s*"([^"]+)"', re.MULTILINE)
-_CORRUPTED_UTF8_BOM = "\u00ef\u00bb\u00bf"
 
 KNOWN_CODEX_TOML_KEYS = {
     "pair_id",
@@ -48,15 +50,6 @@ CODEX_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 # v0.1 used to append a JSON metadata blob to developer_instructions; strip it
 # on parse so adopted v0.1 artifacts don't leak the marker into canonical.body.
 _LEGACY_REVIEW_MARKER = "\n\n---\nConverted Claude-specific metadata for manual review:"
-
-
-def _normalize_toml_text(text: str) -> str:
-    if text.startswith("\ufeff"):
-        return text[1:]
-    # Defensive handling for already-corrupted BOM bytes rendered as text.
-    if text.startswith(_CORRUPTED_UTF8_BOM):
-        return text[3:]
-    return text
 
 
 def toml_string(value: str) -> str:
@@ -174,7 +167,7 @@ def infer_codex_sandbox(tools: list[str], disallowed_tools: list[str]) -> str | 
 
 
 def extract_pair_id(toml_text: str) -> str | None:
-    toml_text = _normalize_toml_text(toml_text)
+    toml_text = normalize_toml_text(toml_text)
     match = PAIR_ID_RE.search(toml_text)
     return match.group(1) if match else None
 
@@ -258,7 +251,7 @@ def parse_codex_agent_toml(
     If `prior_canonical` is given, per-agentic-tool state for other agentic
     tools survives untouched; Codex-owned fields reflect the current TOML.
     """
-    text = _normalize_toml_text(text)
+    text = normalize_toml_text(text)
     data = tomllib.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Codex agent TOML must be a table at root")
@@ -298,26 +291,26 @@ def parse_codex_agent_toml(
 
 # ---------- skill ----------
 
-def render_codex_skill_md(canonical: dict[str, Any]) -> str:
+def render_codex_skill_md(
+    canonical: dict[str, Any],
+    prior_text: str | None = None,
+) -> str:
     """Render the SKILL.md file for the Codex side of a skill pair.
 
     No leading auto-comment is emitted so that parsing the rendered file
     back into a canonical is a clean fixed point (NFR-06).
     """
-    frontmatter = {"pair_id": canonical["pair_id"], "name": canonical["name"]}
-    if canonical.get("description"):
-        frontmatter["description"] = canonical["description"]
-
+    frontmatter = frontmatter_for_render(prior_text)
+    frontmatter["pair_id"] = canonical["pair_id"]
+    frontmatter["name"] = canonical["name"]
+    set_or_remove_empty_metadata_field(
+        frontmatter, "description", canonical.get("description"),
+    )
+    for key, value in canonical.get("per_agentic_tool_extra", {}).get("codex", {}).items():
+        if key not in {"pair_id", "name", "description"}:
+            frontmatter[key] = value
     body = canonical.get("body", "").strip()
-
-    parts = [
-        "---",
-        yaml_dump(frontmatter).rstrip(),
-        "---",
-        "",
-        body,
-    ]
-    return "\n".join(parts).rstrip() + "\n"
+    return render_markdown_with_metadata_block(frontmatter, body)
 
 
 def parse_codex_skill_md(

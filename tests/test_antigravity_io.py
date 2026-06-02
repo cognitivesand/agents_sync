@@ -7,11 +7,11 @@ import pytest
 
 from agents_sync.antigravity_io import (
     KNOWN_ANTIGRAVITY_FIELDS,
-    extract_pair_id_from_md,
     parse_antigravity_skill_md,
     render_antigravity_skill_md,
 )
 from agents_sync.canonical import empty_canonical
+from agents_sync.markdown_yaml_metadata_block import extract_pair_id_from_md
 
 # ---------- parse ----------
 

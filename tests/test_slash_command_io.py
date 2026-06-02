@@ -153,6 +153,40 @@ def test_markdown_render_keeps_tool_specific_fields_isolated():
     assert "agent: reviewer" not in rendered
 
 
+def test_markdown_render_preserves_prior_frontmatter_comments_and_unknowns():
+    canonical = {
+        "pair_id": PAIR_ID,
+        "kind": "slash_command",
+        "name": "review",
+        "description": "Review a target",
+        "argument_hint": "[target]",
+        "body": "Review $ARGUMENTS.\n",
+        "per_agentic_tool_only": {"codex": {"mode": "execute"}},
+        "per_agentic_tool_extra": {"codex": {}},
+    }
+    prior = (
+        "---\n"
+        "# user-owned comment\n"
+        "name: old-path-fallback\n"
+        "description: old\n"
+        "vendor-field: keep\n"
+        "---\n"
+        "old body\n"
+    )
+
+    rendered = render_slash_command_markdown(
+        canonical,
+        prior,
+        agentic_tool_name="codex",
+    )
+
+    assert "# user-owned comment" in rendered
+    assert "vendor-field: keep" in rendered
+    assert "name: old-path-fallback" not in rendered
+    assert "description: Review a target" in rendered
+    assert "mode: execute" in rendered
+
+
 def test_toml_slash_command_maps_prompt_to_body_and_back(tmp_path: Path):
     body = "Run !{git status}\nOpen @{README.md}\nKeep {{args}}\n"
     text = "\n".join([

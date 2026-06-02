@@ -376,20 +376,35 @@ def _restore_path(source: Path, target: Path) -> None:
     if not source.exists() and not source.is_symlink():
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    _remove_path(target)
+    temp = target.with_name(f".{target.name}.restore-{os.getpid()}")
+    backup = target.with_name(f".{target.name}.rollback-{os.getpid()}")
+    _remove_path(temp)
+    _remove_path(backup)
     if source.is_dir() and not source.is_symlink():
-        shutil.copytree(source, target, symlinks=True)
+        shutil.copytree(source, temp, symlinks=True)
     else:
-        shutil.copy2(source, target)
+        shutil.copy2(source, temp)
+    target_existed = target.exists() or target.is_symlink()
+    if target_existed:
+        shutil.move(str(target), str(backup))
+    try:
+        shutil.move(str(temp), str(target))
+    except Exception:
+        if backup.exists() or backup.is_symlink():
+            shutil.move(str(backup), str(target))
+        raise
+    if backup.exists() or backup.is_symlink():
+        _remove_path(backup)
 
 
 def rollback_migration(backup_dir: Path) -> None:
-    """Restore live files from the pre-mutation backup snapshot.
+    """Best-effort restore from the pre-mutation backup snapshot.
 
     ``run_migration`` calls this whenever a mutating phase fails after the
-    source roots have been snapshotted. That makes the live filesystem
-    all-or-nothing: a later failure cannot leave stripped frontmatter next to
-    stale state.
+    source roots have been snapshotted. Each path is copied into a temporary
+    sibling before the live target is moved aside, so copy failures leave the
+    current live target untouched and the retained backup remains available
+    for manual recovery.
     """
     for root in (*AGENT_ROOTS, *SKILL_ROOTS):
         snapshot = backup_dir / "sources" / root.relative_to(HOME)

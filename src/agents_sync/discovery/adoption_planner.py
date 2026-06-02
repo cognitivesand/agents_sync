@@ -7,6 +7,7 @@ adoption would write on tools that don't yet hold the artifact.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from agents_sync.agentic_tool_spec import (
@@ -55,8 +56,23 @@ class AdoptionPlannerMixin(_WalkerHostBase):
         missing = [t for t in participating if t not in info.agentic_tools]
         if not missing or not info.agentic_tools:
             return []
-        canonical = self._read_source_canonical(info)
-        if is_private(canonical):
+        try:
+            canonical = self._read_source_canonical(info)
+        except (OSError, UnicodeDecodeError, ValueError, KeyError) as exc:
+            # Fail closed: an unreadable / unparseable source (incl. a broken
+            # rules @import, US-15 AC-4) plans no adoption targets. Per-pair
+            # processing handles the same failure and records it.
+            logging.warning(
+                "Cannot plan adoption targets; source unreadable/unparseable "
+                "(%s: %s)",
+                type(exc).__name__,
+                exc,
+                extra={"event": "adoption_plan_source_unreadable"},
+            )
+            return []
+        # A private or framework-specific source is never propagated, so it
+        # plans no targets and never figures in collision blocking (US-15).
+        if is_private(canonical) or canonical.get("framework_specific"):
             return []
         return self._targets_for_missing(info.kind, missing, canonical)
 
