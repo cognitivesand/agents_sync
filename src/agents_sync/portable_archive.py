@@ -35,7 +35,7 @@ import socket
 import tempfile
 import uuid
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -110,6 +110,47 @@ def _build_manifest(
     }
 
 
+def _classify_secret_bearing(
+    items: Iterable[tuple[str, dict[str, Any]]],
+    normalized_policy: str,
+    *,
+    operation: str,
+) -> tuple[list[str], list[str]]:
+    """Classify artifacts by literal secret content under ``normalized_policy``.
+
+    Returns ``(skipped_under_refused, bearing_under_accepted)``. Emits one
+    structured WARNING per refused artifact and a summary WARNING when any are
+    accepted (US-12 AC-12..AC-16). Shared by export and import so the receiver's
+    policy enforcement lives in one place.
+    """
+    skipped: list[str] = []
+    bearing: list[str] = []
+    for pair_id, canonical in items:
+        findings = find_mcp_secret_literals(canonical)
+        if not findings:
+            continue
+        if normalized_policy == "secrets_refused":
+            logging.warning(
+                "Skipping %s of artifact with literal secret material "
+                "under secret_policy=secrets_refused: pair_id=%s fields=%s",
+                operation,
+                pair_id,
+                [f.field_path for f in findings],
+            )
+            skipped.append(pair_id)
+        else:
+            bearing.append(pair_id)
+    if bearing:
+        logging.warning(
+            "Customization library %s under secret_policy=secrets_accepted: "
+            "%d artifact(s) carry literal secret material: %s",
+            operation,
+            len(bearing),
+            bearing,
+        )
+    return skipped, bearing
+
+
 def export_to_zip(
     state_dir: Path,
     zip_path: Path,
@@ -134,9 +175,7 @@ def export_to_zip(
         warn_deprecated=False,
     )
     state = load_state(state_dir)
-    canonicals: dict[str, dict[str, Any]] = {}
-    skipped_secret_artifacts: list[str] = []
-    secret_bearing_artifacts: list[str] = []
+    loaded: dict[str, dict[str, Any]] = {}
     for pair_id in state:
         canonical = load_canonical(state_dir, pair_id)
         if canonical is None:
@@ -145,30 +184,13 @@ def export_to_zip(
                 pair_id,
             )
             continue
-        findings = find_mcp_secret_literals(canonical)
-        if findings:
-            field_paths = [f.field_path for f in findings]
-            if normalized_policy == "secrets_refused":
-                logging.warning(
-                    "Skipping export of artifact with literal secret material "
-                    "under secret_policy=secrets_refused: "
-                    "pair_id=%s fields=%s",
-                    pair_id,
-                    field_paths,
-                )
-                skipped_secret_artifacts.append(pair_id)
-                continue
-            # secrets_accepted — include verbatim, summary warning emitted below
-            secret_bearing_artifacts.append(pair_id)
-        canonicals[pair_id] = dict(canonical)
+        loaded[pair_id] = canonical
 
-    if secret_bearing_artifacts:
-        logging.warning(
-            "Customization library export under secret_policy=secrets_accepted: "
-            "%d artifact(s) carry literal secret material: %s",
-            len(secret_bearing_artifacts),
-            secret_bearing_artifacts,
-        )
+    skipped_secret_artifacts, secret_bearing_artifacts = _classify_secret_bearing(
+        loaded.items(), normalized_policy, operation="export"
+    )
+    skipped_set = set(skipped_secret_artifacts)
+    canonicals = {pid: dict(c) for pid, c in loaded.items() if pid not in skipped_set}
 
     contains_secret_literals = bool(secret_bearing_artifacts)
     manifest = _build_manifest(
@@ -509,41 +531,19 @@ def _filter_secret_bearing_decisions(
     secret-bearing canonicals are de-accepted with one structured WARNING each;
     under secrets_accepted, all are imported verbatim and one summary WARNING is
     emitted. Returns the pair_ids skipped under secrets_refused."""
-    raw_policy = str(config.get("secret_policy", "secrets_refused"))
     normalized_policy = normalize_secret_policy(
-        raw_policy,
+        str(config.get("secret_policy", "secrets_refused")),
         source="import_from_zip",
         warn_deprecated=False,
     )
-    skipped_secret_artifacts: list[str] = []
-    secret_bearing_artifacts: list[str] = []
+    accepted = [(d.pair_id, d.canonical) for d in decisions if d.accepted]
+    skipped_secret_artifacts, _bearing = _classify_secret_bearing(
+        accepted, normalized_policy, operation="import"
+    )
+    skipped_set = set(skipped_secret_artifacts)
     for decision in decisions:
-        if not decision.accepted:
-            continue
-        findings = find_mcp_secret_literals(decision.canonical)
-        if not findings:
-            continue
-        field_paths = [f.field_path for f in findings]
-        if normalized_policy == "secrets_refused":
-            logging.warning(
-                "Skipping import of artifact with literal secret material "
-                "under secret_policy=secrets_refused: "
-                "pair_id=%s fields=%s",
-                decision.pair_id,
-                field_paths,
-            )
+        if decision.pair_id in skipped_set:
             decision.accepted = False
-            skipped_secret_artifacts.append(decision.pair_id)
-        else:
-            secret_bearing_artifacts.append(decision.pair_id)
-
-    if secret_bearing_artifacts:
-        logging.warning(
-            "Customization library import under secret_policy=secrets_accepted: "
-            "%d artifact(s) carry literal secret material: %s",
-            len(secret_bearing_artifacts),
-            secret_bearing_artifacts,
-        )
     return skipped_secret_artifacts
 
 
