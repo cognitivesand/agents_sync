@@ -1,8 +1,10 @@
 # Amendment 011 — Identity is minted only inside the adoption transaction
 
-- status: proposed
+- status: applied (RC-1 core); RC-6 adapter-branch cleanup folded into P7
 - branch: fix/size-explosion-hardening
 - date: 2026-06-04
+- landing commits: d1ebb88 (mint relocated to identity.mint_pair_id),
+  4946cea (candidate channel — mint only inside adoption, after parse)
 - supersedes / relates to: docs/bugs/602c6d_State_dir_size_explosion_crash_loop.md
   (RC-1, RC-6, FR-11); plan `elegant-bubbling-token`; validated by the
   exploratory prototype `archive/clean_core_prototype/clean_core.py` (AGENTS.md
@@ -98,10 +100,18 @@ Build the clean core; replace old paths rather than patch them (strangler).
 4. `sync.py`: route candidates to the new adoption step; the old
    `_reconcile_new_groups` (which assumed discovery-minted ids) is replaced by
    the candidate grouping above. The per-pair loop handles managed pairs only.
-5. `canonical.py`: delete `new_pair_id`; `empty_canonical(kind, pair_id)` makes
-   `pair_id` required.
-6. Adapters: delete the `elif prior_canonical is None: new_pair_id()` branch and
-   the `new_pair_id` import from each `*_io.py` and `mcp_server_io/parse`.
+5. `canonical.py`: `uuid4` removed; `new_pair_id` delegates to
+   `identity.mint_pair_id` (the single mint source). **Applied.**
+6. Adapters: the `elif prior_canonical is None: new_pair_id()` branch in each
+   `*_io.py` is now provably dead — `empty_canonical()` already supplies a
+   placeholder id and the engine overwrites it with the real id post-parse, so
+   adapters double-minted. Deleting these branches (and turning
+   `empty_canonical` into a no-mint factory so `parse()` never assigns identity)
+   is the RC-6 endgame. **Deferred to P7 (adapter thinning)**, where each adapter
+   is rewritten over shared parse/render helpers and these branches disappear as
+   part of that rewrite rather than as throwaway edits now. Until then the single
+   *source* of minting is already `identity.mint_pair_id`; `new_pair_id` is a
+   transitional shim with one caller (`empty_canonical`).
 
 ## Test plan
 

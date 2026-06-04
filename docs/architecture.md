@@ -243,13 +243,13 @@ outside.
 
 | Module | Lines | Role |
 |---|---:|---|
-| `identity.py` | 19 | UUIDv4 invariant |
+| `identity.py` | ~25 | `mint_pair_id` (the single id-mint site) + `validate_pair_id` |
+| `candidate.py` | ~33 | Provisional per-poll key for an id-less artifact (a *candidate*); discovery tags candidates, adoption mints their real id after parse (amendment 011) |
 | `sync_types.py` | 25 | Per-poll observation types |
 | `canonical.py` | 308 | Canonical schema + JSON I/O (D-1) |
 | `state.py` | 434 | `CustomizationArtifactState`, `AgenticToolState`, `target_slug`, state JSON gateway, `atomic_write_text` |
 | `artifact_names.py` | — | Artifact name helpers |
 | `field_names.py` | — | Canonical field name constants |
-| `identity.py` | 19 | UUIDv4 pair_id validation |
 
 ### Layer 3 — Adapters / ports (I/O boundary)
 
@@ -541,7 +541,7 @@ module:
 
 | Invariant | Established by | Verified by |
 |---|---|---|
-| **I-1: pair_id is canonical UUIDv4** anywhere it appears | `canonical.new_pair_id` + `identity.validate_pair_id` | every state-read, every adapter `extract_pair_id`, every archive-path construction |
+| **I-1: pair_id is canonical UUIDv4** anywhere it appears, minted in exactly one place | `identity.mint_pair_id` (sole minter) + `identity.validate_pair_id`; ids are minted only inside the adoption transaction, after a successful parse (amendment 011) | every state-read, every adapter `extract_pair_id`, every archive-path construction |
 | **I-2: target paths use `target_slug(name)`** as basename | `state.target_slug` | discovery's `_planned_adoption_targets`; rendering's target computation |
 | **I-3: no destructive write without prior archive** | `archive_copy` / `archive_move` | every branch of `adoption.AdoptionEngine` that overwrites or deletes |
 | **I-4: every reported failure is structured** (`pair_id`, `tool`, cause) | NFR-13 | `logging.exception` and `logging.error` call sites everywhere |
