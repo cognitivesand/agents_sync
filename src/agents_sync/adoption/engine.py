@@ -28,6 +28,7 @@ from agents_sync.agentic_tool_spec import (
     SharedKeyedMapLayout,
     is_reserved_customization_name,
 )
+from agents_sync.candidate import is_provisional
 from agents_sync.canonical import (
     canonical_digest,
     canonical_metadata,
@@ -36,6 +37,7 @@ from agents_sync.canonical import (
     set_canonical_metadata,
 )
 from agents_sync.config import expand_path
+from agents_sync.identity import mint_pair_id
 from agents_sync.rendering import (
     read_artifact_text,
     render_to_agentic_tool,
@@ -225,6 +227,13 @@ class AdoptionEngine(
             return False
         if self._skip_framework_specific(pair_id, source_tool, canonical):
             return False
+        if is_provisional(pair_id):
+            # The source parsed: this id-less candidate is adoptable. Mint its
+            # real identity now — the single point at which an id-less artifact
+            # is assigned an id, atomic with the canonical+state record below
+            # (amendment 011). A candidate that failed to parse never reaches
+            # here, so a malformed artifact is never minted.
+            pair_id = mint_pair_id()
         canonical["pair_id"] = pair_id
         self._stamp_canonical_content_change(canonical, previous=None)
 

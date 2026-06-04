@@ -17,7 +17,7 @@ from agents_sync.agentic_tool_spec import (
     SharedKeyedMapLayout,
     SingleFileLayout,
 )
-from agents_sync.canonical import new_pair_id
+from agents_sync.candidate import provisional_key
 from agents_sync.config import expand_path
 from agents_sync.identity import InvalidPairId, validate_pair_id
 from agents_sync.rendering import (
@@ -137,7 +137,10 @@ class EnumeratorMixin(_WalkerHostBase):
         if pair_id is None:
             pair_id = self.state_owner_for_path(shared_path, state, slot=slot_key)
             if pair_id is None:
-                pair_id = new_pair_id()
+                # Id-less candidate: tag with a deterministic provisional key, do
+                # NOT mint. A real id is minted only inside adoption, after a
+                # successful parse (amendment 011).
+                pair_id = provisional_key(tool_name, shared_path, slot_key)
         else:
             try:
                 validate_pair_id(pair_id)
@@ -238,7 +241,10 @@ class EnumeratorMixin(_WalkerHostBase):
         if pair_id is None:
             pair_id = self.state_owner_for_path(path, state)
             if pair_id is None:
-                pair_id = new_pair_id()
+                # Id-less candidate: deterministic provisional key, no mint.
+                # The real id is minted inside adoption, after a successful
+                # parse (amendment 011).
+                pair_id = provisional_key(tool_name, path, None)
         else:
             try:
                 validate_pair_id(pair_id)

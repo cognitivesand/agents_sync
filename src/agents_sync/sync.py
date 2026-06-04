@@ -33,6 +33,7 @@ from agents_sync.config import (
     validate_config,
 )
 from agents_sync.discovery import DiscoveryWalker
+from agents_sync.identity import mint_pair_id
 from agents_sync.markdown_yaml_metadata_block import AdapterParseError
 from agents_sync.mcp_secret_policy import reset_mcp_secret_warning_cache
 from agents_sync.rendering import read_artifact_text, slot_aware_collision_key
@@ -129,9 +130,15 @@ class Syncer:
         self._blocked_pair_ids |= self.discovery.block_target_collisions(discovery, state)
         glitch_tools = self._glitch_tools(discovery, state)
 
+        pre_adopt_pair_ids = set(state)
         changed, failed = self._process_discovered_pairs(discovery, state, glitch_tools)
+        # A candidate adopted this poll is recorded in `state` under its freshly
+        # minted real id, while `discovery` still holds its provisional key, so
+        # it would otherwise look "absent from discovery" to the deleted-pair
+        # reconciler. Skip these just-adopted pairs there.
+        newly_adopted = frozenset(set(state) - pre_adopt_pair_ids)
         deleted_changed, deleted_failed = self._reconcile_deleted_pairs(
-            discovery, state, glitch_tools
+            discovery, state, glitch_tools, skip=newly_adopted
         )
         changed += deleted_changed
         failed.extend(deleted_failed)
@@ -221,15 +228,20 @@ class Syncer:
         discovery: dict[str, CustomizationArtifactInfo],
         state: dict[str, CustomizationArtifactState],
         glitch_tools: frozenset[str],
+        skip: frozenset[str] = frozenset(),
     ) -> tuple[int, list[str]]:
         """Handle pairs in state but not in discovery. Per US-11 AC-4, only
         `available` tools can be removal sources: a pair whose state entries are
         all for unavailable tools is preserved verbatim until one returns to
-        `available`. A never-projected stub is healed from canonical, not removed."""
+        `available`. A never-projected stub is healed from canonical, not removed.
+
+        ``skip`` lists pairs adopted earlier this poll (recorded under a freshly
+        minted id absent from ``discovery``); they are present on disk and must
+        not be treated as deletions."""
         changed = 0
         failed: list[str] = []
         for pair_id in list(state.keys()):
-            if pair_id in discovery or pair_id in self._blocked_pair_ids:
+            if pair_id in discovery or pair_id in self._blocked_pair_ids or pair_id in skip:
                 continue
             ps = state[pair_id]
             if not ps.agentic_tools:
@@ -461,7 +473,11 @@ class Syncer:
             pair_ids,
             key=lambda p: (-tool_info_for(p).mtime, source_tool_by_pair[p]),
         )[0]
-        merged_pair_id = winner_pair_id
+        # The group's sources all parsed during grouping, so this merged
+        # artifact is adoptable: mint its real identity now (the candidates
+        # carried only provisional keys). Losers are archived under it and
+        # discovery is rekeyed to it; adoption then proceeds without re-minting.
+        merged_pair_id = mint_pair_id()
 
         for p in pair_ids:
             if p == winner_pair_id:
