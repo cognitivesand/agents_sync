@@ -39,6 +39,7 @@ from agents_sync.canonical import (
 from agents_sync.config import expand_path
 from agents_sync.identity import mint_pair_id
 from agents_sync.rendering import (
+    path_collision_key,
     read_artifact_text,
     render_to_agentic_tool,
     update_state_n_way,
@@ -87,6 +88,9 @@ class AdoptionEngine(
         # (US-11 AC-4: an unavailable tool's absence from `info` is not removal).
         available = self._available_participating_tools(info.kind)
         present = [t for t in available if t in info.agentic_tools]
+        # US-04 AC-1: a pure filesystem mv (same content, new path) just updates
+        # the recorded path — no rewrite on any tool.
+        rebound = self._rebind_moved_paths(ps, info, present)
         missing_from_state = [
             t for t in available if t in ps.agentic_tools and t not in info.agentic_tools
         ]
@@ -130,10 +134,33 @@ class AdoptionEngine(
         if not changed:
             if to_extend:
                 return self._extend_to_new_tools(pair_id, info, state, to_extend)
-            return False
+            return rebound
         if len(changed) == 1:
             return self._sync_from_agentic_tool(pair_id, changed[0], info, state)
         return self._resolve_conflict_n_way(pair_id, info, state, changed)
+
+    def _rebind_moved_paths(
+        self,
+        ps: CustomizationArtifactState,
+        info: CustomizationArtifactInfo,
+        present: list[str],
+    ) -> bool:
+        """US-04 AC-1: when a present tool's observed path differs from the
+        recorded path but the content digest is unchanged, the file was moved
+        (`mv`); rebind the recorded path with no rewrite. Returns True if any
+        path was rebound."""
+        rebound = False
+        for tool in present:
+            recorded = ps.agentic_tools.get(tool)
+            observed = info.agentic_tools[tool]
+            if recorded is None:
+                continue
+            if recorded.last_written == observed.digest and (
+                path_collision_key(recorded.path) != path_collision_key(observed.path)
+            ):
+                recorded.path = observed.path
+                rebound = True
+        return rebound
 
     def _available_participating_tools(self, kind: str) -> list[str]:
         """Tools that can participate in this `kind` right now.
