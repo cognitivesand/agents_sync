@@ -104,6 +104,9 @@ class Syncer:
         # so a persistently malformed file is diagnosed once, not every poll
         # (NFR-12/13). Cleared when the file parses again.
         self._diagnosed_candidates: set[str] = set()
+        # US-07 AC-5: track whether we have already logged the "waiting for two
+        # tools" state, so it is announced once per transition, not per poll.
+        self._waiting_for_two_tools = False
         self.tool_status = ToolStatusTracker(self.config, self.agentic_tools)
         self.discovery = DiscoveryWalker(self.config, self.agentic_tools, self.tool_status)
         self.adoption = AdoptionEngine(
@@ -127,6 +130,11 @@ class Syncer:
     def sync_once(self) -> SyncResult:
         reset_mcp_secret_warning_cache()
         self.tool_status.refresh()
+        if not self._destructive_ops_permitted():
+            # US-07 AC-5: fewer than two available tools — no source+destination
+            # pair, so do no destructive work and poll quietly. Per-tool status
+            # was already logged on transition by refresh (US-11 AC-1).
+            return SyncResult()
         state = load_state(self.state_dir)
         self._adopt_orphan_canonicals(state)
         discovery, self._blocked_pair_ids = self.discovery.discover(state)
@@ -161,6 +169,24 @@ class Syncer:
             len(result.blocked),
         )
         return result
+
+    def _destructive_ops_permitted(self) -> bool:
+        """US-07 AC-5: destructive work (adoption, propagation, removal) requires
+        at least two `available` agentic_tools — a source and a destination.
+        Below that the daemon polls quietly and waits, announcing the wait once
+        per transition (NFR-12)."""
+        available = sum(1 for t in self.agentic_tools if self.tool_status.is_available(t))
+        if available >= 2:
+            self._waiting_for_two_tools = False
+            return True
+        if not self._waiting_for_two_tools:
+            self._waiting_for_two_tools = True
+            logging.info(
+                "Fewer than two agentic_tools available (%d); polling quietly with "
+                "no sync until at least two are available (US-07 AC-5).",
+                available,
+            )
+        return False
 
     def _adopt_orphan_canonicals(self, state: dict[str, CustomizationArtifactState]) -> None:
         """FR-16: adopt every canonical present in the store but not yet managed —
