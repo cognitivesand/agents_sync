@@ -27,13 +27,29 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable
 
+from agents_sync.archive_gc import prune_archive
 from agents_sync.sync import Syncer
 
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
 """Exit after this many consecutive *whole-poll exceptions* (systemic failures).
 Per-artifact failures (``SyncResult.failed``) are isolated and never counted."""
+
+DEFAULT_GC_INTERVAL_SECONDS = 24 * 60 * 60
+"""How often the daemon prunes the archive (NFR-07). ``None`` disables the tick."""
+
+
+def _prune_archive_safely(syncer: Syncer) -> None:
+    """Run an archive GC pass; a GC fault must never crash the poll loop (FR-02)."""
+    state_dir = getattr(syncer, "state_dir", None)
+    if state_dir is None:
+        return
+    try:
+        prune_archive(state_dir)
+    except Exception:
+        logging.exception("Archive GC tick failed (non-fatal)")
 
 
 def _register_signal_if_available(
@@ -50,6 +66,7 @@ def watch(
     interval_seconds: float,
     *,
     max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    gc_interval_seconds: float | None = DEFAULT_GC_INTERVAL_SECONDS,
     stop_event: threading.Event | None = None,
 ) -> int:
     """Run the continuous sync loop. Returns an exit code suitable for
@@ -74,6 +91,7 @@ def watch(
 
     consecutive_exceptions = 0
     prev_failed: frozenset[str] = frozenset()
+    last_gc = time.monotonic()
     exit_code = 0
     while not stop.is_set():
         try:
@@ -110,6 +128,10 @@ def watch(
             )
             exit_code = 1
             break
+
+        if gc_interval_seconds is not None and (time.monotonic() - last_gc) >= gc_interval_seconds:
+            _prune_archive_safely(syncer)
+            last_gc = time.monotonic()
 
         # Cancellable sleep: returns True if stop was signalled, False on timeout.
         if stop.wait(interval_seconds):

@@ -179,3 +179,41 @@ def test_watch_exits_after_consecutive_whole_poll_exceptions(monkeypatch):
 
     assert code == 1
     assert syncer.calls == 3
+
+
+def test_daemon_gc_tick_prunes_archive(tmp_path, monkeypatch):
+    """The daemon's low-frequency GC tick prunes the archive (NFR-07)."""
+    import datetime as _dt
+
+    monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
+    state_dir = tmp_path / "state"
+    side = state_dir / "archive" / "11111111-1111-4111-8111-111111111111" / "claude"
+    side.mkdir(parents=True)
+    old = _dt.datetime.now(tz=_dt.UTC) - _dt.timedelta(days=500)
+    entry = side / f"CLAUDE.md.{old.strftime('%Y-%m-%dT%H-%M-%S-%fZ')}"
+    entry.write_text("old", encoding="utf-8")
+
+    class _GcSyncer:
+        def __init__(self) -> None:
+            self.state_dir = state_dir
+            self.calls = 0
+
+        def sync_once(self) -> SyncResult:
+            self.calls += 1
+            return SyncResult()
+
+    syncer = _GcSyncer()
+    stop = threading.Event()
+
+    def stopper():
+        for _ in range(100):
+            if syncer.calls >= 1:
+                stop.set()
+                return
+            time.sleep(0.01)
+
+    threading.Thread(target=stopper, daemon=True).start()
+    # gc_interval_seconds=0.0 -> GC runs every cycle.
+    watch(syncer, interval_seconds=0.0, gc_interval_seconds=0.0, stop_event=stop)
+
+    assert not entry.exists()

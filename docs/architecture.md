@@ -271,6 +271,7 @@ outside.
 | `formats/` (4 files) | ~260 | JSON/JSONC/TOML round-trip parsers | — |
 | `markdown_yaml_metadata_block.py` | 310 | YAML front-matter extraction, `extract_pair_id_from_md` (FR-11) | — |
 | `archive.py` | 156 | `archive_copy` / `archive_move` / `archive_text` / `archive_canonical` gateway (NFR-01) | `filesystem_windows_retry`, `identity`, `state` |
+| `archive_gc.py` | ~150 | Tiered age-based archive GC `prune_archive` (NFR-07, bug 602c6d RC-5) | stdlib |
 | `rendering.py` | 407 | Canonical → on-disk projection, state update | `agentic_tool_spec`, `config`, `state`, `filesystem_windows_retry` |
 | `mcp_secret_policy.py` | 423 | MCP secret literal detection + policy enforcement (NFR-15) | — |
 | `parser_bounds.py` | 163 | Parse-buffer boundary helpers | — |
@@ -299,8 +300,8 @@ outside.
 
 | Module | Lines | Role |
 |---|---:|---|
-| `daemon.py` | 37 | Polling loop (`watch`) |
-| `cli.py` | 432 | argparse + entry point (import / export / sync / watch) |
+| `daemon.py` | ~140 | Polling loop (`watch`); systemic-only failure budget (RC-4); low-frequency archive-GC tick (NFR-07) |
+| `cli.py` | ~460 | argparse + entry point (export / import / prune / sync / watch) |
 | `config.py` | 472 | TOML config, platform defaults, validation |
 | `__main__.py` | 3 | `python -m agents_sync` entry |
 | `__init__.py` | 1 | Package version |

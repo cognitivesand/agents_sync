@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 
+from agents_sync.archive_gc import prune_archive
 from agents_sync.config import (
     AgentsSyncConfig,
     ConfigError,
@@ -282,7 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-path", type=str)
     parser.add_argument("--verbose", action="store_true")
 
-    subparsers = parser.add_subparsers(dest="command", metavar="{export,import}")
+    subparsers = parser.add_subparsers(dest="command", metavar="{export,import,prune}")
 
     export_parser = subparsers.add_parser(
         "export",
@@ -304,6 +305,16 @@ def build_parser() -> argparse.ArgumentParser:
             "prints the pairs it would overwrite so you can confirm before "
             "running again with --force."
         ),
+    )
+
+    prune_parser = subparsers.add_parser(
+        "prune",
+        help="Prune the data-preservation archive on the tiered retention schedule (NFR-07).",
+    )
+    prune_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what would be pruned without deleting anything.",
     )
 
     return parser
@@ -401,6 +412,25 @@ def _run_import(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
     return 0
 
 
+def _run_prune(args: argparse.Namespace, config: AgentsSyncConfig) -> int:
+    state_dir = expand_path(config["state_path"]).parent
+    dry_run = bool(getattr(args, "dry_run", False))
+    try:
+        report = prune_archive(state_dir, dry_run=dry_run)
+    except OSError:
+        logging.exception("Prune failed")
+        return 1
+    logging.info(
+        "Prune %s: scanned=%d kept=%d deleted=%d bytes_reclaimed=%d",
+        "(dry-run)" if dry_run else "complete",
+        report.scanned,
+        report.kept,
+        report.deleted,
+        report.bytes_reclaimed,
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
@@ -423,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_export(args, config)
     if args.command == "import":
         return _run_import(args, config)
+    if args.command == "prune":
+        return _run_prune(args, config)
 
     syncer = Syncer(config)
     return watch(syncer, float(config["poll_interval_seconds"]))
