@@ -13,11 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import uuid
 from pathlib import Path
 from typing import Any
 
-from agents_sync.identity import InvalidPairId, validate_pair_id
+from agents_sync.identity import InvalidPairId, mint_pair_id, validate_pair_id
 from agents_sync.parser_bounds import ParserBoundsExceeded, read_text_bounded
 from agents_sync.state import _quarantine_corrupt, atomic_write_text
 
@@ -25,7 +24,11 @@ SCHEMA_VERSION = 2
 
 
 def new_pair_id() -> str:
-    return str(uuid.uuid4())
+    # Transitional shim toward amendment 011: minting is owned by
+    # `identity.mint_pair_id` (the single uuid4 site). This delegates so no id is
+    # ever born outside `identity`; remaining callers move to the adoption
+    # transaction as the clean core lands, after which this is removed.
+    return mint_pair_id()
 
 
 def empty_canonical(kind: str, pair_id: str | None = None) -> dict[str, Any]:
