@@ -1,7 +1,15 @@
 # 602c6d — State dir size explosion crash loop
 
-**Status:** phases 1–3 complete (root causes verified, tests defined); phase 4+
-pending.
+**Status:** RESOLVED (2026-06-04). All phases complete. The remediation was
+delivered as a *clean-architecture* fix rather than the patch sketched in
+phase 5: identity is minted only inside the adoption transaction, after a
+successful parse, so the whole failure class has no code path (no freeze
+register and no quarantine ledger were needed). See amendments 011 (identity
+core, RC-1/RC-6), 012 (daemon isolates per-artifact failures, RC-4), 013
+(tiered archive GC, RC-5), and the RC-3 log-spam fix. Validated end-to-end by
+the prototype `archive/clean_core_prototype/clean_core.py`. Regression tests:
+`tests/test_size_explosion_regression.py`, `tests/test_archive_gc.py`,
+`tests/test_cli_prune.py`, `tests/test_daemon_signals.py`.
 **Flow:** `bug_remediation` skill (Poirot/Columbo investigate, Freedman plans,
 Kitano tests).
 **Branch:** `fix/size-explosion-hardening`.
@@ -138,10 +146,14 @@ exists. Test module: `tests/test_size_explosion_regression.py` (marked
 
 ---
 
-## 4. Non_regression_tests_validation  *(Kitano)* — pending
+## 4. Non_regression_tests_validation  *(Kitano)* — complete
 
-Implement the above and run against unfixed code; all must fail (red). Output
-captured here once run.
+The RC-1 regression (`test_unadoptable_idless_artifact_does_not_churn_identities`)
+and the RC-3 regression (`test_unadoptable_artifact_is_diagnosed_once_not_every_poll`)
+were written first and confirmed **red** against the unfixed code (RC-1:
+`AssertionError: identity churn` — 4 distinct random pair_ids over 4 polls; RC-3:
+per-poll `ScannerError` tracebacks). They pass after the fix. The GC, CLI, and
+daemon regressions were likewise red-first.
 
 ---
 
@@ -191,6 +203,35 @@ not just clean-stories. RC-4/RC-5 are individual structural gaps fixed alongside
 **Gate:** met — removes every root cause, addresses the class, includes
 prevention, fits the architecture.
 
-## 6. Docs_update — pending
-## 7. Code_correction — pending
-## 8. Code_non_regression_testing — pending
+## 5b. How the delivered fix differs from the phase-5 plan
+
+The phase-5 plan proposed a *single identity service* that mints-with-a-record-
+sink, plus a freeze register and a quarantine ledger. During implementation a
+prototype showed a simpler, stronger design: make discovery **never mint**
+(id-less artifacts get a deterministic provisional key) and mint the real id
+**only inside the adoption transaction, after a successful parse**. A malformed
+artifact then fails to parse before any mint, so it is never assigned an id and
+never enters the managed set — there is nothing to "freeze" or "quarantine".
+This removed two planned subsystems (freeze register, quarantine ledger) while
+fully satisfying FR-11. RC-4 became a daemon policy fix (per-artifact failures
+never advance the exit budget); RC-3 a diagnose-once on the candidate path.
+
+## 6. Docs_update — complete
+
+`docs/architecture.md` updated (I-1 invariant, module map: `identity.mint_pair_id`
+sole minter, `candidate.py`, `archive_gc.py`, daemon policy). Amendments 011–013
+record the changes. RC-6's dead adapter mint-branches are folded into P7
+(adapter thinning); the single mint *source* is already `identity.mint_pair_id`.
+
+## 7. Code_correction — complete
+
+RC-1/RC-6: amendment 011 (identity minted only in adoption, after parse).
+RC-3: candidate diagnose-once. RC-4: amendment 012 (daemon isolates per-artifact
+failures). RC-5: amendment 013 (tiered archive GC + `agents-sync prune`).
+
+## 8. Code_non_regression_testing — complete
+
+`bash scripts/ci.sh` green (ruff + mypy --strict + full pytest, 574 tests),
+including the new regression suites. The wider-class question (§2) is addressed
+structurally: the mint-class defect cannot recur because there is one mint site,
+reached only after a successful parse.
