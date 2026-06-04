@@ -357,7 +357,7 @@ class Syncer:
     ) -> bool:
         for tool, tool_info in info.agentic_tools.items():
             recorded = ps.agentic_tools.get(tool)
-            if recorded is None or tool_info.digest != recorded.last_written:
+            if recorded is None or tool_info.digest != recorded.digest:
                 return True
         return False
 

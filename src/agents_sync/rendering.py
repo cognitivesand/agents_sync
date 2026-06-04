@@ -376,7 +376,6 @@ def update_state_n_way(
             raise ValueError(f"Unknown file layout: {type(layout).__name__}")
         ps.agentic_tools[tool_name] = AgenticToolState(
             path=result.path,
-            last_seen=digest,
-            last_written=digest,
+            digest=digest,
             slot=result.slot,
         )

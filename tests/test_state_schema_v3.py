@@ -29,7 +29,7 @@ def test_to_dict_excludes_canonical_metadata():
     ps = CustomizationArtifactState(
         kind="skill",
         agentic_tools={
-            "claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d")
+            "claude": AgenticToolState(path=Path("/x"), digest="d")
         },
     )
 
@@ -72,7 +72,7 @@ def test_agentic_tool_state_omits_slot_when_none():
     """Non-keyed-map artifacts stay compact: an unset slot does
     not appear in to_dict, so existing state files are not rewritten with
     an extra key on the next save cycle."""
-    encoded = AgenticToolState(path=Path("/x.md"), last_seen="d", last_written="d").to_dict()
+    encoded = AgenticToolState(path=Path("/x.md"), digest="d").to_dict()
 
     assert "slot" not in encoded
 
@@ -82,8 +82,7 @@ def test_agentic_tool_state_round_trips_slot():
     survives to_dict / from_dict without a schema-version bump."""
     original = AgenticToolState(
         path=Path("/home/u/.cursor/mcp.json"),
-        last_seen="d",
-        last_written="d",
+        digest="d",
         slot="github",
     )
 
@@ -136,7 +135,7 @@ def test_save_then_load_round_trip(tmp_path: Path):
         pair_id: CustomizationArtifactState(
             kind="skill",
             agentic_tools={
-                "claude": AgenticToolState(path=Path("/x"), last_seen="d", last_written="d"),
+                "claude": AgenticToolState(path=Path("/x"), digest="d"),
             },
         ),
     }

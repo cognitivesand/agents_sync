@@ -90,8 +90,7 @@ def _write_canonical_and_state(
         agentic_tools={
             "claude": AgenticToolState(
                 path=state_dir / "tools" / "claude" / f"{canonical['name']}.json",
-                last_seen=None,
-                last_written=None,
+                digest=None,
                 slot=canonical["name"],
             ),
         },

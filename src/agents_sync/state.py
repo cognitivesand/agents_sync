@@ -76,15 +76,15 @@ class AgenticToolState:
     """
 
     path: Path
-    last_seen: str | None = None
-    last_written: str | None = None
+    # Digest of this tool's artifact at its last projection. (Formerly stored
+    # twice as last_seen/last_written, written identically; collapsed to one.)
+    digest: str | None = None
     slot: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
             "path": str(self.path),
-            "last_seen": self.last_seen,
-            "last_written": self.last_written,
+            "digest": self.digest,
         }
         if self.slot is not None:
             data["slot"] = self.slot
@@ -92,10 +92,13 @@ class AgenticToolState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgenticToolState:
+        # Accept the legacy ``last_written`` key from pre-collapse state files.
+        digest = data.get("digest")
+        if digest is None:
+            digest = data.get("last_written")
         return cls(
             path=Path(data["path"]),
-            last_seen=data.get("last_seen"),
-            last_written=data.get("last_written"),
+            digest=digest,
             slot=data.get("slot"),
         )
 

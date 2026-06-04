@@ -124,7 +124,7 @@ class AdoptionEngine(
             t
             for t in present
             if info.agentic_tools[t].digest
-            != (ps.agentic_tools[t].last_written if t in ps.agentic_tools else None)
+            != (ps.agentic_tools[t].digest if t in ps.agentic_tools else None)
         ]
         # Available tools that are newly participating (in neither state nor
         # info) — extend the canonical to them per v0.4 plan §5 first bullet.
@@ -155,7 +155,7 @@ class AdoptionEngine(
             observed = info.agentic_tools[tool]
             if recorded is None:
                 continue
-            if recorded.last_written == observed.digest and (
+            if recorded.digest == observed.digest and (
                 path_collision_key(recorded.path) != path_collision_key(observed.path)
             ):
                 recorded.path = observed.path
