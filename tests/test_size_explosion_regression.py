@@ -13,6 +13,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
+import logging
 from pathlib import Path
 
 from agents_sync.canonical import list_canonical_ids
@@ -70,3 +71,30 @@ def test_clean_idless_artifact_is_adopted_with_stable_identity(tmp_path: Path) -
     syncer.sync_once()
     ids_after_more = set(list_canonical_ids(syncer.state_dir))
     assert ids_after_more == ids_after_first, "identity must be stable, not re-minted"
+
+
+def test_unadoptable_artifact_is_diagnosed_once_not_every_poll(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """RC-3 / NFR-12 / NFR-13: a persistently malformed, id-less artifact is
+    reported with a single structured warning, not a full traceback on every
+    poll (the symptom was 6.08 M identical error lines)."""
+    syncer = make_syncer(tmp_path)
+    _write_claude_skill(syncer, "bad", _MALFORMED)
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(4):
+            syncer.sync_once()
+
+    diagnoses = [r for r in caplog.records if "Unadoptable artifact" in r.getMessage()]
+    assert len(diagnoses) == 1, f"expected one diagnosis across 4 polls, got {len(diagnoses)}"
+
+    # The expected (user-fixable) malformed-content case must not be logged as an
+    # unexpected error with a stack trace, and certainly not every poll.
+    spam = [
+        r
+        for r in caplog.records
+        if r.exc_info is not None
+        and ("Cannot plan adoption target" in r.getMessage() or "cannot parse" in r.getMessage())
+    ]
+    assert spam == [], f"per-poll traceback spam for an expected malformed file: {len(spam)}"

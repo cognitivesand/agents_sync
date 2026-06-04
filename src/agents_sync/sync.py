@@ -100,6 +100,10 @@ class Syncer:
         )
         self.state_dir = prepare_state_storage(self.config)
         self._blocked_pair_ids: set[str] = set()
+        # Provisional keys of id-less candidates already reported as unadoptable,
+        # so a persistently malformed file is diagnosed once, not every poll
+        # (NFR-12/13). Cleared when the file parses again.
+        self._diagnosed_candidates: set[str] = set()
         self.tool_status = ToolStatusTracker(self.config, self.agentic_tools)
         self.discovery = DiscoveryWalker(self.config, self.agentic_tools, self.tool_status)
         self.adoption = AdoptionEngine(
@@ -435,7 +439,27 @@ class Syncer:
                     artifact_path=tool_info.path,
                     artifact_root=root,
                 )
+            except (AdapterParseError, YAMLError) as exc:
+                # Expected: a user file with malformed content and no recoverable
+                # id. The candidate is unadoptable — drop it from discovery so no
+                # downstream step re-parses it, and diagnose it ONCE (NFR-12/13)
+                # with a structured warning rather than a per-poll stack trace
+                # (RC-3: the 6.08 M-line symptom).
+                if pair_id not in self._diagnosed_candidates:
+                    self._diagnosed_candidates.add(pair_id)
+                    logging.warning(
+                        "Unadoptable artifact (unparseable content, no recoverable id): "
+                        "tool=%s path=%s cause=%s",
+                        tool_name,
+                        tool_info.path,
+                        exc,
+                    )
+                discovery.pop(pair_id, None)
+                continue
             except Exception:
+                # An unexpected failure (not plain malformed content) — leave the
+                # pair in discovery so the normal per-pair path records it as
+                # `failed` (e.g. a rules @import that fails closed, US-15 AC-4).
                 logging.exception(
                     "Reconcile: cannot parse for grouping: pair_id=%s tool=%s path=%s",
                     pair_id,
@@ -443,6 +467,7 @@ class Syncer:
                     tool_info.path,
                 )
                 continue
+            self._diagnosed_candidates.discard(pair_id)
             if is_private(canonical):
                 discovery.pop(pair_id, None)
                 continue
