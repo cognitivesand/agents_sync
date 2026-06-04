@@ -75,44 +75,16 @@ def test_watch_exits_zero_when_stop_event_is_set(monkeypatch):
     assert elapsed < 1.0
 
 
-def test_watch_exits_nonzero_after_consecutive_failures(monkeypatch):
-    """An error budget exit lets a supervisor restart or alert."""
-    monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
-    syncer = _FakeSyncer(
-        [
-            SyncResult(changed=0, failed=["p1"]),
-            SyncResult(changed=0, failed=["p2"]),
-            SyncResult(changed=0, failed=["p3"]),
-        ]
-    )
-
-    code = watch(
-        syncer,
-        interval_seconds=0.0,
-        max_consecutive_failures=3,
-    )
-
-    assert code == 1
-    assert syncer.calls == 3
-
-
-def test_watch_resets_failure_counter_after_clean_poll(monkeypatch):
-    """A single clean poll resets the consecutive-failure counter."""
+def test_watch_stays_up_despite_persistent_per_artifact_failures(monkeypatch):
+    """FR-02 / RC-4: an artifact that fails on every poll must NOT down the
+    daemon. Per-artifact failures never advance the exit budget."""
     monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
     stop = threading.Event()
-    syncer = _FakeSyncer(
-        [
-            SyncResult(changed=0, failed=["p1"]),
-            SyncResult(changed=0, failed=["p2"]),
-            SyncResult(changed=1),  # clean — resets counter
-            SyncResult(changed=0, failed=["p3"]),
-        ]
-    )
+    syncer = _FakeSyncer([SyncResult(changed=0, failed=["p1"]) for _ in range(5)])
 
     def stopper():
-        # Let four polls run, then stop.
-        for _ in range(10):
-            if syncer.calls >= 4:
+        for _ in range(100):
+            if syncer.calls >= 5:
                 stop.set()
                 return
             time.sleep(0.01)
@@ -125,13 +97,71 @@ def test_watch_resets_failure_counter_after_clean_poll(monkeypatch):
         stop_event=stop,
     )
 
-    # The clean poll at call #3 resets the counter, so we never hit the
-    # error budget — exit on the stop event with code 0.
+    # Ran well past the old 3-failure budget and still exited cleanly on stop.
+    assert code == 0
+    assert syncer.calls >= 3
+
+
+def test_persistent_per_artifact_failures_log_once(monkeypatch, caplog):
+    """A persistently failing artifact is logged on transition, not every poll
+    (NFR-12), so it is visible without re-spamming."""
+    import logging
+
+    monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
+    stop = threading.Event()
+    syncer = _FakeSyncer([SyncResult(changed=0, failed=["p1"]) for _ in range(4)])
+
+    def stopper():
+        for _ in range(100):
+            if syncer.calls >= 4:
+                stop.set()
+                return
+            time.sleep(0.01)
+
+    threading.Thread(target=stopper, daemon=True).start()
+    with caplog.at_level(logging.WARNING):
+        watch(syncer, interval_seconds=0.0, max_consecutive_failures=3, stop_event=stop)
+
+    warnings = [r for r in caplog.records if "Per-artifact sync failures" in r.getMessage()]
+    assert len(warnings) == 1
+
+
+def test_watch_resets_exception_counter_after_a_returning_poll(monkeypatch):
+    """A poll that returns resets the consecutive whole-poll-exception counter,
+    so intermittent systemic errors do not accumulate to an exit."""
+    monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
+    stop = threading.Event()
+    syncer = _FakeSyncer(
+        [
+            OSError("transient"),
+            OSError("transient"),
+            SyncResult(changed=1),  # returns — resets the exception counter
+            OSError("transient"),
+            OSError("transient"),
+        ]
+    )
+
+    def stopper():
+        for _ in range(100):
+            if syncer.calls >= 5:
+                stop.set()
+                return
+            time.sleep(0.01)
+
+    threading.Thread(target=stopper, daemon=True).start()
+    code = watch(
+        syncer,
+        interval_seconds=0.0,
+        max_consecutive_failures=3,
+        stop_event=stop,
+    )
+
+    # Never 3 consecutive exceptions, so the budget is never hit.
     assert code == 0
 
 
-def test_watch_treats_whole_poll_exception_like_a_failure(monkeypatch):
-    """An exception from ``sync_once`` advances the failure counter."""
+def test_watch_exits_after_consecutive_whole_poll_exceptions(monkeypatch):
+    """A systemic failure (sync_once raising) advances the exit budget."""
     monkeypatch.setattr("agents_sync.daemon._register_signal_if_available", lambda *a, **k: None)
     syncer = _FakeSyncer(
         [

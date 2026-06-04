@@ -1,18 +1,20 @@
 """Continuous-poll daemon loop with an error budget and cancellable sleep.
 
 The loop wakes up every ``interval_seconds`` and calls ``Syncer.sync_once``.
-Three kinds of outcome are distinguished:
+The exit budget counts only *systemic* failures, never per-artifact ones (FR-02
+fault isolation; bug 602c6d RC-4, amendment 012):
 
-- **Clean poll** — ``SyncResult.failed`` is empty. The consecutive-failure
-  counter is reset and the loop sleeps until the next interval (or until a
-  signal arrives, whichever is first).
-- **Per-pair failure** — ``sync_once`` returned but ``SyncResult.failed``
-  is non-empty. Logged. The consecutive-failure counter advances; if it
-  hits ``max_consecutive_failures`` the loop exits with a clear marker so a
-  supervisor (systemd, launchd, ``schtasks``) can restart or alert.
-- **Whole-poll exception** — ``sync_once`` itself raised. Logged at
-  exception level. The consecutive-failure counter advances on the same
-  policy as a per-pair failure.
+- **Clean poll** — ``sync_once`` returned. The systemic-exception counter is
+  reset and the loop sleeps until the next interval (or until a signal arrives).
+- **Per-artifact failure** — ``sync_once`` returned but ``SyncResult.failed``
+  is non-empty. The faults are isolated and retried next poll; they are logged
+  on *transition* (NFR-12) and do **not** advance the exit budget, so one stuck
+  artifact can never down the daemon.
+- **Whole-poll exception** — ``sync_once`` itself raised (a systemic fault).
+  Logged at exception level; advances the exit budget. On
+  ``max_consecutive_failures`` consecutive such polls the loop exits with a
+  clear marker so a supervisor (systemd, launchd, ``schtasks``) can restart or
+  alert.
 
 Cancellation: ``request_stop`` flips a ``threading.Event``; both the
 sleep and the loop predicate observe it, so SIGTERM/SIGINT is honoured
@@ -30,7 +32,8 @@ from collections.abc import Callable
 from agents_sync.sync import Syncer
 
 DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
-"""Exit after this many consecutive polls with at least one failed pair."""
+"""Exit after this many consecutive *whole-poll exceptions* (systemic failures).
+Per-artifact failures (``SyncResult.failed``) are isolated and never counted."""
 
 
 def _register_signal_if_available(
@@ -69,33 +72,41 @@ def watch(
         _register_signal_if_available(signal.SIGTERM, request_stop)
     logging.info("Watching configured agent and skill roots with SHA256 polling")
 
-    consecutive_failures = 0
+    consecutive_exceptions = 0
+    prev_failed: frozenset[str] = frozenset()
     exit_code = 0
     while not stop.is_set():
         try:
             result = syncer.sync_once()
         except Exception:
+            # Systemic failure: the poll mechanism itself broke (unreadable state
+            # dir, runtime config fault, ...). Only this advances the exit budget.
             logging.exception("Sync failed (whole-poll exception)")
-            consecutive_failures += 1
+            consecutive_exceptions += 1
         else:
-            if result.failed:
-                logging.error(
-                    "Sync poll had failures: failed=%d blocked=%d changed=%d",
+            # A poll that returned is a healthy loop, even if some artifacts
+            # failed: those faults are isolated (FR-02), retried next poll, and
+            # never down the daemon (RC-4, amendment 012).
+            consecutive_exceptions = 0
+            current_failed = frozenset(result.failed)
+            if current_failed and current_failed != prev_failed:
+                # Log per-artifact failures on transition only (NFR-12), so a
+                # persistently stuck artifact is visible without per-poll spam.
+                logging.warning(
+                    "Per-artifact sync failures (isolated, retried next poll): "
+                    "failed=%d blocked=%d changed=%d pair_ids=%s",
                     len(result.failed), len(result.blocked), result.changed,
+                    ", ".join(result.failed),
                 )
-                consecutive_failures += 1
-            else:
-                if result.changed:
-                    logging.info(
-                        "Sync completed: %d changed item(s)", result.changed,
-                    )
-                consecutive_failures = 0
+            prev_failed = current_failed
+            if not current_failed and result.changed:
+                logging.info("Sync completed: %d changed item(s)", result.changed)
 
-        if consecutive_failures >= max_consecutive_failures:
+        if consecutive_exceptions >= max_consecutive_failures:
             logging.error(
-                "Exiting after %d consecutive failed polls; "
+                "Exiting after %d consecutive whole-poll exceptions; "
                 "supervisor should restart and/or alert.",
-                consecutive_failures,
+                consecutive_exceptions,
             )
             exit_code = 1
             break
