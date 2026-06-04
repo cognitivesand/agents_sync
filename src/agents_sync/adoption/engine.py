@@ -574,10 +574,17 @@ class AdoptionEngine(
     ) -> bool:
         """Pick argmax(mtime) over changed tools; archive losers' bytes; project."""
         winner = self._pick_winner(changed_tools, info)
-        winner_canonical = self._load_winner_canonical_for_privacy(
+        winner_spec = self.agentic_tools[winner]
+        winner_info = info.agentic_tools[winner]
+        winner_canonical = self._load_target_canonical_for_privacy(
             pair_id,
-            winner,
-            info,
+            winner_spec,
+            info.kind,
+            winner_info.path,
+            prior_text=None,
+            prior_canonical=load_canonical(self.state_dir, pair_id),
+            artifact_root=expand_path(self.config[winner_spec.config_dir_keys[info.kind]]),
+            target_slot=winner_info.slot,
         )
         if winner_canonical is None:
             return False
@@ -624,44 +631,3 @@ class AdoptionEngine(
             return
         archive.archive_copy(self.state_dir, pair_id, tool, tool_info.path)
 
-    def _load_winner_canonical_for_privacy(
-        self,
-        pair_id: str,
-        winner: str,
-        info: CustomizationArtifactInfo,
-    ) -> dict[str, Any] | None:
-        prior_canonical = load_canonical(self.state_dir, pair_id)
-        tool_info = info.agentic_tools[winner]
-        tool_spec = self.agentic_tools[winner]
-        tool_io = tool_spec.io[info.kind]
-        try:
-            text = read_artifact_text(tool_io, tool_info.path, slot=tool_info.slot)
-        except (OSError, UnicodeDecodeError) as exc:
-            logging.warning(
-                "Could not inspect conflict winner at %s for pair_id=%s; "
-                "treating as private (fail-closed) (%s: %s)",
-                tool_info.path,
-                pair_id,
-                type(exc).__name__,
-                exc,
-                extra={"event": "privacy_gate_failed_closed_on_winner_read"},
-            )
-            return None
-        try:
-            return tool_io.parse(
-                text,
-                prior_canonical,
-                artifact_path=tool_info.path,
-                artifact_root=expand_path(self.config[tool_spec.config_dir_keys[info.kind]]),
-            )
-        except (OSError, UnicodeDecodeError, ValueError, KeyError) as exc:
-            logging.warning(
-                "Could not inspect conflict winner canonical at %s for pair_id=%s; "
-                "treating as private (fail-closed) (%s: %s)",
-                tool_info.path,
-                pair_id,
-                type(exc).__name__,
-                exc,
-                extra={"event": "privacy_gate_failed_closed_on_winner_parse"},
-            )
-            return None
