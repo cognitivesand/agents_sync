@@ -67,7 +67,7 @@ the superseded modules retired. The conformance suite holds throughout.
 | S1 | Canonical document | `domain_model/canonical_document` | schema, normalise (idempotent), content-digest excludes metadata (FR-14), dict round-trip |
 | S2 | Artifact identity | `domain_model/artifact_identity` | `mint_artifact_id` is the sole minter; `validate_artifact_id` (UUIDv4); single-caller static guard |
 | S3a | Artifact naming & candidate key | `domain_model/artifact_naming` | slug rule (Windows-reserved guard) + `candidate_key` (kind+slug); the identity grouping for id-less candidates (US-03) |
-| S3b | Tool surface & format | `domain_model/tool_surface` | `ToolSurface` / `SurfaceFormat` / `KeyedMapSlot` declarative recipe (dialect, fields, reserved names, filename precedence) |
+| S3b | Tool surface & format (minimal) | `domain_model/tool_surface` | `KeyedMapSlot`, `ToolSurface` (tool, kind, location, surface_format), minimal `SurfaceFormat` (dialect) — immutable hashable value objects the planner consumes. The recipe fields (known/tool-only fields, reserved names, filename precedence) grow with their consumers in S9 (translation) / S17 (read phase), per YAGNI |
 | S4 | Sync plan vocabulary | `domain_model/sync_plan` | `SyncIntent` types + `SyncResult`; value semantics |
 
 ### Phase B — The planner (pure, the brain)
