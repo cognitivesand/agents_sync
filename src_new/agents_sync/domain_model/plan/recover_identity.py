@@ -54,9 +54,9 @@ def recover_identity(
 def _recorded_owner_index(sync_state: SyncState) -> Mapping[tuple[str, SurfaceLocation], str]:
     """Map each recorded (tool, location) to the artifact_id that owns it."""
     return {
-        (tool, location): artifact_id
+        (tool, recorded.location): artifact_id
         for artifact_id, record in sync_state.records.items()
-        for tool, location in record.surfaces.items()
+        for tool, recorded in record.surfaces.items()
     }
 
 

@@ -168,29 +168,35 @@ A pure function over the gathered observations and recorded state:
 
 1. **Recover identity, never mint.** Group observations by embedded id, then by
    the state that owns the location; the remainder are **candidates**.
-2. **Per known (already-managed) artifact:**
-   - **Content won't parse** (the read phase returned `ParseFailure`) → `freeze_artifact`:
-     the id was recovered, so it stays managed — not synced, not removed, not
-     re-identified (FR-11).
-   - **Change detection is by digest** — a surface changed iff its `content_digest`
-     differs from the recorded digest. None changed → unchanged (plus extend to
-     newly-available tools). One changed → `absorb_tool_edit` + `project_to_tools`.
-     Two or more changed → conflict: winner is argmax `modified_time`; on a tie,
-     a deterministic tiebreak by tool `name` (Unicode-normalised, case-folded) with
-     a `WARN tied-mtime` line (US-06 AC-4; the same tiebreak governs an
-     adoption-time tie, US-03 AC-7); then `absorb_tool_edit(winner)` +
-     `project_to_tools(rest)`. (Digest, not mtime, is the change *detector*; mtime
-     is only the conflict tiebreaker.)
-   - **`name` changed** → `rename_artifact`; if the new slug collides with another
-     managed artifact → `reject_collision` instead (no destructive op).
-   - **Two managed artifacts resolve to the same key** (different ids) →
-     `reject_collision` for both, untouched, structured error (US-03 AC-8).
-   - **Surface missing from an available tool** → `remove_artifact`, unless this is
-     a *glitch* — **≥2 of that tool's recorded artifacts vanished in this poll on an
-     available tool** (US-11 AC-9) — in which case `reproject_canonical`.
-   - **Canonical changed out of band** (its store digest moved, no tool changed) →
-     `reproject_canonical`. **Canonical-store entry corrupt** → `rebuild_corrupt_canonical`.
-   - **Pure `mv`** (same digest, new location) → record the new location, no rewrite.
+2. **Per known (already-managed) artifact — a short pipeline of guards around one
+   content rule** (the decision surface collapses: the nine apparent cases are a
+   freeze guard, a canonical-authority guard, a surface-shape diff, and one
+   parametric content rule):
+   - **Freeze guard.** Content won't parse (the read phase returned `ParseFailure`)
+     → `freeze_artifact`: the id was recovered, so it stays managed — not synced,
+     not removed, not re-identified (FR-11).
+   - **Canonical-authority guard.** Canonical-store entry corrupt →
+     `rebuild_corrupt_canonical`; canonical changed out of band (its store digest
+     moved, no tool changed) → `reproject_canonical`.
+   - **Surface-shape guards** — one observed-vs-recorded diff of the surface set and
+     name. `name` changed → `rename_artifact` (new slug collides with another
+     managed → `reject_collision` instead, no destructive op); two managed artifacts
+     resolve to the same key, different ids → `reject_collision` for both, structured
+     error (US-03 AC-8); a recorded surface vanished from an available tool →
+     `remove_artifact`, unless ≥2 of that tool's recorded artifacts vanished this
+     poll (a *glitch*, US-11 AC-9) → `reproject_canonical`; a pure `mv` (same digest,
+     new location) → record the new location, no rewrite.
+   - **The content rule** (the common case — one rule, not three). Change detection
+     is by digest: a surface changed iff its `content_digest` differs from the
+     recorded digest. The winner is the freshest changed surface — argmax
+     `modified_time`, ties broken deterministically by tool `name` (Unicode-
+     normalised, case-folded) with a `WARN tied-mtime` line (US-06 AC-4; the same
+     tiebreak governs an adoption-time tie, US-03 AC-7). If any surface changed →
+     `absorb_tool_edit(winner)` + `project_to_tools(the rest)`; *unchanged* is the
+     empty case (no winner), *conflict* is just ≥2 changed (the losers are among the
+     projected), and extending to a newly-available tool is the same projection onto
+     an absent target. (Digest, not mtime, is the change *detector*; mtime is only
+     the winner tiebreaker.)
 3. **Per candidate group** (same kind + slug across tools): the winner already
    parsed in the read phase → `adopt_new_artifact` (merging a cross-identity slug
    match onto the local id, retiring the other — US-12 AC-7); if it failed to parse

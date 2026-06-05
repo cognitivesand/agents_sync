@@ -1,45 +1,57 @@
-"""Unit tests for the recorded-state input types (rebuild S5).
+"""Unit tests for the recorded-state input types (rebuild S5, grown in S6a).
 
 `SyncState` is what the daemon recorded last poll (`artifact_id -> ArtifactRecord`);
-`ArtifactRecord` holds where that artifact's surfaces live. S5 builds only the
-recorded surface *locations* that `recover_identity` reads to recover an id-less
-surface by ownership; the recorded digests / kind / canonical_digest grow with
-their consumers in S6. The load-bearing contract under test is the value objects'
-immutability — frozen alone would leave the surface map mutable in place, the trap
-the canonical-document deep-freeze already proved (so the maps are exposed
-read-only).
+`ArtifactRecord` holds each surface's recorded `RecordedSurface` (its location and
+its content digest at last projection). S6a grew the surface value from a bare
+location to `RecordedSurface` so the content rule can detect a change by comparing
+an observed digest to the recorded one. The load-bearing contract under test is
+the value objects' immutability — frozen alone leaves the surface map mutable in
+place, the trap the canonical-document deep-freeze already proved (so the maps are
+exposed read-only).
 """
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
 
-from agents_sync.domain_model.sync_state import ArtifactRecord, SyncState
+from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface, SyncState
 
 _ARTIFACT_ID = "11111111-1111-4111-8111-111111111111"
 _LOCATION = Path("/home/u/.claude/agents/reviewer.md")
+_RECORDED = RecordedSurface(location=_LOCATION, content_digest="d1")
+
+
+def test_recorded_surface_is_an_immutable_value_object() -> None:
+    a_surface = RecordedSurface(location=_LOCATION, content_digest="d1")
+
+    assert a_surface == RecordedSurface(location=_LOCATION, content_digest="d1")
+    assert a_surface != RecordedSurface(location=_LOCATION, content_digest="d2")
+    with pytest.raises(FrozenInstanceError):
+        a_surface.content_digest = "changed"  # type: ignore[misc]
 
 
 def test_artifact_record_exposes_its_surfaces_read_only() -> None:
-    record = ArtifactRecord(surfaces={"claude": _LOCATION})
+    record = ArtifactRecord(surfaces={"claude": _RECORDED})
 
     with pytest.raises(TypeError):
-        record.surfaces["codex"] = Path("/elsewhere.md")  # type: ignore[index]
+        record.surfaces["codex"] = _RECORDED  # type: ignore[index]
 
 
 def test_sync_state_exposes_its_records_read_only() -> None:
-    state = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": _LOCATION})})
+    state = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": _RECORDED})})
 
     with pytest.raises(TypeError):
         state.records["other"] = ArtifactRecord()  # type: ignore[index]
 
 
 def test_recorded_state_is_value_equal_by_content() -> None:
-    one = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": _LOCATION})})
-    same = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": _LOCATION})})
-    other = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"codex": _LOCATION})})
+    one = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": _RECORDED})})
+    same = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": _RECORDED})})
+    other_digest = RecordedSurface(location=_LOCATION, content_digest="d9")
+    other = SyncState(records={_ARTIFACT_ID: ArtifactRecord(surfaces={"claude": other_digest})})
 
     assert one == same
     assert one != other

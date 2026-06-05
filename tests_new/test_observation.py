@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from agents_sync.domain_model.observation import SurfaceObservation
+from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
 
 _SURFACE = ToolSurface(
@@ -41,3 +42,29 @@ def test_surface_observations_are_value_equal_by_their_fields() -> None:
 
     assert one == same
     assert one != id_less
+
+
+def test_surface_observation_carries_the_read_phase_fields() -> None:
+    # The fields S6a's reconciliation reads: the change-detection digest, the
+    # conflict-tiebreak modified_time, and the parsed canonical (or parse failure).
+    parsed = CanonicalDocument(artifact_id=_EMBEDDED_ID, kind="agent", name="reviewer")
+    observation = SurfaceObservation(
+        tool_surface=_SURFACE,
+        content_digest="d1",
+        modified_time=12.5,
+        parsed=parsed,
+        embedded_id=_EMBEDDED_ID,
+    )
+
+    assert observation.content_digest == "d1"
+    assert observation.modified_time == 12.5
+    assert observation.parsed is parsed
+
+
+def test_parse_failure_is_an_immutable_value_object() -> None:
+    a_failure = ParseFailure(reason="bad front-matter")
+
+    assert a_failure == ParseFailure(reason="bad front-matter")
+    assert a_failure != ParseFailure(reason="other")
+    with pytest.raises(FrozenInstanceError):
+        a_failure.reason = "changed"  # type: ignore[misc]

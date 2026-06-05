@@ -16,10 +16,26 @@ result's identity tuples.
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
-from agents_sync.domain_model.sync_plan import IntentKind, SyncResult
+from agents_sync.domain_model.sync_plan import (
+    AbsorbToolEdit,
+    FreezeArtifact,
+    IntentKind,
+    ProjectToTools,
+    SyncResult,
+)
+from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
+
+_INTENT_ARTIFACT_ID = "11111111-1111-4111-8111-111111111111"
+_INTENT_SURFACE = ToolSurface(
+    tool="claude",
+    kind="agent",
+    location=Path("/u/.claude/agents/reviewer.md"),
+    surface_format=SurfaceFormat(dialect="markdown_frontmatter"),
+)
 
 # The 11 intents the proposal §6 table names — the closed contract S5–S8 emit and
 # S19 performs. Pinned here so adding, dropping, or renaming an intent is a
@@ -114,3 +130,33 @@ def test_sync_result_is_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         result.changed = 5  # type: ignore[misc]
+
+
+def test_each_intent_payload_tags_itself_with_its_kind() -> None:
+    # The IntentKind enum is each payload's discriminator (for logging / SyncResult
+    # categorisation); the executor can read intent.kind without isinstance.
+    absorb = AbsorbToolEdit(artifact_id=_INTENT_ARTIFACT_ID, source=_INTENT_SURFACE)
+    project = ProjectToTools(artifact_id=_INTENT_ARTIFACT_ID, targets=(_INTENT_SURFACE,))
+    freeze = FreezeArtifact(artifact_id=_INTENT_ARTIFACT_ID)
+
+    assert absorb.kind is IntentKind.ABSORB_TOOL_EDIT
+    assert project.kind is IntentKind.PROJECT_TO_TOOLS
+    assert freeze.kind is IntentKind.FREEZE_ARTIFACT
+
+
+def test_intent_payloads_carry_their_subject() -> None:
+    absorb = AbsorbToolEdit(artifact_id=_INTENT_ARTIFACT_ID, source=_INTENT_SURFACE)
+    project = ProjectToTools(artifact_id=_INTENT_ARTIFACT_ID, targets=(_INTENT_SURFACE,))
+
+    assert absorb.artifact_id == _INTENT_ARTIFACT_ID
+    assert absorb.source == _INTENT_SURFACE
+    assert project.targets == (_INTENT_SURFACE,)
+
+
+def test_intent_payloads_are_immutable_value_objects() -> None:
+    one = FreezeArtifact(artifact_id=_INTENT_ARTIFACT_ID)
+
+    assert one == FreezeArtifact(artifact_id=_INTENT_ARTIFACT_ID)
+    assert one != FreezeArtifact(artifact_id="22222222-2222-4222-9222-222222222222")
+    with pytest.raises(FrozenInstanceError):
+        one.artifact_id = "x"  # type: ignore[misc]

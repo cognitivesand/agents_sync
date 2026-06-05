@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import ClassVar
+
+from agents_sync.domain_model.tool_surface import ToolSurface
 
 
 class IntentKind(Enum):
@@ -44,3 +47,40 @@ class SyncResult:
     blocked: tuple[str, ...] = ()
     frozen: tuple[str, ...] = ()
     diagnosed: tuple[str, ...] = ()
+
+
+# --- Intent payloads ---------------------------------------------------------
+# One immutable dataclass per kind; each tags itself with its `IntentKind` via a
+# ClassVar (the discriminator for logging / SyncResult), while the executor may
+# also dispatch on the concrete type. The payloads carry only the fields their
+# emitter populates; the set grows as later planner steps emit more intents.
+
+
+@dataclass(frozen=True)
+class FreezeArtifact:
+    """A managed artifact whose content won't parse — blocked, not synced (FR-11)."""
+
+    artifact_id: str
+    kind: ClassVar[IntentKind] = IntentKind.FREEZE_ARTIFACT
+
+
+@dataclass(frozen=True)
+class AbsorbToolEdit:
+    """Fold the bytes of the winning changed surface into the canonical."""
+
+    artifact_id: str
+    source: ToolSurface
+    kind: ClassVar[IntentKind] = IntentKind.ABSORB_TOOL_EDIT
+
+
+@dataclass(frozen=True)
+class ProjectToTools:
+    """Write the canonical onto these tool surfaces."""
+
+    artifact_id: str
+    targets: tuple[ToolSurface, ...]
+    kind: ClassVar[IntentKind] = IntentKind.PROJECT_TO_TOOLS
+
+
+# The plan's element type — the union of the intent payloads, grown per step.
+SyncIntent = FreezeArtifact | AbsorbToolEdit | ProjectToTools

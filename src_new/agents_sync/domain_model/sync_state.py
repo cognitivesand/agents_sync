@@ -1,13 +1,15 @@
 """Recorded sync state — what the daemon believed true last poll (pure, no I/O).
 
 ``SyncState`` maps each managed ``artifact_id`` to an ``ArtifactRecord``; the record
-holds where that artifact's surfaces live, so the planner can recover an id-less
-surface by the recorded owner of its location (``recover_identity``, proposal §7.1).
-This step builds only those recorded surface *locations*; the recorded per-surface
-digests and the canonical digest grow with their consumer in S6, per YAGNI.
+holds each surface's ``RecordedSurface`` — where it was projected and its content
+digest at that projection — so the planner can recover an id-less surface by the
+recorded owner of its location (``recover_identity``, proposal §7.1) and detect a
+change by comparing an observed digest to the recorded one (``reconcile_known``,
+§7.2). The recorded canonical digest and kind grow with their consumers in S6c/S6b,
+per YAGNI.
 
-Both are immutable value objects: frozen guards attribute rebinding, and the maps
-are exposed read-only so a recorded surface set cannot be mutated in place (the
+All three are immutable value objects: frozen guards attribute rebinding, and the
+maps are exposed read-only so a recorded surface set cannot be mutated in place (the
 trap the canonical-document deep-freeze already established). The persistence I/O
 lives in the ``sync_state_store`` gateway (S15); this is the in-memory entity only.
 """
@@ -26,10 +28,18 @@ SurfaceLocation = Path | KeyedMapSlot
 
 
 @dataclass(frozen=True)
-class ArtifactRecord:
-    """One managed artifact's recorded surfaces: tool -> where it was projected."""
+class RecordedSurface:
+    """One artifact's surface as last recorded: its location and its content digest."""
 
-    surfaces: Mapping[str, SurfaceLocation] = field(default_factory=dict)
+    location: SurfaceLocation
+    content_digest: str = ""
+
+
+@dataclass(frozen=True)
+class ArtifactRecord:
+    """One managed artifact's recorded surfaces: tool -> its RecordedSurface."""
+
+    surfaces: Mapping[str, RecordedSurface] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "surfaces", MappingProxyType(dict(self.surfaces)))

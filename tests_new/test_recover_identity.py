@@ -14,7 +14,7 @@ from pathlib import Path
 
 from agents_sync.domain_model.observation import SurfaceObservation
 from agents_sync.domain_model.plan.recover_identity import recover_identity
-from agents_sync.domain_model.sync_state import ArtifactRecord, SyncState
+from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface, SyncState
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
 
 _MARKDOWN = SurfaceFormat(dialect="markdown_frontmatter")
@@ -35,7 +35,8 @@ def _observation(tool: str, path: str, embedded_id: str | None) -> SurfaceObserv
 
 
 def _state_owning(artifact_id: str, tool: str, path: str) -> SyncState:
-    return SyncState(records={artifact_id: ArtifactRecord(surfaces={tool: Path(path)})})
+    recorded = RecordedSurface(location=Path(path), content_digest="")
+    return SyncState(records={artifact_id: ArtifactRecord(surfaces={tool: recorded})})
 
 
 def test_well_formed_embedded_id_is_recovered_not_minted() -> None:
