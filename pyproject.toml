@@ -1,6 +1,6 @@
 [project]
 name = "agents_sync"
-version = "0.7.3"
+version = "0.7.4"
 description = "Bidirectional sync of Claude Code, Codex, Copilot, Cursor, Gemini CLI, Antigravity, and opencode customizations."
 readme = "README.md"
 requires-python = ">=3.12"
