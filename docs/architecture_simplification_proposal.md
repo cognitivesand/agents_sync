@@ -1,7 +1,7 @@
 # agents_sync — Thin, Clean Architecture (Proposal)
 
-- **Status:** proposal (for review), rev 2 — hardened against an
-  architecture-critique pass. A target design derived from the requirements —
+- **Status:** proposal (for review), rev 4 — hardened against three
+  architecture-critique passes. A target design derived from the requirements —
   not from the current code. No code implied.
 - **Date:** 2026-06-05
 - **Scope:** the production daemon. Installers, CI, packaging are out of scope.
@@ -76,13 +76,20 @@ Three ideas carry the system:
 2. **A tool is a set of surfaces.** A `ToolSurface` is a `(tool, kind, location,
    surface_format)`; `location` is a file path or a keyed-map slot. The core sees
    surfaces and formats — never a tool name (NFR-11).
-3. **Sync is a pure decision over gathered inputs.** The read phase produces a
-   `SurfaceObservation` per surface that already carries the *parsed* result (the
-   canonical, or a parse-failure marker), the recovered id, and the context the
-   decision needs (resolved `@import`s, target prior-text/state). Given those
-   observations and the `SyncState` recorded last poll, a pure function yields a
-   `SyncPlan`. All reading/parsing/import-resolution happens in the read phase;
-   the planner does no I/O. Executing the plan is a separate, thin step.
+3. **Sync is a pure decision over gathered inputs.** The truth for every managed
+   artifact is its **stored canonical**, loaded cheaply from `canonical_store` —
+   that is what the planner reasons over (secrets, `private`, projection, heals
+   all read it, so they work even when no source surface changed). The read phase
+   adds: the cheap `content_digest` + recovered id of every surface; a **fresh
+   re-parse** of a tool file (`file_to_canonical` + `@import` resolution) **only
+   for a surface whose digest changed** — the one expensive case, needed to
+   *absorb* an edit; and, for any target the planner will **write**
+   (project/extend/heal/rename), an inspection of that target's current bytes to
+   honour the framework-specific / privacy / secret guards on the target. So an
+   idle poll is digest-only and cost scales with *changes + writes*, not the whole
+   tree (NFR-05/08/09). Given those inputs and the recorded `SyncState`, a pure
+   function yields a `SyncPlan`; the planner does no I/O. Executing it is a
+   separate, thin step.
 
 ```
    read_tool_surfaces        compute_sync_plan (pure)      execute_sync_plan (I/O)
@@ -131,13 +138,17 @@ SyncResult            # changed / failed / blocked / frozen / diagnosed counts
 ```
 
 `SyncIntent` — the vocabulary the planner emits and the executor performs. Each
-intent is a **per-artifact transaction**: the executor applies it all-or-nothing
-(see §8), so a flat list still gives atomic-across-losers behaviour.
+intent is a **transaction over the artifact(s) it touches**: the executor applies
+it all-or-nothing (see §8) — one artifact for most intents; the two records an
+`adopt_new_artifact`-with-retire spans, or the colliding set a `reject_collision`
+brackets. A flat list still gives atomic-across-losers behaviour because the
+transaction boundary is the intent, not the list.
 
 | Intent | Meaning |
 |---|---|
 | `adopt_new_artifact` | id-less candidate group → mint + record + project (reusing a local id on a cross-identity slug merge, retiring the other — US-12 AC-7) |
 | `absorb_tool_edit` | one tool changed (by digest) → fold its bytes into the canonical |
+| `absorb_into_managed` | a new (id-less) artifact at a *managed* artifact's key → managed wins: archive the new bytes under the existing id, project the managed canonical over it, add its tool to the entry; no mint (US-03 AC-6) |
 | `project_to_tools` | write the canonical onto these tool surfaces (skipping a target whose name is reserved on that tool — US-13 AC-8) |
 | `rename_artifact` | name changed → rename projections (archive-old first) |
 | `remove_artifact` | authored deletion → archive-then-remove survivors |
@@ -164,11 +175,16 @@ A pure function over the gathered observations and recorded state:
    - **Change detection is by digest** — a surface changed iff its `content_digest`
      differs from the recorded digest. None changed → unchanged (plus extend to
      newly-available tools). One changed → `absorb_tool_edit` + `project_to_tools`.
-     Two or more changed → conflict: winner is argmax `modified_time` (mtime is the
-     *tiebreaker only*, never the detector), then `absorb_tool_edit(winner)` +
-     `project_to_tools(rest)`.
+     Two or more changed → conflict: winner is argmax `modified_time`; on a tie,
+     a deterministic tiebreak by tool `name` (Unicode-normalised, case-folded) with
+     a `WARN tied-mtime` line (US-06 AC-4; the same tiebreak governs an
+     adoption-time tie, US-03 AC-7); then `absorb_tool_edit(winner)` +
+     `project_to_tools(rest)`. (Digest, not mtime, is the change *detector*; mtime
+     is only the conflict tiebreaker.)
    - **`name` changed** → `rename_artifact`; if the new slug collides with another
      managed artifact → `reject_collision` instead (no destructive op).
+   - **Two managed artifacts resolve to the same key** (different ids) →
+     `reject_collision` for both, untouched, structured error (US-03 AC-8).
    - **Surface missing from an available tool** → `remove_artifact`, unless this is
      a *glitch* — **≥2 of that tool's recorded artifacts vanished in this poll on an
      available tool** (US-11 AC-9) — in which case `reproject_canonical`.
@@ -178,10 +194,14 @@ A pure function over the gathered observations and recorded state:
 3. **Per candidate group** (same kind + slug across tools): the winner already
    parsed in the read phase → `adopt_new_artifact` (merging a cross-identity slug
    match onto the local id, retiring the other — US-12 AC-7); if it failed to parse
-   → `report_unadoptable` (no id minted). A candidate group whose slug collides
-   with a managed artifact → `reject_collision`.
-4. **Guards:** fewer than two available tools → no destructive intents
-   (US-07 AC-5); private / framework-specific content → no projection (US-13/15).
+   → `report_unadoptable` (no id minted). A candidate whose slug matches an
+   *already-managed* artifact is **not** a collision — managed wins:
+   `absorb_into_managed` (archive the new bytes under the existing id, no mint —
+   US-03 AC-6).
+4. **Guards:** fewer than two available tools → no destructive intents — none of
+   `adopt_new_artifact`, `absorb_into_managed`, `project_to_tools`,
+   `rename_artifact`, `remove_artifact` (US-07 AC-5); private / framework-specific
+   content → no projection (US-13/15).
 
 Pure-over-gathered-inputs ⇒ the hardest part runs with in-memory inputs, no
 `tmp_path`, no clock, no mocks. Every behavioural acceptance criterion is a
@@ -199,11 +219,14 @@ Walks the plan and performs I/O in the one order that preserves data. **Each
 intent is applied as a per-artifact transaction** — all-or-nothing:
 
 - **Atomic across losers** (`rename_artifact`, conflict `absorb_tool_edit`,
-  `remove_artifact`): archive *every* affected loser first; only if all archives
-  succeed are any overwrites/deletes performed and state mutated. If any archive
-  fails, the intent is abandoned with no overwrite and no state change, and is
-  retried next poll (US-06 AC-6, US-03 AC-9). The transaction scope is the single
-  artifact, so a flat intent list still yields all-or-nothing per artifact.
+  `remove_artifact`, and `reproject_canonical` — which preserves displaced bytes
+  per FR-14): archive *every* affected file first; only if all archives succeed
+  are any overwrites/deletes performed and state mutated. If any archive fails,
+  the intent is abandoned with no overwrite and no state change, and is retried
+  next poll (US-06 AC-6, US-03 AC-9). The transaction scope is the artifact(s) the
+  intent touches — one for most intents; the two records an
+  `adopt_new_artifact`-with-retire spans; the colliding set for `reject_collision`
+  — so the boundary is the intent, not the whole plan.
 - **Mint** an `artifact_id` for each `adopt_new_artifact` — the *single* mint
   site. The canonical is written before the state entry; an interruption between
   the two leaves a canonical with no state entry, which the next poll heals
@@ -233,7 +256,7 @@ plus a low-level file gateway:
 |---|---|---|
 | `canonical_store` | read/write the canonical document store | NFR-16 |
 | `sync_state_store` | read/write `state.json` (atomic; single intended writer, survives an overlapping-daemon race by recompute-from-disk per US-09 AC-3) | FR-15 |
-| `artifact_archive` | archive-before-write + tiered retention GC + `prune` | NFR-01/07/08 |
+| `artifact_archive` | archive-before-write + tiered retention GC (low-frequency daemon tick; no user-facing command) | NFR-01/07/08 |
 | `atomic_file_writer` | temp+rename, staged folder swap, OS-quirk retry (no on-disk lock — concurrency is handled by atomic writes + recompute, not locking) | NFR-03 |
 
 These are the only modules that touch the filesystem for persistence.
@@ -250,7 +273,7 @@ def file_to_canonical(
     text: str,
     surface_format: SurfaceFormat,
     prior_canonical: CanonicalDocument | None,
-) -> CanonicalDocument: ...        # the single parse path; pure; raises on malformed; never mints
+) -> CanonicalDocument: ...        # the single full-parse path; pure; raises on malformed; never mints
 
 def canonical_to_file(
     canonical: CanonicalDocument,
@@ -293,6 +316,15 @@ is understood):
   framework-specific hold-back (US-15).
 - `dialects/mcp_server` — the per-tool MCP dialect differences.
 
+`file_to_canonical` *raises* on malformed content; the read phase catches that
+and records a `ParseFailure` in the observation (so the planner sees
+`CanonicalDocument | ParseFailure` and routes to `freeze_artifact` /
+`report_unadoptable` — it never sees a raise). `extract_artifact_id` is a
+lightweight id-probe, not a second full parse: it reads only the id in isolation
+(FR-11) and never raises. Both functions stay pure: the render-egress secret
+check is the executor calling `secret_policy` before it writes a target, never
+inside `canonical_to_file`.
+
 Identity is **not** a translation concern: `file_to_canonical` carries an
 embedded id through if present but never mints (AD-2).
 
@@ -322,13 +354,13 @@ dialect modules they call) perform every translation, in both directions.
 
 | Concern | Home | Spec |
 |---|---|---|
-| Secret policy at all four egress points | `secret_policy`, invoked by `canonical_to_file` (render egress) and by `portable_library` on export and import; it also computes the export manifest's `contains_secret_literals` flag | NFR-15, US-13 |
+| Secret policy at all four egress points | the planner refuses to **adopt/propagate** a secret-bearing canonical under `secrets_refused` (reading the stored/absorbed canonical, so it holds even for an unchanged artifact being projected — US-13 AC-5, file left untouched); the executor re-checks at each **write/render** egress before writing a target; `portable_library` checks on **export** and **import** and sets the manifest's `contains_secret_literals` flag. Under `secrets_accepted`, one structured warning per affected artifact per poll. | NFR-15, US-13 |
 | Rules `@import` + framework-specific hold-back | `dialects/global_rules` (resolved in the read phase) | US-15 |
 | Privacy (`private: true`) | a `compute_sync_plan` predicate | US-13 |
-| Bounded archive + `prune` | `artifact_archive` + a CLI command | NFR-07/08 |
+| Bounded archive | `artifact_archive` tiered GC on a low-frequency daemon tick (internal; no user-facing command) | NFR-07/08 |
 | Daemon resilience | `poll_daemon` counts only *systemic* failures | FR-02, NFR-04 |
-| Library export/import | `portable_library` **previews** a dry-run plan (the same `compute_sync_plan` over the imported canonicals vs local) **before any write**, requiring `--force` if a local artifact would be displaced (US-12 AC-18); a cross-identity slug match reconciles onto the local id and retires the other (US-12 AC-7); accepted canonicals are then written and the next poll adopts them | US-12, FR-12/15 |
-| Bounded/stable resources | per-cycle work is O(artifacts × tools) and allocation-free across polls (the planner is pure, accumulates nothing); the GC bounds the archive | NFR-08, NFR-09 |
+| Library export/import | `portable_library` **previews** a dry-run plan (the same `compute_sync_plan` over the imported canonicals vs local) **before any write**, requiring `--force` if a local artifact would be displaced (US-12 AC-18); a cross-identity slug match reconciles onto the local id and retires the other, the later `last_modified` winning (ties favour the local artifact, else a deterministic total order — FR-12); accepted canonicals are then written and the next poll adopts them | US-12, FR-12/15 |
+| Bounded/stable resources | idle polls are digest-only + cheap canonical loads; a tool-file re-parse runs only to absorb a changed surface, and target inspection only for surfaces being written; cost is linear in *changes + writes* (NFR-09), idle polls flat (NFR-05/08); the planner accumulates nothing; the GC bounds the archive | NFR-08, NFR-09 |
 | Logging | transition-only; one diagnostic per bad surface | NFR-12/13 |
 
 ---
@@ -339,7 +371,7 @@ dialect modules they call) perform every translation, in both directions.
 agents_sync/
   __main__.py
   poll_daemon.py            poll loop; systemic-only failure budget; GC tick
-  command_line_interface.py argparse + export / import / prune / run
+  command_line_interface.py argparse + export / import / run
   runtime_config.py         load · validate · platform paths
 
   domain_model/             PURE CORE — entities + the planner
@@ -406,7 +438,7 @@ Out of scope: **US-16**. One governance wording fix flagged (§17).
 | Total size | target ~6–7k LOC, *measured as built* (no baseline asserted) |
 | Module size | ≤300 lines (≤200 typical) |
 | Function size | ≤40 lines |
-| Translation paths | exactly 2 (`file_to_canonical`, `canonical_to_file`) |
+| Full-parse / render paths | exactly 2 (`file_to_canonical`, `canonical_to_file`); plus one lightweight `extract_artifact_id` id-probe |
 | Identity mint sites | 1 |
 | Persistence touch points | the 4 named gateways only |
 | The sync decision | one pure function, tested without a filesystem |
@@ -450,14 +482,28 @@ Out of scope: **US-16**. One governance wording fix flagged (§17).
   inputs explicit fields — a planner branch that needs an absent input is a type
   error, not hidden I/O; and the planner is forbidden from importing any gateway.
 - **Governance:** US-09 AC-4 ("archived" vs the safer "quarantined") — recommend
-  amending the AC text (needs approval). `agents-sync prune` is a mechanism for
-  NFR-07 with no owning story — decide if one is wanted.
+  amending the AC text (needs approval). (Archive GC is daemon-internal — no
+  user-facing `prune` command — so NFR-07 needs no new story.)
 
-> This proposal was revised against an architecture-critique pass; the open
-> findings (planner purity framing, atomic-across-losers, FR-11 freeze, import
+> Revised against **two** architecture-critique passes. Rev 2 closed the first
+> set (planner purity framing, atomic-across-losers, FR-11 freeze, import
 > preview/`--force`, reserved names, corrupt-canonical rebuild, cross-identity
-> retire, secret-egress sites, NFR-08/09, glitch threshold, digest-vs-mtime,
-> filename precedence, the lock contradiction) are addressed above.
+> retire, NFR-08/09, glitch threshold, digest-vs-mtime, filename precedence, lock
+> contradiction). Rev 3 closed the verification pass's residuals: the **parse**
+> secret egress (the missing fourth point), gating the read-phase enrichment to
+> *changed* surfaces (NFR-05/08/09), intent transactions scoped to the artifact
+> *set* (multi-artifact adopt-with-retire / collision), `reproject_canonical`
+> archiving displaced bytes (FR-14), the new `absorb_into_managed` intent
+> (US-03 AC-6), the mtime-tie tiebreaker (US-06 AC-4), the FR-12 import tie rule,
+> and the `ParseFailure`/`extract_artifact_id` contract, and removed the
+> user-facing `prune` command (archive GC is daemon-internal). Rev 4 corrected an
+> over-aggressive rev-3 optimisation (gating *all* enrichment to changed
+> surfaces, which had starved the secret/privacy/framework-target and US-11
+> AC-8/AC-9 heal decisions): the planner now reasons over the **stored canonical**
+> for every artifact, tool-file re-parse runs only to absorb a changed surface,
+> write-targets are inspected on write, and the render-egress secret check is an
+> executor `secret_policy` call (the renderer stays pure). The only open
+> governance item is the US-09 AC-4 wording (§17).
 
 ---
 
