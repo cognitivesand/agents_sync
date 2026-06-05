@@ -73,7 +73,7 @@ the superseded modules retired. The conformance suite holds throughout.
 ### Phase B — The planner (pure, the brain)
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
-| S5 | Recover identity | `plan/recover_identity` | managed vs candidate; embedded/recorded id; id-in-isolation (FR-11) |
+| S5 | Recover identity | `plan/recover_identity` (+ minimal `observation`, `sync_state` inputs) | managed vs candidate; recover by well-formed embedded id (precedence) then recorded location ownership; never mint (FR-11). Introduces the minimal `SurfaceObservation` (tool_surface + embedded_id) and `SyncState`/`ArtifactRecord` (recorded surface locations) that this step reads; their other fields (digest, mtime, parsed canonical) grow with their consumers in S6–S8 / S17, per YAGNI |
 | S6 | Reconcile known | `plan/reconcile_known` | unchanged / absorb / conflict+mtime-tiebreak / rename / remove / glitch(≥2) / freeze / reproject / mv (US-01/04/06/09/11; digest-detect) |
 | S7 | Adopt candidates | `plan/adopt_candidates` | group by (kind,slug); adopt / `absorb_into_managed` / `reject_collision` / `report_unadoptable`; cross-identity retire (US-03/12) |
 | S8 | compute_sync_plan + guards | `plan/compute_sync_plan` | two-tool guard (US-07 AC-5); private/framework predicates (US-13/15); whole-plan assembly — all pure, no FS |
