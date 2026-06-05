@@ -510,11 +510,12 @@ Out of scope: **US-16**. One governance wording fix flagged (§17).
 
 ## 18. Build order (if accepted)
 
-(1) `domain_model/` + `compute_sync_plan` with its pure test suite; (2) the
-gateways + `execute_sync_plan` + `translation`; (3) `dialects/` then `tools/`
-one tool at a time behind the round-trip contract; (4) `poll_daemon` /
-`command_line_interface` / `portable_library`. The behavioural acceptance suite
-is written against `compute_sync_plan` first and holds throughout.
+The detailed, gated, step-by-step build plan is in
+`docs/architecture_implementation_plan.md`: small independently-testable steps
+(pure core → translation → gateways → read/execute → tools/drivers → cutover),
+each executed through the **`incremental_step`** skill (detail → docs →
+tests + `/audit-tests` → code → run → `/code_and_tests_quality_review` →
+spotless → `/bcp`). The behavioural conformance suite holds throughout.
 
 ---
 
