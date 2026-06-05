@@ -1,6 +1,6 @@
 [project]
 name = "agents_sync"
-version = "0.6.5"
+version = "0.7.0"
 description = "Bidirectional sync of Claude Code, Codex, Copilot, Cursor, Gemini CLI, Antigravity, and opencode customizations."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -34,10 +34,17 @@ target-version = "py312"
 # Start with the high-value, low-noise rule families; tighten over time.
 select = ["E", "F", "I", "W", "UP", "B"]
 
+[tool.ruff.lint.isort]
+# `agents_sync` is first-party in both src/ and the rebuild tree src_new/.
+# Declared explicitly so import grouping is stable even where ruff cannot see a
+# submodule on disk (the rebuild's domain_model/ lives only in src_new/).
+known-first-party = ["agents_sync"]
+
 [tool.ruff.lint.per-file-ignores]
 # Test modules set a module-level `pytestmark` before importing fixtures by
 # project convention, which trips E402 (import-not-at-top).
 "tests/*" = ["E402"]
+"tests_new/*" = ["E402"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -45,6 +52,10 @@ strict = true
 files = ["src"]
 
 [tool.pytest.ini_options]
+# Default run is the conformance suite only. The greenfield rebuild's tests live
+# in ``tests_new/`` and run as a separate ci stage (their conftest repoints
+# ``agents_sync`` to ``src_new/``, which must not leak into this run).
+testpaths = ["tests"]
 # Audit slice 10 · CQ-15: register slow / integration markers so a developer
 # can opt out of the integration layer with ``pytest -m 'not integration'``
 # for fast feedback during inner loops.

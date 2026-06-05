@@ -29,6 +29,21 @@ independently and is "done" only when spotless. See the skill for the full rules
 
 ---
 
+## Build location: a parallel tree (`src_new/` + `tests_new/`)
+
+The greenfield build lives in **`src_new/`** (package name unchanged: `agents_sync`),
+with its unit tests in **`tests_new/`**. The existing `src/agents_sync/` keeps
+running untouched, so the conformance suite stays green throughout. Isolation:
+the default `pytest` run is pinned to `tests/` (`testpaths`), and `tests_new/` runs
+as its own stage whose `conftest.py` puts `src_new/` first on `sys.path` (the
+editable install is a plain `.pth`, so this wins cleanly). `scripts/ci.sh` runs
+both scopes plus `mypy --strict` over `src_new/`.
+
+**Cutover (S24–S25) is a directory rename**, not a code rename: delete the old
+`src/agents_sync/`, move `src_new/agents_sync/` → `src/agents_sync/`, fold
+`tests_new/` into `tests/`. Because the package name never changes, no internal
+import is rewritten (honouring the no-bulk-rename rule).
+
 ## Safety net: the conformance suite
 
 The existing behavioural tests (`test_e2e_sync`, `test_round_trip`,

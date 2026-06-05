@@ -33,6 +33,8 @@ run_stage() {
 
 run_stage "ruff check (lint)" uv run ruff check .
 run_stage "mypy --strict (types)" uv run mypy
-run_stage "pytest (full suite)" uv run pytest
+run_stage "mypy --strict (rebuild: src_new)" uv run mypy src_new
+run_stage "pytest (conformance: tests/)" uv run pytest
+run_stage "pytest (rebuild: tests_new/)" uv run pytest -c pytest_new.ini
 
 printf '\n\033[32m✓ Local CI passed.\033[0m\n'
