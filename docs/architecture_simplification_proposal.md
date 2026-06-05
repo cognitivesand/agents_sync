@@ -481,9 +481,10 @@ Out of scope: **US-16**. One governance wording fix flagged (§17).
   decision is silently wrong. Mitigation: `SurfaceObservation` makes the required
   inputs explicit fields — a planner branch that needs an absent input is a type
   error, not hidden I/O; and the planner is forbidden from importing any gateway.
-- **Governance:** US-09 AC-4 ("archived" vs the safer "quarantined") — recommend
-  amending the AC text (needs approval). (Archive GC is daemon-internal — no
-  user-facing `prune` command — so NFR-07 needs no new story.)
+- **Governance:** resolved — US-09 AC-4 now says a corrupt canonical is
+  *quarantined* (amendment 018), matching the shipped behaviour and the
+  state.json convention; archive GC is daemon-internal (no user-facing `prune`
+  command), so NFR-07 needs no new story. No open governance items remain.
 
 > Revised against **two** architecture-critique passes. Rev 2 closed the first
 > set (planner purity framing, atomic-across-losers, FR-11 freeze, import
@@ -502,8 +503,8 @@ Out of scope: **US-16**. One governance wording fix flagged (§17).
 > AC-8/AC-9 heal decisions): the planner now reasons over the **stored canonical**
 > for every artifact, tool-file re-parse runs only to absorb a changed surface,
 > write-targets are inspected on write, and the render-egress secret check is an
-> executor `secret_policy` call (the renderer stays pure). The only open
-> governance item is the US-09 AC-4 wording (§17).
+> executor `secret_policy` call (the renderer stays pure). The US-09 AC-4 wording
+> is resolved (amendment 018, "quarantined"); no open governance items remain.
 
 ---
 
