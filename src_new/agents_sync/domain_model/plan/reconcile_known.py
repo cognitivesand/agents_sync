@@ -1,15 +1,17 @@
-"""Reconcile a known artifact — content rule, freeze, rename, remove (§7.2, S6a/S6b).
+"""Reconcile a known artifact — a short pipeline of guards (§7.2, S6a–S6c).
 
-A short pipeline decides one already-managed artifact's fate: freeze if any surface
-won't parse (FR-11); else remove the artifact if a recorded tool's surface vanished
-(US-11, short-circuiting content); else apply the content rule — detect the changed
-surfaces by digest, absorb the freshest, and either rename (when the canonical's slug
-moved — US-04) or project onto the others. *Unchanged* is the empty case and
-*conflict* is just ≥2 changed (losers projected), so absorb-one, conflict-many, and
-propagation are a single rule. The cross-artifact downgrades (slug clash →
-reject_collision, glitch → reproject) live in S8; canonical authority lands in S6c.
-A pure ``mv`` (a moved surface, same digest) needs no intent — its tool still has an
-observation, so it is not a vanish. Pure: no I/O, no clock, no randomness.
+One already-managed artifact's fate, in precedence order: **freeze** if any surface
+won't parse (FR-11); **rebuild** if the stored canonical is corrupt (US-09 AC-4);
+**remove** if a recorded tool's surface vanished (US-11, short-circuiting content);
+the **content rule** — detect the changed surfaces by digest, absorb the freshest,
+and either rename (the canonical's slug moved — US-04) or project onto the others;
+else **reproject** if the stored canonical changed out of band (an import — US-09).
+The two integrity guards (freeze, rebuild) come first: a broken artifact is fixed
+before it is acted on. *Unchanged* is the empty case, *conflict* is just ≥2 changed
+(losers projected) — so absorb-one, conflict-many, and propagation are one rule. The
+cross-artifact downgrades (slug clash → reject_collision, glitch → reproject) live in
+S8. A pure ``mv`` (a moved surface, same digest) needs no intent — its tool still has
+an observation, so it is not a vanish. Pure: no I/O, no clock, no randomness.
 """
 
 from __future__ import annotations
@@ -18,32 +20,56 @@ import unicodedata
 from collections.abc import Sequence
 
 from agents_sync.domain_model.artifact_naming import slugify_name
-from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
 from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
 from agents_sync.domain_model.sync_plan import (
     AbsorbToolEdit,
     FreezeArtifact,
     ProjectToTools,
+    RebuildCorruptCanonical,
     RemoveArtifact,
     RenameArtifact,
+    ReprojectCanonical,
     SyncIntent,
 )
 from agents_sync.domain_model.sync_state import ArtifactRecord
+
+StoredCanonical = CanonicalDocument | CorruptCanonical
 
 
 def reconcile_known(
     artifact_id: str,
     observations: Sequence[SurfaceObservation],
     record: ArtifactRecord,
+    stored_canonical: StoredCanonical | None = None,
 ) -> tuple[SyncIntent, ...]:
-    """Decide the content reconciliation for one already-managed artifact."""
+    """Decide one already-managed artifact's fate — a short pipeline of guards.
+
+    ``stored_canonical`` is the artifact's truth loaded by the read phase; it is
+    ``None`` until S8 wires it, in which case the canonical-authority checks are
+    skipped (the content/shape decisions still apply).
+    """
     if any(isinstance(observation.parsed, ParseFailure) for observation in observations):
         return (FreezeArtifact(artifact_id),)
+    if isinstance(stored_canonical, CorruptCanonical):
+        return (RebuildCorruptCanonical(artifact_id),)
     if _has_vanished_surface(observations, record):
         return (RemoveArtifact(artifact_id),)
     changed = [observation for observation in observations if _has_changed(observation, record)]
-    if not changed:
-        return ()
+    if changed:
+        return _absorb_change(artifact_id, observations, record, changed)
+    if _canonical_moved_out_of_band(stored_canonical, record):
+        return (ReprojectCanonical(artifact_id),)
+    return ()
+
+
+def _absorb_change(
+    artifact_id: str,
+    observations: Sequence[SurfaceObservation],
+    record: ArtifactRecord,
+    changed: Sequence[SurfaceObservation],
+) -> tuple[SyncIntent, ...]:
+    """Absorb the freshest changed surface, then rename or project onto the rest."""
     winner = min(changed, key=_recency_then_name)
     winner_canonical = winner.parsed
     assert isinstance(winner_canonical, CanonicalDocument)  # the freeze guard ruled out a failure
@@ -57,6 +83,17 @@ def reconcile_known(
         if targets:
             intents.append(ProjectToTools(artifact_id, targets))
     return tuple(intents)
+
+
+def _canonical_moved_out_of_band(
+    stored_canonical: StoredCanonical | None,
+    record: ArtifactRecord,
+) -> bool:
+    """True iff the stored canonical's digest differs from the recorded one (an import)."""
+    return (
+        isinstance(stored_canonical, CanonicalDocument)
+        and stored_canonical.content_digest() != record.canonical_digest
+    )
 
 
 def _has_vanished_surface(

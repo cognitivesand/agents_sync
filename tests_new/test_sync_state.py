@@ -41,6 +41,14 @@ def test_artifact_record_carries_its_recorded_name() -> None:
     assert record.name == "reviewer"
 
 
+def test_artifact_record_carries_its_recorded_canonical_digest() -> None:
+    # The recorded canonical digest is what reconcile_known compares the stored
+    # canonical against to detect an out-of-band change (S6c); additive default.
+    record = ArtifactRecord(canonical_digest="abc123", surfaces={"claude": _RECORDED})
+
+    assert record.canonical_digest == "abc123"
+
+
 def test_artifact_record_exposes_its_surfaces_read_only() -> None:
     record = ArtifactRecord(surfaces={"claude": _RECORDED})
 

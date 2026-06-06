@@ -9,11 +9,12 @@ two semantically-equal documents hash identically, and the value-object contract
 from __future__ import annotations
 
 import re
+from dataclasses import FrozenInstanceError
 
 import pytest
 
 import agents_sync
-from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
 
 
 def _agent_doc(**overrides: object) -> dict[str, object]:
@@ -216,3 +217,17 @@ def test_from_dict_rejects_an_empty_required_field(required_field: str) -> None:
 
     with pytest.raises(ValueError, match=required_field):
         CanonicalDocument.from_dict(data)
+
+
+# --- corrupt-canonical marker (rebuild S6c) ------------------------------------
+
+
+def test_corrupt_canonical_is_an_immutable_value_object() -> None:
+    # The canonical-store load result is `CanonicalDocument | CorruptCanonical`; the
+    # planner routes the corrupt case to `rebuild_corrupt_canonical` (US-09 AC-4).
+    a_failure = CorruptCanonical(reason="truncated json")
+
+    assert a_failure == CorruptCanonical(reason="truncated json")
+    assert a_failure != CorruptCanonical(reason="other")
+    with pytest.raises(FrozenInstanceError):
+        a_failure.reason = "changed"  # type: ignore[misc]

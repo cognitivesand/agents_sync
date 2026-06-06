@@ -28,6 +28,18 @@ _REQUIRED_FIELDS: tuple[str, ...] = ("artifact_id", "kind")
 
 
 @dataclass(frozen=True)
+class CorruptCanonical:
+    """A stored canonical that could not be loaded — truncated or unparseable.
+
+    The canonical-store read result is ``CanonicalDocument | CorruptCanonical``; the
+    planner routes the corrupt case to ``rebuild_corrupt_canonical`` (US-09 AC-4),
+    just as a surface ``ParseFailure`` routes to ``freeze_artifact``.
+    """
+
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class CanonicalDocument:
     """One artifact's content, normalisable to a byte-stable form."""
 

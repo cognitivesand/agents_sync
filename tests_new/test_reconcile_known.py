@@ -13,15 +13,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
 from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
 from agents_sync.domain_model.plan.reconcile_known import reconcile_known
 from agents_sync.domain_model.sync_plan import (
     AbsorbToolEdit,
     FreezeArtifact,
     ProjectToTools,
+    RebuildCorruptCanonical,
     RemoveArtifact,
     RenameArtifact,
+    ReprojectCanonical,
 )
 from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -54,11 +56,16 @@ def _observed(
     )
 
 
-def _record(name: str = "reviewer", **recorded_digest_by_tool: str) -> ArtifactRecord:
+def _record(
+    name: str = "reviewer",
+    canonical_digest: str = "",
+    **recorded_digest_by_tool: str,
+) -> ArtifactRecord:
     # Default name matches _PARSED.name, so the content-rule tests do not trip the
-    # rename check; the rename test passes a name that differs from the canonical.
+    # rename check; the canonical-authority tests set canonical_digest explicitly.
     return ArtifactRecord(
         name=name,
+        canonical_digest=canonical_digest,
         surfaces={
             tool: RecordedSurface(location=_surface(tool).location, content_digest=digest)
             for tool, digest in recorded_digest_by_tool.items()
@@ -247,5 +254,87 @@ def test_a_moved_surface_is_neither_removed_nor_rewritten() -> None:
     )
 
     intents = reconcile_known(_ARTIFACT_ID, [moved], _record(codex="same"))
+
+    assert intents == ()
+
+
+def test_a_corrupt_stored_canonical_rebuilds_it() -> None:
+    # US-09 AC-4: the canonical-store entry is unparseable → archive it and rebuild
+    # from the tools, never reconcile content against a corrupt canonical.
+    observation = _observed("claude", "unchanged", 10.0)
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [observation],
+        _record(claude="unchanged"),
+        stored_canonical=CorruptCanonical(reason="truncated"),
+    )
+
+    assert intents == (RebuildCorruptCanonical(_ARTIFACT_ID),)
+
+
+def test_a_corrupt_canonical_rebuilds_even_when_a_surface_changed() -> None:
+    # Rebuild precedes the content rule: a corrupt canonical cannot be reconciled
+    # against, so the change is not absorbed this poll.
+    changed = _observed("claude", "new", 30.0)
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [changed],
+        _record(claude="old"),
+        stored_canonical=CorruptCanonical(),
+    )
+
+    assert intents == (RebuildCorruptCanonical(_ARTIFACT_ID),)
+
+
+def test_an_out_of_band_canonical_change_reprojects() -> None:
+    # US-09: the stored canonical's digest moved (an import) while no surface changed
+    # → re-project the new canonical onto the tools.
+    observation = _observed("claude", "unchanged", 10.0)
+    imported = CanonicalDocument(
+        artifact_id=_ARTIFACT_ID, kind="agent", name="reviewer", body="imported body"
+    )
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [observation],
+        _record(claude="unchanged", canonical_digest="stale-digest"),
+        stored_canonical=imported,
+    )
+
+    assert intents == (ReprojectCanonical(_ARTIFACT_ID),)
+
+
+def test_a_surface_change_takes_precedence_over_an_out_of_band_canonical_change() -> None:
+    # Reproject is only the no-surface-changed case: when a surface also changed, the
+    # content rule wins (absorb the edit), not reproject.
+    changed = _observed("claude", "new", 20.0)
+    imported = CanonicalDocument(
+        artifact_id=_ARTIFACT_ID, kind="agent", name="reviewer", body="imported body"
+    )
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [changed],
+        _record(claude="old", canonical_digest="stale-digest"),
+        stored_canonical=imported,
+    )
+
+    assert intents == (AbsorbToolEdit(_ARTIFACT_ID, changed.tool_surface),)
+
+
+def test_a_matching_stored_canonical_yields_no_intent() -> None:
+    # The stored canonical's digest equals the recorded digest and nothing changed
+    # → no out-of-band move, no work.
+    observation = _observed("claude", "unchanged", 10.0)
+    canonical = CanonicalDocument(artifact_id=_ARTIFACT_ID, kind="agent", name="reviewer")
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [observation],
+        _record(claude="unchanged", canonical_digest=canonical.content_digest()),
+        stored_canonical=canonical,
+    )
 
     assert intents == ()

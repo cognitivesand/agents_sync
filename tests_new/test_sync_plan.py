@@ -25,8 +25,10 @@ from agents_sync.domain_model.sync_plan import (
     FreezeArtifact,
     IntentKind,
     ProjectToTools,
+    RebuildCorruptCanonical,
     RemoveArtifact,
     RenameArtifact,
+    ReprojectCanonical,
     SyncResult,
 )
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -173,3 +175,13 @@ def test_rename_and_remove_intents_are_tagged_immutable_value_objects() -> None:
     assert remove.kind is IntentKind.REMOVE_ARTIFACT
     with pytest.raises(FrozenInstanceError):
         remove.artifact_id = "x"  # type: ignore[misc]
+
+
+def test_canonical_authority_intents_are_tagged_immutable_value_objects() -> None:
+    reproject = ReprojectCanonical(artifact_id=_INTENT_ARTIFACT_ID)
+    rebuild = RebuildCorruptCanonical(artifact_id=_INTENT_ARTIFACT_ID)
+
+    assert reproject.kind is IntentKind.REPROJECT_CANONICAL
+    assert rebuild.kind is IntentKind.REBUILD_CORRUPT_CANONICAL
+    with pytest.raises(FrozenInstanceError):
+        reproject.artifact_id = "x"  # type: ignore[misc]

@@ -99,5 +99,29 @@ class RemoveArtifact:
     kind: ClassVar[IntentKind] = IntentKind.REMOVE_ARTIFACT
 
 
+@dataclass(frozen=True)
+class ReprojectCanonical:
+    """The canonical changed out of band — re-project it onto the tool surfaces."""
+
+    artifact_id: str
+    kind: ClassVar[IntentKind] = IntentKind.REPROJECT_CANONICAL
+
+
+@dataclass(frozen=True)
+class RebuildCorruptCanonical:
+    """The stored canonical is corrupt — archive it and rebuild from the tools (US-09)."""
+
+    artifact_id: str
+    kind: ClassVar[IntentKind] = IntentKind.REBUILD_CORRUPT_CANONICAL
+
+
 # The plan's element type — the union of the intent payloads, grown per step.
-SyncIntent = FreezeArtifact | AbsorbToolEdit | ProjectToTools | RenameArtifact | RemoveArtifact
+SyncIntent = (
+    FreezeArtifact
+    | AbsorbToolEdit
+    | ProjectToTools
+    | RenameArtifact
+    | RemoveArtifact
+    | ReprojectCanonical
+    | RebuildCorruptCanonical
+)
