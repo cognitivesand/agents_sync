@@ -33,6 +33,14 @@ def test_recorded_surface_is_an_immutable_value_object() -> None:
         a_surface.content_digest = "changed"  # type: ignore[misc]
 
 
+def test_artifact_record_carries_its_recorded_name() -> None:
+    # The recorded name is what reconcile_known compares the canonical's slug against
+    # to detect a rename (S6b); it defaults empty so the field is additive.
+    record = ArtifactRecord(name="reviewer", surfaces={"claude": _RECORDED})
+
+    assert record.name == "reviewer"
+
+
 def test_artifact_record_exposes_its_surfaces_read_only() -> None:
     record = ArtifactRecord(surfaces={"claude": _RECORDED})
 

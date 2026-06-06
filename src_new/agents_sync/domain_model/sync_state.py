@@ -5,8 +5,9 @@ holds each surface's ``RecordedSurface`` — where it was projected and its cont
 digest at that projection — so the planner can recover an id-less surface by the
 recorded owner of its location (``recover_identity``, proposal §7.1) and detect a
 change by comparing an observed digest to the recorded one (``reconcile_known``,
-§7.2). The recorded canonical digest and kind grow with their consumers in S6c/S6b,
-per YAGNI.
+§7.2). The recorded ``name`` is what reconciliation compares the canonical's slug
+against to detect a rename (§7.2); the recorded canonical digest and kind grow with
+their consumers in S6c, per YAGNI.
 
 All three are immutable value objects: frozen guards attribute rebinding, and the
 maps are exposed read-only so a recorded surface set cannot be mutated in place (the
@@ -37,8 +38,9 @@ class RecordedSurface:
 
 @dataclass(frozen=True)
 class ArtifactRecord:
-    """One managed artifact's recorded surfaces: tool -> its RecordedSurface."""
+    """One managed artifact's recorded name and surfaces (tool -> its RecordedSurface)."""
 
+    name: str = ""
     surfaces: Mapping[str, RecordedSurface] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

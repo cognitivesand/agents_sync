@@ -16,7 +16,13 @@ from pathlib import Path
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
 from agents_sync.domain_model.plan.reconcile_known import reconcile_known
-from agents_sync.domain_model.sync_plan import AbsorbToolEdit, FreezeArtifact, ProjectToTools
+from agents_sync.domain_model.sync_plan import (
+    AbsorbToolEdit,
+    FreezeArtifact,
+    ProjectToTools,
+    RemoveArtifact,
+    RenameArtifact,
+)
 from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
 
@@ -48,12 +54,15 @@ def _observed(
     )
 
 
-def _record(**recorded_digest_by_tool: str) -> ArtifactRecord:
+def _record(name: str = "reviewer", **recorded_digest_by_tool: str) -> ArtifactRecord:
+    # Default name matches _PARSED.name, so the content-rule tests do not trip the
+    # rename check; the rename test passes a name that differs from the canonical.
     return ArtifactRecord(
+        name=name,
         surfaces={
             tool: RecordedSurface(location=_surface(tool).location, content_digest=digest)
             for tool, digest in recorded_digest_by_tool.items()
-        }
+        },
     )
 
 
@@ -170,3 +179,73 @@ def test_a_tied_mtime_breaks_deterministically_to_the_first_tool_name() -> None:
         AbsorbToolEdit(_ARTIFACT_ID, claude_change.tool_surface),
         ProjectToTools(_ARTIFACT_ID, (codex_change.tool_surface,)),
     )
+
+
+def test_a_renamed_canonical_renames_instead_of_projecting() -> None:
+    # US-04: the winning surface's canonical carries a new name, so its slug moved
+    # from the recorded slug — the projections are renamed, not projected in place
+    # (rename relocates every projection, subsuming the projection step).
+    renamed = CanonicalDocument(artifact_id=_ARTIFACT_ID, kind="agent", name="auditor")
+    edited = _observed("claude", "new", 20.0, parsed=renamed)
+    peer = _observed("codex", "unchanged", 5.0, parsed=renamed)
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [edited, peer],
+        _record(name="reviewer", claude="old", codex="unchanged"),
+    )
+
+    assert intents == (
+        AbsorbToolEdit(_ARTIFACT_ID, edited.tool_surface),
+        RenameArtifact(_ARTIFACT_ID, "auditor"),
+    )
+
+
+def test_a_vanished_recorded_surface_removes_the_artifact() -> None:
+    # US-11: the artifact's codex surface is gone this poll (only claude observed),
+    # so the whole artifact is removed (archive-then-remove the survivors).
+    still_present = _observed("claude", "unchanged", 10.0)
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [still_present],
+        _record(claude="unchanged", codex="codex-recorded"),
+    )
+
+    assert intents == (RemoveArtifact(_ARTIFACT_ID),)
+
+
+def test_removal_short_circuits_a_concurrent_content_change() -> None:
+    # Removal wins over content: even though claude changed, codex's surface vanished,
+    # so the artifact is removed — no absorb of the concurrent edit.
+    changed = _observed("claude", "new", 30.0)
+
+    intents = reconcile_known(
+        _ARTIFACT_ID,
+        [changed],
+        _record(claude="old", codex="codex-recorded"),
+    )
+
+    assert intents == (RemoveArtifact(_ARTIFACT_ID),)
+
+
+def test_a_moved_surface_is_neither_removed_nor_rewritten() -> None:
+    # mv: codex's surface moved to a new location but kept its digest. Its tool still
+    # has an observation, so it is not a vanish (no RemoveArtifact), and its digest
+    # is unchanged (no absorb) — recompute-from-disk records the new location.
+    moved_surface = ToolSurface(
+        tool="codex",
+        kind="agent",
+        location=Path("/u/.codex/agents/relocated/reviewer.md"),
+        surface_format=_MARKDOWN,
+    )
+    moved = SurfaceObservation(
+        tool_surface=moved_surface,
+        content_digest="same",
+        modified_time=10.0,
+        parsed=_PARSED,
+    )
+
+    intents = reconcile_known(_ARTIFACT_ID, [moved], _record(codex="same"))
+
+    assert intents == ()

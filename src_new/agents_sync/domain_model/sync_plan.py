@@ -82,5 +82,22 @@ class ProjectToTools:
     kind: ClassVar[IntentKind] = IntentKind.PROJECT_TO_TOOLS
 
 
+@dataclass(frozen=True)
+class RenameArtifact:
+    """The name changed — relocate every projection to the new slug (archive-old first)."""
+
+    artifact_id: str
+    new_name: str
+    kind: ClassVar[IntentKind] = IntentKind.RENAME_ARTIFACT
+
+
+@dataclass(frozen=True)
+class RemoveArtifact:
+    """A surface was deleted — archive then remove the artifact's surviving projections."""
+
+    artifact_id: str
+    kind: ClassVar[IntentKind] = IntentKind.REMOVE_ARTIFACT
+
+
 # The plan's element type — the union of the intent payloads, grown per step.
-SyncIntent = FreezeArtifact | AbsorbToolEdit | ProjectToTools
+SyncIntent = FreezeArtifact | AbsorbToolEdit | ProjectToTools | RenameArtifact | RemoveArtifact

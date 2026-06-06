@@ -25,6 +25,8 @@ from agents_sync.domain_model.sync_plan import (
     FreezeArtifact,
     IntentKind,
     ProjectToTools,
+    RemoveArtifact,
+    RenameArtifact,
     SyncResult,
 )
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -160,3 +162,14 @@ def test_intent_payloads_are_immutable_value_objects() -> None:
     assert one != FreezeArtifact(artifact_id="22222222-2222-4222-9222-222222222222")
     with pytest.raises(FrozenInstanceError):
         one.artifact_id = "x"  # type: ignore[misc]
+
+
+def test_rename_and_remove_intents_are_tagged_immutable_value_objects() -> None:
+    rename = RenameArtifact(artifact_id=_INTENT_ARTIFACT_ID, new_name="auditor")
+    remove = RemoveArtifact(artifact_id=_INTENT_ARTIFACT_ID)
+
+    assert rename.kind is IntentKind.RENAME_ARTIFACT
+    assert rename.new_name == "auditor"
+    assert remove.kind is IntentKind.REMOVE_ARTIFACT
+    with pytest.raises(FrozenInstanceError):
+        remove.artifact_id = "x"  # type: ignore[misc]

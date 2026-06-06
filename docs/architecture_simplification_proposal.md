@@ -178,14 +178,17 @@ A pure function over the gathered observations and recorded state:
    - **Canonical-authority guard.** Canonical-store entry corrupt →
      `rebuild_corrupt_canonical`; canonical changed out of band (its store digest
      moved, no tool changed) → `reproject_canonical`.
-   - **Surface-shape guards** — one observed-vs-recorded diff of the surface set and
-     name. `name` changed → `rename_artifact` (new slug collides with another
-     managed → `reject_collision` instead, no destructive op); two managed artifacts
-     resolve to the same key, different ids → `reject_collision` for both, structured
-     error (US-03 AC-8); a recorded surface vanished from an available tool →
-     `remove_artifact`, unless ≥2 of that tool's recorded artifacts vanished this
-     poll (a *glitch*, US-11 AC-9) → `reproject_canonical`; a pure `mv` (same digest,
-     new location) → record the new location, no rewrite.
+   - **Surface-shape changes** — one observed-vs-recorded diff of the surface set and
+     name, all decidable from this one artifact. `name` changed (the canonical's slug
+     differs from the recorded slug) → `rename_artifact` (US-04); a recorded surface
+     vanished — its tool has no observation this poll → `remove_artifact` (US-11). A
+     pure `mv` (a tool's surface moved location but kept its digest) needs no intent:
+     the tool still has an observation, so it is not a vanish, and recompute-from-disk
+     records the new location. The *cross-artifact* downgrades of these intents —
+     a slug that clashes with another managed artifact → `reject_collision`, and a
+     bulk disappearance (≥2 of a tool's artifacts vanished) → `reproject_canonical`
+     instead of `remove_artifact` — require the whole-poll view and live in the guard
+     pass (§7 step 4), not in this per-artifact reconciliation.
    - **The content rule** (the common case — one rule, not three). Change detection
      is by digest: a surface changed iff its `content_digest` differs from the
      recorded digest. The winner is the freshest changed surface — argmax
@@ -204,10 +207,16 @@ A pure function over the gathered observations and recorded state:
    *already-managed* artifact is **not** a collision — managed wins:
    `absorb_into_managed` (archive the new bytes under the existing id, no mint —
    US-03 AC-6).
-4. **Guards:** fewer than two available tools → no destructive intents — none of
+4. **Cross-artifact guards** (the whole-poll view `reconcile_known` lacks — they
+   inspect every artifact's intents together and *downgrade* the per-artifact
+   decisions): fewer than two available tools → no destructive intents — none of
    `adopt_new_artifact`, `absorb_into_managed`, `project_to_tools`,
-   `rename_artifact`, `remove_artifact` (US-07 AC-5); private / framework-specific
-   content → no projection (US-13/15).
+   `rename_artifact`, `remove_artifact` (US-07 AC-5); a `rename_artifact` whose new
+   slug, or two managed artifacts that resolve to the same key (different ids) →
+   `reject_collision` instead, untouched, structured error (US-04 AC-5, US-03 AC-8);
+   a `remove_artifact` on a tool that suffered a *glitch* — ≥2 of its recorded
+   artifacts vanished this poll → `reproject_canonical` instead (US-11 AC-9);
+   private / framework-specific content → no projection (US-13/15).
 
 Pure-over-gathered-inputs ⇒ the hardest part runs with in-memory inputs, no
 `tmp_path`, no clock, no mocks. Every behavioural acceptance criterion is a
