@@ -86,7 +86,7 @@ the superseded modules retired. The conformance suite holds throughout.
 ### Phase C — Translation (centralized; dialects are the only wire-format code)
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
-| S9 | Translation core + markdown dialect | `translation`, `dialects/markdown_frontmatter` | `file_to_canonical`/`canonical_to_file`/`extract_artifact_id`; round-trip, no-foreign-leak (NFR-06/16), malformed→raise, id-in-isolation |
+| S9 | Translation core + markdown dialect | `translation`, `dialects/markdown_frontmatter` | `file_to_canonical`/`canonical_to_file`/`extract_artifact_id` (each takes the whole `ToolSurface` — the seam keys per-tool bags and stamps `kind`); round-trip, no-foreign-leak (NFR-06/16), malformed→raise, id-in-isolation. **Size-explosion hardening is out of scope here** (own concern → `parser_bounds`, §13); see the S24 gate |
 | S10 | Keyed-map dialect | `dialects/keyed_map_slot` | one slot in a shared file (mcp); round-trip, sibling preservation |
 | S11 | Structured-text dialect | `dialects/structured_text` | JSON/JSONC/TOML round-trip, comment/order preservation |
 | S12 | Global-rules dialect | `dialects/global_rules` | `@import` resolution (cycle/escape fail-closed) + framework-specific hold-back (US-15) |
@@ -117,7 +117,7 @@ the superseded modules retired. The conformance suite holds throughout.
 ### Phase G — Cutover & retirement
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
-| S24 | Cut the daemon over | `poll_daemon` `sync_once` = read → plan → execute | the **full conformance suite** stays green against the new pipeline |
+| S24 | Cut the daemon over | `poll_daemon` `sync_once` = read → plan → execute | the **full conformance suite** stays green against the new pipeline. **Gate:** `parser_bounds` size-explosion hardening (deferred from S9 — bounded YAML composer, front-matter scan window, text-size cap) MUST be in place; the size-explosion regression tests in the conformance suite enforce it |
 | S25 | Retire superseded modules | delete old discovery/adoption/sync/etc. | full suite green; measure LOC vs target (~6–7k); architecture.md reflects the final map |
 
 Steps may be split further if any one cannot pass the gate as a single increment;

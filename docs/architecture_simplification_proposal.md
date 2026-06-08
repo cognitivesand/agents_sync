@@ -293,24 +293,33 @@ high-level functions, in one module (`translation`):**
 ```python
 def file_to_canonical(
     text: str,
-    surface_format: SurfaceFormat,
+    tool_surface: ToolSurface,
     prior_canonical: CanonicalDocument | None,
 ) -> CanonicalDocument: ...        # the single full-parse path; pure; raises on malformed; never mints
 
 def canonical_to_file(
     canonical: CanonicalDocument,
-    surface_format: SurfaceFormat,
+    tool_surface: ToolSurface,
     prior_text: str | None,
 ) -> str: ...                      # the single render path; pure; preserves user formatting
 
 def extract_artifact_id(
     text: str,
-    surface_format: SurfaceFormat,
+    tool_surface: ToolSurface,
 ) -> str | None: ...               # id in isolation; never raises
 ```
 
-A `SurfaceFormat` is a **recipe**, never code: the `dialect`, the `known_fields`,
-the `tool_only_fields`, the reserved customization names for that surface (the
+The three functions take the whole `ToolSurface`, not just its `surface_format`,
+because the translation seam — unlike the pure core (NFR-11) — must key the
+canonical's `per_tool_only` / `per_tool_extra` bags by the surface's `tool` and
+stamp the artifact's `kind`; neither is derivable from a `surface_format` that is
+shared across tools. They dispatch on `tool_surface.surface_format.dialect`.
+
+A `SurfaceFormat` is a **recipe**, never code: the `dialect`, the `known_fields`
+(a mapping from each front-matter key to the canonical attribute it folds into, so
+a tool's native spelling — claude's `permissionMode` — maps to the canonical
+`permission_mode`), the `tool_only_fields` (front-matter keys kept verbatim under
+`per_tool_only[tool]`), the reserved customization names for that surface (the
 tool's built-in command names — e.g. opencode's `build`/`plan` — that a user
 artifact must not shadow; US-13 AC-8), and — for whole-file rules — the ordered
 standard filenames with their precedence (prefer `AGENTS.md`, refuse names not on
