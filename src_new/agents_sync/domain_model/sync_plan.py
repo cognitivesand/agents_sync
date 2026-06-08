@@ -148,3 +148,14 @@ SyncIntent = (
     | AdoptNewArtifact
     | ReportUnadoptable
 )
+
+
+@dataclass(frozen=True)
+class SyncPlan:
+    """The ordered tuple of per-artifact intents the planner decided this poll (§6).
+
+    The container ``compute_sync_plan`` returns and ``execute_sync_plan`` walks. Order
+    is preserved as planned; an empty plan is an idle poll with nothing to do.
+    """
+
+    intents: tuple[SyncIntent, ...] = ()

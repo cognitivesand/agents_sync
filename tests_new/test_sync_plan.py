@@ -31,6 +31,7 @@ from agents_sync.domain_model.sync_plan import (
     RenameArtifact,
     ReportUnadoptable,
     ReprojectCanonical,
+    SyncPlan,
     SyncResult,
 )
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -187,6 +188,28 @@ def test_canonical_authority_intents_are_tagged_immutable_value_objects() -> Non
     assert rebuild.kind is IntentKind.REBUILD_CORRUPT_CANONICAL
     with pytest.raises(FrozenInstanceError):
         reproject.artifact_id = "x"  # type: ignore[misc]
+
+
+def test_sync_plan_holds_its_intents_in_order() -> None:
+    # The container the planner returns and the executor walks: an ordered tuple of
+    # intents (proposal §6). Order is preserved so the executor sees them as planned.
+    freeze = FreezeArtifact(artifact_id=_INTENT_ARTIFACT_ID)
+    project = ProjectToTools(artifact_id=_INTENT_ARTIFACT_ID, targets=(_INTENT_SURFACE,))
+
+    plan = SyncPlan(intents=(freeze, project))
+
+    assert plan.intents == (freeze, project)
+
+
+def test_sync_plan_defaults_to_no_intents() -> None:
+    assert SyncPlan().intents == ()
+
+
+def test_sync_plan_is_immutable() -> None:
+    plan = SyncPlan(intents=(FreezeArtifact(artifact_id=_INTENT_ARTIFACT_ID),))
+
+    with pytest.raises(FrozenInstanceError):
+        plan.intents = ()  # type: ignore[misc]
 
 
 def test_candidate_intents_are_tagged_immutable_value_objects() -> None:
