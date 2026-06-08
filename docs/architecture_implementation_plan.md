@@ -87,8 +87,8 @@ the superseded modules retired. The conformance suite holds throughout.
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
 | S9 | Translation core + markdown dialect | `translation`, `dialects/markdown_frontmatter` | `file_to_canonical`/`canonical_to_file`/`extract_artifact_id` (each takes the whole `ToolSurface` — the seam keys per-tool bags and stamps `kind`); round-trip, no-foreign-leak (NFR-06/16), malformed→raise, id-in-isolation. **Size-explosion hardening is out of scope here** (own concern → `parser_bounds`, §13); see the S24 gate |
-| S10 | Keyed-map dialect | `dialects/keyed_map_slot` | one slot in a shared file (mcp); round-trip, sibling preservation |
-| S11 | Structured-text dialect | `dialects/structured_text` | JSON/JSONC/TOML round-trip, comment/order preservation |
+| S10 | Keyed-map dialect | `dialects/keyed_map_slot`, `dialects/field_mapping` | one slot in a shared file (mcp); round-trip, sibling preservation, no-foreign-leak, id-in-isolation. Extracts the shared recipe-application (`field_mapping`) that `markdown_frontmatter` and `keyed_map_slot` both use. `SurfaceFormat` grows `map_key_path` + `file_format`. **JSON format only**; TOML (codex mcp) + JSONC land with the structured-text codec at S11 (an unimplemented format fails loud) |
+| S11 | Structured-text dialect | `dialects/structured_text` | JSON/JSONC/TOML round-trip, comment/order preservation. Adds TOML + JSONC to the keyed-map format seam (unblocks codex mcp) |
 | S12 | Global-rules dialect | `dialects/global_rules` | `@import` resolution (cycle/escape fail-closed) + framework-specific hold-back (US-15) |
 | S13 | MCP dialect specifics | `dialects/mcp_server` | per-tool transport/auth field maps; secret-field shapes |
 

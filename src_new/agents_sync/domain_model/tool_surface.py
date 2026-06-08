@@ -33,16 +33,21 @@ class KeyedMapSlot:
 class SurfaceFormat:
     """How a surface is encoded — the dialect plus the recipe its translation applies.
 
-    ``known_fields`` is an ordered tuple of ``(front_matter_key, canonical_attribute)``
-    pairs (a tuple, not a dict, so the value object stays hashable); ``tool_only_fields``
-    are front-matter keys preserved under ``per_tool_only[tool]``. Both default empty so
-    a format that needs no recipe yet (other dialects) is ``SurfaceFormat(dialect=...)``.
+    ``known_fields`` is an ordered tuple of ``(field_key, canonical_attribute)`` pairs
+    (a tuple, not a dict, so the value object stays hashable); ``tool_only_fields`` are
+    field keys preserved under ``per_tool_only[tool]``. ``map_key_path`` and
+    ``file_format`` are the keyed-map recipe: the nested keys to the slot-map inside the
+    shared file (e.g. ``("mcpServers",)``) and the structured-text format that file is in
+    (``"json"``). All default empty so a format that needs no recipe is
+    ``SurfaceFormat(dialect=...)``.
     """
 
     dialect: str
     id_field: str = ""
     known_fields: tuple[tuple[str, str], ...] = ()
     tool_only_fields: tuple[str, ...] = ()
+    map_key_path: tuple[str, ...] = ()
+    file_format: str = ""
 
 
 @dataclass(frozen=True)

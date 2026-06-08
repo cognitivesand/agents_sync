@@ -340,7 +340,16 @@ is understood):
 - `dialects/markdown_frontmatter` — YAML front-matter + Markdown body: split →
   map `known_fields` → keep unknowns in `per_tool_extra` → reassemble.
 - `dialects/keyed_map_slot` — one slot inside a shared JSON/TOML file (MCP
-  servers); `location` is `(file, slot)`.
+  servers); `location` is `(file, slot)`. It navigates the recipe's `map_key_path`
+  to the slot-map, folds the one slot named by `location.slot`, and reassembles the
+  whole file untouched but for that slot (sibling preservation). The recipe's
+  `file_format` selects the structured-text codec.
+
+Both folding dialects share one recipe-application (`dialects/field_mapping` —
+`fold_fields_into_canonical` / `project_canonical_to_fields`): a dialect only
+differs in how it extracts the field mapping from the wire (split front-matter vs
+navigate to a slot) and reassembles it, so "apply the recipe" lives in exactly one
+place across dialects.
 - `dialects/structured_text` — JSON/JSONC/TOML round-trip preserving comments and
   key order.
 - `dialects/global_rules` — whole-file rules with `@import` resolution and

@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from agents_sync.dialects import MalformedSurfaceError, markdown_frontmatter
+from agents_sync.dialects import MalformedSurfaceError, keyed_map_slot, markdown_frontmatter
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 from agents_sync.domain_model.tool_surface import ToolSurface
 
@@ -41,6 +41,11 @@ _DIALECTS: dict[str, _Dialect] = {
         parse=markdown_frontmatter.parse,
         render=markdown_frontmatter.render,
         extract_id=markdown_frontmatter.extract_id,
+    ),
+    "keyed_map_slot": _Dialect(
+        parse=keyed_map_slot.parse,
+        render=keyed_map_slot.render,
+        extract_id=keyed_map_slot.extract_id,
     ),
 }
 

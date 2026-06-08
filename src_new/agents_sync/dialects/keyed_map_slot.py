@@ -1,0 +1,133 @@
+"""The keyed-map-slot dialect — one slot inside a shared structured-text file (pure).
+
+An MCP-server artifact is not its own file: many artifacts share one file, each owning
+one entry in a keyed map nested at the recipe's ``map_key_path`` (e.g. ``mcpServers``).
+This dialect translates the one slot named by ``location.slot``:
+
+- ``parse`` — navigate the shared-file ``text`` to the slot, then apply the shared
+  recipe-application (``field_mapping``) exactly as the markdown dialect does (a slot
+  has no body, so the fold leaves the canonical's body untouched).
+- ``render`` — reassemble the whole shared file from ``prior_text`` with only this one
+  slot replaced; sibling slots and out-of-map keys are preserved verbatim.
+- ``extract_id`` — read the slot's id field in isolation; never raises (FR-11).
+
+Pure: operates on the shared file's ``text: str`` and does no I/O — the read, the
+cross-process lock, and the atomic write are the executor's job (S19). S10 supports the
+``json`` file format; TOML/JSONC arrive with the structured-text codec at S11, so an
+unimplemented format fails loud (a recipe error, distinct from malformed content).
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from agents_sync.dialects import MalformedSurfaceError
+from agents_sync.dialects.field_mapping import (
+    fold_fields_into_canonical,
+    project_canonical_to_fields,
+)
+from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.domain_model.tool_surface import KeyedMapSlot, ToolSurface
+
+
+def parse(
+    text: str,
+    tool_surface: ToolSurface,
+    prior_canonical: CanonicalDocument | None,
+) -> CanonicalDocument:
+    """Fold this surface's slot into the canonical document (raises if the file is malformed)."""
+    slot = _read_slot(text, tool_surface)
+    return fold_fields_into_canonical(slot, tool_surface, prior_canonical, body=None)
+
+
+def render(
+    canonical: CanonicalDocument,
+    tool_surface: ToolSurface,
+    prior_text: str | None,
+) -> str:
+    """Reassemble the shared file from ``prior_text`` with only this slot replaced."""
+    surface_format = tool_surface.surface_format
+    if prior_text and prior_text.strip():
+        root = _deserialize(prior_text, surface_format.file_format)
+    else:
+        root = {}
+    if not isinstance(root, dict):
+        root = {}
+    slot_map = _navigate_or_create(root, surface_format.map_key_path)
+    slot_map[_slot_key(tool_surface)] = project_canonical_to_fields(canonical, tool_surface)
+    return _serialize(root, surface_format.file_format)
+
+
+def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
+    """Return the slot's embedded id; never raises on malformed text (FR-11).
+
+    Malformed shared-file content yields ``None``; an unsupported ``file_format`` is a
+    recipe error, not malformed content, so it still fails loud (as everywhere else).
+    """
+    try:
+        slot = _read_slot(text, tool_surface)
+    except MalformedSurfaceError:
+        return None
+    value = slot.get(tool_surface.surface_format.id_field)
+    return value if isinstance(value, str) and value else None
+
+
+def _read_slot(text: str, tool_surface: ToolSurface) -> dict[str, Any]:
+    """Navigate the shared file to this surface's slot; ``{}`` if file/path/slot is absent."""
+    surface_format = tool_surface.surface_format
+    if not text.strip():
+        return {}
+    node: Any = _deserialize(text, surface_format.file_format)
+    for key in surface_format.map_key_path:
+        if not isinstance(node, dict) or key not in node:
+            return {}
+        node = node[key]
+    if not isinstance(node, dict):
+        return {}
+    slot = node.get(_slot_key(tool_surface))
+    return slot if isinstance(slot, dict) else {}
+
+
+def _navigate_or_create(root: dict[str, Any], map_key_path: tuple[str, ...]) -> dict[str, Any]:
+    """Walk ``map_key_path``, creating empty objects for missing or non-object segments.
+
+    A non-dict value at a map segment cannot hold sibling slots, so replacing it with an
+    empty object loses no artifact data — it self-heals a structurally-broken shared file
+    so the managed slot can still be written (the dict case preserves every sibling).
+    """
+    node = root
+    for key in map_key_path:
+        child = node.get(key)
+        if not isinstance(child, dict):
+            child = {}
+            node[key] = child
+        node = child
+    return node
+
+
+def _slot_key(tool_surface: ToolSurface) -> str:
+    """The slot key for this surface — the leaf of its keyed-map location (fail-loud)."""
+    location = tool_surface.location
+    if not isinstance(location, KeyedMapSlot):
+        raise ValueError(
+            f"keyed_map_slot surface needs a KeyedMapSlot location, got {type(location).__name__}"
+        )
+    return location.slot
+
+
+def _deserialize(text: str, file_format: str) -> Any:
+    """Parse the shared file; raise ``MalformedSurfaceError`` on malformed content."""
+    if file_format == "json":
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as error:
+            raise MalformedSurfaceError(f"shared file is not valid JSON: {error}") from error
+    raise ValueError(f"unsupported keyed-map file format: {file_format!r}")
+
+
+def _serialize(value: Any, file_format: str) -> str:
+    """Serialise the shared file back to text."""
+    if file_format == "json":
+        return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+    raise ValueError(f"unsupported keyed-map file format: {file_format!r}")

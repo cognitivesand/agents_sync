@@ -24,7 +24,6 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Mapping, MutableMapping
-from dataclasses import replace
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -32,6 +31,10 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
 
 from agents_sync.dialects import MalformedSurfaceError
+from agents_sync.dialects.field_mapping import (
+    fold_fields_into_canonical,
+    project_canonical_to_fields,
+)
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 from agents_sync.domain_model.tool_surface import ToolSurface
 
@@ -44,8 +47,6 @@ _FRONTMATTER_RE = re.compile(
     r"\A---[ \t]*\r?\n(.*?)(?:\r?\n)?---[ \t]*(?:\r?\n|\Z)(.*)\Z",
     re.DOTALL,
 )
-# Canonical attributes whose front-matter value is a list (or a comma-separated string).
-_LIST_ATTRIBUTES = frozenset({"tools", "disallowed_tools"})
 
 
 def parse(
@@ -55,36 +56,7 @@ def parse(
 ) -> CanonicalDocument:
     """Fold a tool's Markdown text into the canonical document (raises if malformed)."""
     frontmatter, body = _split_frontmatter(text)
-    surface_format = tool_surface.surface_format
-    tool = tool_surface.tool
-
-    base = prior_canonical or CanonicalDocument(artifact_id="", kind=tool_surface.kind)
-    changes: dict[str, Any] = {
-        "artifact_id": _recover_id(frontmatter, surface_format.id_field, base),
-        "kind": tool_surface.kind,
-        "body": body,
-    }
-    for front_matter_key, attribute in surface_format.known_fields:
-        value = frontmatter.get(front_matter_key)
-        # A present-but-null key (`description:` with no value) means "absent", not a
-        # None written onto a str-typed canonical attribute (which would crash the
-        # planner's normalised()/content_digest()); the field keeps its prior default.
-        if value is not None:
-            changes[attribute] = _coerce(attribute, value)
-
-    consumed = (
-        {key for key, _ in surface_format.known_fields}
-        | set(surface_format.tool_only_fields)
-        | {surface_format.id_field}
-    )
-    tool_only = {
-        key: frontmatter[key] for key in surface_format.tool_only_fields if key in frontmatter
-    }
-    extra = {key: value for key, value in frontmatter.items() if key not in consumed}
-    changes["per_tool_only"] = _with_tool_slot(base.per_tool_only, tool, tool_only)
-    changes["per_tool_extra"] = _with_tool_slot(base.per_tool_extra, tool, extra)
-
-    return replace(base, **changes)
+    return fold_fields_into_canonical(frontmatter, tool_surface, prior_canonical, body=body)
 
 
 def render(
@@ -93,20 +65,9 @@ def render(
     prior_text: str | None,
 ) -> str:
     """Render this tool's view of the canonical, preserving prior formatting if given."""
-    surface_format = tool_surface.surface_format
-    tool = tool_surface.tool
-    values = canonical.to_dict()  # thawed to plain dict/list so the YAML emitter can serialise
-
-    frontmatter = _base_frontmatter(prior_text)
-    if canonical.artifact_id:
-        frontmatter[surface_format.id_field] = canonical.artifact_id
-    for front_matter_key, attribute in surface_format.known_fields:
-        _set_or_drop(frontmatter, front_matter_key, _render_value(attribute, values.get(attribute)))
-    for key, value in values["per_tool_only"].get(tool, {}).items():
-        frontmatter[key] = value
-    for key, value in values["per_tool_extra"].get(tool, {}).items():
-        frontmatter[key] = value
-
+    frontmatter = project_canonical_to_fields(
+        canonical, tool_surface, base=_base_frontmatter(prior_text)
+    )
     return _emit(frontmatter, canonical.body)
 
 
@@ -169,48 +130,6 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return dict(loaded), body
 
 
-def _recover_id(frontmatter: Mapping[str, Any], id_field: str, base: CanonicalDocument) -> str:
-    """Carry the embedded id through if present and a non-empty string, else the prior id."""
-    embedded = frontmatter.get(id_field)
-    if isinstance(embedded, str) and embedded:
-        return embedded
-    return base.artifact_id
-
-
-def _coerce(attribute: str, value: Any) -> Any:
-    """Coerce a front-matter value to the canonical attribute's shape."""
-    if attribute in _LIST_ATTRIBUTES:
-        return tuple(_as_string_list(value))
-    return value
-
-
-def _as_string_list(value: Any) -> list[str]:
-    """A YAML list, or a comma-separated string, as a list of strings."""
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, (list, tuple)):
-        return [str(item) for item in value]
-    return [str(value)]
-
-
-def _with_tool_slot(
-    bags: Mapping[str, Any],
-    tool: str,
-    slot: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Replace this tool's per-tool bag with ``slot`` (an empty slot clears it), keeping others.
-
-    The tool's own file is the source of truth for its bag, so an empty slot removes a
-    field the user deleted; the other tools' bags are carried untouched (no-foreign-leak).
-    """
-    merged = dict(bags)
-    if slot:
-        merged[tool] = dict(slot)
-    else:
-        merged.pop(tool, None)
-    return merged
-
-
 def _base_frontmatter(prior_text: str | None) -> MutableMapping[str, Any]:
     """A mutable front-matter mapping seeded from ``prior_text`` to preserve formatting."""
     if prior_text is None:
@@ -223,21 +142,6 @@ def _base_frontmatter(prior_text: str | None) -> MutableMapping[str, Any]:
     except YAMLError:
         return CommentedMap()
     return loaded if isinstance(loaded, MutableMapping) else CommentedMap()
-
-
-def _render_value(attribute: str, value: Any) -> Any:
-    """Prepare a canonical value for the YAML emitter (list attributes emit as a list)."""
-    if attribute in _LIST_ATTRIBUTES:
-        return list(value) if value else None
-    return value
-
-
-def _set_or_drop(frontmatter: MutableMapping[str, Any], key: str, value: Any) -> None:
-    """Set ``key`` to ``value``, or drop it when the value is empty (absent on the wire)."""
-    if value is None or value == "" or value == []:
-        frontmatter.pop(key, None)
-    else:
-        frontmatter[key] = value
 
 
 def _emit(frontmatter: Mapping[str, Any], body: str) -> str:
