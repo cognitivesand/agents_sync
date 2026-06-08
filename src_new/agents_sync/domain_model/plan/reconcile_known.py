@@ -16,12 +16,12 @@ an observation, so it is not a vanish. Pure: no I/O, no clock, no randomness.
 
 from __future__ import annotations
 
-import unicodedata
 from collections.abc import Sequence
 
 from agents_sync.domain_model.artifact_naming import slugify_name
 from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
 from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
+from agents_sync.domain_model.plan.winner_selection import freshest
 from agents_sync.domain_model.sync_plan import (
     AbsorbToolEdit,
     FreezeArtifact,
@@ -70,7 +70,7 @@ def _absorb_change(
     changed: Sequence[SurfaceObservation],
 ) -> tuple[SyncIntent, ...]:
     """Absorb the freshest changed surface, then rename or project onto the rest."""
-    winner = min(changed, key=_recency_then_name)
+    winner = freshest(changed)
     winner_canonical = winner.parsed
     assert isinstance(winner_canonical, CanonicalDocument)  # the freeze guard ruled out a failure
     intents: list[SyncIntent] = [AbsorbToolEdit(artifact_id, winner.tool_surface)]
@@ -113,13 +113,3 @@ def _has_changed(observation: SurfaceObservation, record: ArtifactRecord) -> boo
     """True iff a recorded surface's content digest moved (digest is the detector)."""
     recorded = record.surfaces.get(observation.tool_surface.tool)
     return recorded is not None and observation.content_digest != recorded.content_digest
-
-
-def _recency_then_name(observation: SurfaceObservation) -> tuple[float, str]:
-    """Winner sort key: most recent first, ties to the alphabetically-first tool name.
-
-    ``min`` over this key picks the highest ``modified_time`` (negated) and, on a
-    tie, the Unicode-normalised case-folded first tool name (US-06 AC-4).
-    """
-    tool = unicodedata.normalize("NFC", observation.tool_surface.tool).casefold()
-    return (-observation.modified_time, tool)

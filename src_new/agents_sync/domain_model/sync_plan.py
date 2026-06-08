@@ -115,6 +115,27 @@ class RebuildCorruptCanonical:
     kind: ClassVar[IntentKind] = IntentKind.REBUILD_CORRUPT_CANONICAL
 
 
+@dataclass(frozen=True)
+class AdoptNewArtifact:
+    """An id-less candidate group to adopt: mint, record, and project (US-03).
+
+    ``source`` is the winning surface to adopt the content from; ``others`` are the
+    group's remaining surfaces, already present on their tools.
+    """
+
+    source: ToolSurface
+    others: tuple[ToolSurface, ...] = ()
+    kind: ClassVar[IntentKind] = IntentKind.ADOPT_NEW_ARTIFACT
+
+
+@dataclass(frozen=True)
+class ReportUnadoptable:
+    """An id-less candidate whose content won't parse — one structured warning, never minted."""
+
+    surface: ToolSurface
+    kind: ClassVar[IntentKind] = IntentKind.REPORT_UNADOPTABLE
+
+
 # The plan's element type — the union of the intent payloads, grown per step.
 SyncIntent = (
     FreezeArtifact
@@ -124,4 +145,6 @@ SyncIntent = (
     | RemoveArtifact
     | ReprojectCanonical
     | RebuildCorruptCanonical
+    | AdoptNewArtifact
+    | ReportUnadoptable
 )

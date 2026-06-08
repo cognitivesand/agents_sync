@@ -200,13 +200,18 @@ A pure function over the gathered observations and recorded state:
      projected), and extending to a newly-available tool is the same projection onto
      an absent target. (Digest, not mtime, is the change *detector*; mtime is only
      the winner tiebreaker.)
-3. **Per candidate group** (same kind + slug across tools): the winner already
-   parsed in the read phase → `adopt_new_artifact` (merging a cross-identity slug
-   match onto the local id, retiring the other — US-12 AC-7); if it failed to parse
-   → `report_unadoptable` (no id minted). A candidate whose slug matches an
-   *already-managed* artifact is **not** a collision — managed wins:
-   `absorb_into_managed` (archive the new bytes under the existing id, no mint —
-   US-03 AC-6).
+3. **Per candidate group** (the id-less remainder, grouped by kind + slug across
+   tools — decidable from the candidates alone): a group whose winner parsed →
+   `adopt_new_artifact` (winner by the same mtime tiebreak as a conflict, US-03 AC-7);
+   an id-less candidate whose content won't parse has no slug to group by, so each
+   is reported individually → `report_unadoptable` (no id minted). The
+   *cross-artifact* downgrade — a candidate group whose slug matches an
+   *already-managed* artifact is not a collision but a managed-wins case →
+   `absorb_into_managed` (archive the new bytes under the existing id, no mint — US-03
+   AC-6) — needs the whole-poll managed-key map and lives in the guard pass (§7 step
+   4). The cross-identity slug merge/retire (US-12 AC-7) is an *import* concern (a
+   canonical that already carries a different id), handled in `portable_library`
+   (§12), not in poll-time candidate adoption.
 4. **Cross-artifact guards** (the whole-poll view `reconcile_known` lacks — they
    inspect every artifact's intents together and *downgrade* the per-artifact
    decisions): fewer than two available tools → no destructive intents — none of
@@ -214,6 +219,8 @@ A pure function over the gathered observations and recorded state:
    `rename_artifact`, `remove_artifact` (US-07 AC-5); a `rename_artifact` whose new
    slug, or two managed artifacts that resolve to the same key (different ids) →
    `reject_collision` instead, untouched, structured error (US-04 AC-5, US-03 AC-8);
+   an `adopt_new_artifact` whose candidate group's key matches an already-managed
+   artifact → `absorb_into_managed` instead (managed wins, no mint — US-03 AC-6);
    a `remove_artifact` on a tool that suffered a *glitch* — ≥2 of its recorded
    artifacts vanished this poll → `reproject_canonical` instead (US-11 AC-9);
    private / framework-specific content → no projection (US-13/15).

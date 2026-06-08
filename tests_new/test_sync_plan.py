@@ -22,12 +22,14 @@ import pytest
 
 from agents_sync.domain_model.sync_plan import (
     AbsorbToolEdit,
+    AdoptNewArtifact,
     FreezeArtifact,
     IntentKind,
     ProjectToTools,
     RebuildCorruptCanonical,
     RemoveArtifact,
     RenameArtifact,
+    ReportUnadoptable,
     ReprojectCanonical,
     SyncResult,
 )
@@ -185,3 +187,16 @@ def test_canonical_authority_intents_are_tagged_immutable_value_objects() -> Non
     assert rebuild.kind is IntentKind.REBUILD_CORRUPT_CANONICAL
     with pytest.raises(FrozenInstanceError):
         reproject.artifact_id = "x"  # type: ignore[misc]
+
+
+def test_candidate_intents_are_tagged_immutable_value_objects() -> None:
+    # AdoptNewArtifact carries the winning source surface plus the already-present
+    # others; ReportUnadoptable carries the unparseable surface (no id yet for either).
+    adopt = AdoptNewArtifact(source=_INTENT_SURFACE, others=())
+    report = ReportUnadoptable(surface=_INTENT_SURFACE)
+
+    assert adopt.kind is IntentKind.ADOPT_NEW_ARTIFACT
+    assert adopt.source == _INTENT_SURFACE
+    assert report.kind is IntentKind.REPORT_UNADOPTABLE
+    with pytest.raises(FrozenInstanceError):
+        report.surface = _INTENT_SURFACE  # type: ignore[misc]
