@@ -36,8 +36,13 @@ def fold_fields_into_canonical(
 ) -> CanonicalDocument:
     """Fold one surface's flat field mapping into the canonical document.
 
-    ``body`` is the surface's body text, or ``None`` for a body-less surface (a
-    keyed-map slot) whose fold must leave the canonical's body untouched.
+    ``body`` is the surface's body text, or ``None`` for a surface whose fold must leave
+    the canonical's body untouched — either body-less (a keyed-map slot) or carrying its
+    body as a named field (a structured-text artifact maps ``developer_instructions`` to
+    ``body`` via ``known_fields``). A recipe supplies the body through *exactly one* of
+    these two channels — the ``body`` argument or a ``known_fields`` pair targeting
+    ``body`` — never both: the ``known_fields`` loop below runs after the ``body``
+    argument and would otherwise silently override it.
     """
     surface_format = tool_surface.surface_format
     tool = tool_surface.tool

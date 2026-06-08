@@ -22,6 +22,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from agents_sync.dialects import MalformedSurfaceError
+from agents_sync.dialects.field_mapping import (
+    fold_fields_into_canonical,
+    project_canonical_to_fields,
+)
+from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.domain_model.tool_surface import ToolSurface
 
 _TOML_BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
 
@@ -46,6 +52,44 @@ def serialize(obj: Mapping[str, Any], file_format: str) -> str:
         _emit_toml_table(lines, obj)
         return "\n".join(lines).rstrip() + "\n"
     raise ValueError(f"unsupported structured-text format: {file_format!r}")
+
+
+# --- the whole-file dialect: the entire file is one field map ---
+
+
+def parse(
+    text: str,
+    tool_surface: ToolSurface,
+    prior_canonical: CanonicalDocument | None,
+) -> CanonicalDocument:
+    """Fold a whole structured-text file into the canonical document (raises if malformed).
+
+    The body, when the artifact has one, is just a named field (e.g. codex's
+    ``developer_instructions``) the recipe maps via ``known_fields``, so it folds through
+    the shared recipe-application like any other field — no body argument here.
+    """
+    fields = deserialize(text, tool_surface.surface_format.file_format)
+    return fold_fields_into_canonical(fields, tool_surface, prior_canonical, body=None)
+
+
+def render(canonical: CanonicalDocument, tool_surface: ToolSurface, prior_text: str | None) -> str:
+    """Render the canonical as a whole structured-text file.
+
+    ``prior_text`` is unused: a whole-file artifact is a complete projection of the
+    canonical, so the file is built fresh (in recipe order) rather than seeded from prior.
+    """
+    fields = project_canonical_to_fields(canonical, tool_surface)
+    return serialize(fields, tool_surface.surface_format.file_format)
+
+
+def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
+    """Return the file's embedded id; never raises on malformed text (FR-11)."""
+    try:
+        fields = deserialize(text, tool_surface.surface_format.file_format)
+    except MalformedSurfaceError:
+        return None
+    value = fields.get(tool_surface.surface_format.id_field)
+    return value if isinstance(value, str) and value else None
 
 
 def _deserialize_json(text: str) -> dict[str, Any]:
