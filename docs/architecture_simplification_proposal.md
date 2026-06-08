@@ -357,8 +357,12 @@ place across dialects.
   behaviour — stdlib `tomllib` read + a hand-rolled TOML writer, stdlib `json`; no new
   dependency). JSONC (comment-tolerant read) is deferred — no tool declares it, and a
   correct strip must be string-aware (mcp URLs contain `//`).
-- `dialects/global_rules` — whole-file rules with `@import` resolution and
-  framework-specific hold-back (US-15).
+- `dialects/global_rules` — whole-file global rules **fold via
+  `markdown_frontmatter`** (they differ only by recipe data, not wire code); this
+  module holds the one rules-specific *pure* helper, `detect_framework_specific`
+  (the tool-private-path text scan the egress guard consumes). `@import` resolution
+  (filesystem I/O) and the framework-specific hold-back *enforcement* run in the
+  **read phase**, not here (US-15).
 - `dialects/mcp_server` — the per-tool MCP dialect differences.
 
 `file_to_canonical` *raises* on malformed content; the read phase catches that
@@ -400,7 +404,7 @@ dialect modules they call) perform every translation, in both directions.
 | Concern | Home | Spec |
 |---|---|---|
 | Secret policy at all four egress points | the planner refuses to **adopt/propagate** a secret-bearing canonical under `secrets_refused` (reading the stored/absorbed canonical, so it holds even for an unchanged artifact being projected — US-13 AC-5, file left untouched); the executor re-checks at each **write/render** egress before writing a target; `portable_library` checks on **export** and **import** and sets the manifest's `contains_secret_literals` flag. Under `secrets_accepted`, one structured warning per affected artifact per poll. | NFR-15, US-13 |
-| Rules `@import` + framework-specific hold-back | `dialects/global_rules` (resolved in the read phase) | US-15 |
+| Rules `@import` + framework-specific hold-back | the pure `detect_framework_specific` predicate lives in `dialects/global_rules`; `@import` resolution and the hold-back *enforcement* run in the **read phase** | US-15 |
 | Bounded archive | `artifact_archive` tiered GC on a low-frequency daemon tick (internal; no user-facing command) | NFR-07/08 |
 | Daemon resilience | `poll_daemon` counts only *systemic* failures | FR-02, NFR-04 |
 | Library export/import | `portable_library` **previews** a dry-run plan (the same `compute_sync_plan` over the imported canonicals vs local) **before any write**, requiring `--force` if a local artifact would be displaced (US-12 AC-18); a cross-identity slug match reconciles onto the local id and retires the other, the later `last_modified` winning (ties favour the local artifact, else a deterministic total order — FR-12); accepted canonicals are then written and the next poll adopts them | US-12, FR-12/15 |
