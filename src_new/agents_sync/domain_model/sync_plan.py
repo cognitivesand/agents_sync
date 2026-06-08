@@ -136,6 +136,17 @@ class ReportUnadoptable:
     kind: ClassVar[IntentKind] = IntentKind.REPORT_UNADOPTABLE
 
 
+@dataclass(frozen=True)
+class RejectCollision:
+    """Two or more managed artifacts resolve to one reconciliation key — abort them all,
+    leave every involved artifact untouched, and name the colliding ids and the
+    ``(customization_kind, slug)`` key they share (US-04 AC-5, US-03 AC-8)."""
+
+    artifact_ids: tuple[str, ...]
+    reconciliation_key: tuple[str, str]
+    kind: ClassVar[IntentKind] = IntentKind.REJECT_COLLISION
+
+
 # The plan's element type — the union of the intent payloads, grown per step.
 SyncIntent = (
     FreezeArtifact
@@ -147,6 +158,7 @@ SyncIntent = (
     | RebuildCorruptCanonical
     | AdoptNewArtifact
     | ReportUnadoptable
+    | RejectCollision
 )
 
 

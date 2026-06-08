@@ -22,6 +22,7 @@ from agents_sync.domain_model.sync_plan import (
     FreezeArtifact,
     ProjectToTools,
     RebuildCorruptCanonical,
+    RejectCollision,
     RemoveArtifact,
     RenameArtifact,
 )
@@ -29,6 +30,8 @@ from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface,
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
 
 _ID_X = "11111111-1111-4111-8111-111111111111"
+_ID_Y = "22222222-2222-4222-9222-222222222222"
+_ID_Z = "33333333-3333-4333-8333-333333333333"
 _PLACEHOLDER_ID = "00000000-0000-4000-8000-000000000000"
 _MARKDOWN = SurfaceFormat(dialect="markdown_frontmatter")
 _TWO_TOOLS = 2
@@ -48,6 +51,7 @@ def _managed(
     tool: str,
     content_digest: str,
     *,
+    artifact_id: str = _ID_X,
     name: str = "reviewer",
     modified_time: float = 10.0,
     parsed: CanonicalDocument | ParseFailure | None = None,
@@ -55,10 +59,10 @@ def _managed(
     # A managed surface carries the recovered id; its parsed canonical defaults to a
     # well-formed document whose name matches the recorded name (no spurious rename).
     canonical: CanonicalDocument | ParseFailure
-    canonical = parsed if parsed is not None else CanonicalDocument(_ID_X, "agent", name=name)
+    canonical = parsed if parsed is not None else CanonicalDocument(artifact_id, "agent", name=name)
     return SurfaceObservation(
         tool_surface=_surface(tool, name),
-        embedded_id=_ID_X,
+        embedded_id=artifact_id,
         content_digest=content_digest,
         modified_time=modified_time,
         parsed=canonical,
@@ -76,15 +80,18 @@ def _candidate(tool: str, name: str) -> SurfaceObservation:
     )
 
 
-def _state(name: str = "reviewer", **recorded_digest_by_tool: str) -> SyncState:
-    record = ArtifactRecord(
+def _record(name: str = "reviewer", **recorded_digest_by_tool: str) -> ArtifactRecord:
+    return ArtifactRecord(
         name=name,
         surfaces={
             tool: RecordedSurface(location=_surface(tool, name).location, content_digest=digest)
             for tool, digest in recorded_digest_by_tool.items()
         },
     )
-    return SyncState(records={_ID_X: record})
+
+
+def _state(name: str = "reviewer", **recorded_digest_by_tool: str) -> SyncState:
+    return SyncState(records={_ID_X: _record(name, **recorded_digest_by_tool)})
 
 
 # --- assembly: the three shipped steps wired into one SyncPlan -------------------
@@ -254,3 +261,149 @@ def test_two_tool_guard_keeps_a_freeze() -> None:
     plan = compute_sync_plan([malformed], _state(claude="old"), {}, _ONE_TOOL)
 
     assert plan.intents == (FreezeArtifact(_ID_X),)
+
+
+# --- the collision guard: US-03 AC-8 + US-04 AC-5 -------------------------------
+
+
+def test_two_managed_artifacts_at_one_key_are_rejected() -> None:
+    # Different ids resolving to the same (kind, slug) — a slug collision that should
+    # not exist; the rejection is emitted naming both ids (US-03 AC-8). (The sibling
+    # test below proves any pending intents are also dropped.)
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y),
+    ]
+    state = SyncState(records={_ID_X: _record(claude="same"), _ID_Y: _record(codex="same")})
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (RejectCollision((_ID_X, _ID_Y), ("agent", "reviewer")),)
+
+
+def test_a_collision_drops_the_colliding_artifacts_pending_intents() -> None:
+    # Both colliding artifacts had pending edits; rejection removes them so nothing
+    # destructive is planned for either — "left untouched" (US-03 AC-8).
+    observations = [
+        _managed("claude", content_digest="new", artifact_id=_ID_X),
+        _managed("codex", content_digest="new", artifact_id=_ID_Y),
+    ]
+    state = SyncState(records={_ID_X: _record(claude="old"), _ID_Y: _record(codex="old")})
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (RejectCollision((_ID_X, _ID_Y), ("agent", "reviewer")),)
+
+
+def test_a_rename_creating_a_slug_clash_is_rejected() -> None:
+    # X renames to 'auditor'; Y already occupies 'auditor' — the rename creates the
+    # collision, so it is rejected and no rename happens (US-04 AC-5).
+    observations = [
+        _managed(
+            "claude",
+            content_digest="new",
+            artifact_id=_ID_X,
+            parsed=CanonicalDocument(_ID_X, "agent", name="auditor"),
+        ),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y, name="auditor"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(name="reviewer", claude="old"),
+            _ID_Y: _record(name="auditor", codex="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (RejectCollision((_ID_X, _ID_Y), ("agent", "auditor")),)
+
+
+def test_managed_artifacts_at_distinct_keys_are_not_rejected() -> None:
+    # Different slugs -> no collision; each artifact's plan is left untouched.
+    observations = [
+        _managed("claude", content_digest="new", artifact_id=_ID_X, name="reviewer"),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y, name="auditor"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(name="reviewer", claude="old"),
+            _ID_Y: _record(name="auditor", codex="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (AbsorbToolEdit(_ID_X, _surface("claude")),)
+
+
+def test_a_collision_leaves_non_colliding_artifacts_untouched() -> None:
+    # X and Y collide on 'reviewer'; Z at a distinct key has a pending edit that must
+    # survive — the rejection is scoped to the colliding set, not the whole poll.
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y),
+        _managed("cursor", content_digest="new", artifact_id=_ID_Z, name="auditor"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(claude="same"),
+            _ID_Y: _record(codex="same"),
+            _ID_Z: _record(name="auditor", cursor="old"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (
+        AbsorbToolEdit(_ID_Z, _surface("cursor", "auditor")),
+        RejectCollision((_ID_X, _ID_Y), ("agent", "reviewer")),
+    )
+
+
+def test_three_managed_artifacts_at_one_key_are_named_in_sorted_order() -> None:
+    # Three-way collision; the colliding ids are reported in deterministic sorted order
+    # regardless of the order their observations arrived in (here: descending Z, Y, X).
+    observations = [
+        _managed("cursor", content_digest="same", artifact_id=_ID_Z),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y),
+        _managed("claude", content_digest="same", artifact_id=_ID_X),
+    ]
+    state = SyncState(
+        records={
+            _ID_Z: _record(cursor="same"),
+            _ID_Y: _record(codex="same"),
+            _ID_X: _record(claude="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (RejectCollision((_ID_X, _ID_Y, _ID_Z), ("agent", "reviewer")),)
+
+
+def test_a_collision_is_reported_even_below_two_available_tools() -> None:
+    # reject_collision is a structured error, not a destructive op — the two-tool
+    # guard does not suppress it.
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y),
+    ]
+    state = SyncState(records={_ID_X: _record(claude="same"), _ID_Y: _record(codex="same")})
+
+    plan = compute_sync_plan(observations, state, {}, _ONE_TOOL)
+
+    assert plan.intents == (RejectCollision((_ID_X, _ID_Y), ("agent", "reviewer")),)
+
+
+def test_orphan_ids_at_one_key_are_not_a_collision() -> None:
+    # Ids unknown to state are not 'already-managed' artifacts; they do not collide
+    # (and produce no intents) — only state-managed artifacts participate (US-03 AC-8).
+    observations = [
+        _managed("claude", content_digest="x", artifact_id=_ID_X),
+        _managed("codex", content_digest="x", artifact_id=_ID_Y),
+    ]
+
+    plan = compute_sync_plan(observations, SyncState(), {}, _TWO_TOOLS)
+
+    assert plan.intents == ()

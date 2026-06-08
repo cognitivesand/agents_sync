@@ -27,6 +27,7 @@ from agents_sync.domain_model.sync_plan import (
     IntentKind,
     ProjectToTools,
     RebuildCorruptCanonical,
+    RejectCollision,
     RemoveArtifact,
     RenameArtifact,
     ReportUnadoptable,
@@ -210,6 +211,24 @@ def test_sync_plan_is_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         plan.intents = ()  # type: ignore[misc]
+
+
+def test_reject_collision_is_a_tagged_immutable_value_object() -> None:
+    # Carries the colliding artifact ids and the (kind, slug) reconciliation key they
+    # share, so the executor can emit a structured error (US-04 AC-5, US-03 AC-8).
+    other_id = "22222222-2222-4222-9222-222222222222"
+    collision = RejectCollision(
+        artifact_ids=(_INTENT_ARTIFACT_ID, other_id),
+        reconciliation_key=("agent", "reviewer"),
+    )
+
+    assert collision.kind is IntentKind.REJECT_COLLISION
+    assert collision == RejectCollision((_INTENT_ARTIFACT_ID, other_id), ("agent", "reviewer"))
+    # Both fields participate in equality — a value object differing in either is unequal.
+    assert collision != RejectCollision((_INTENT_ARTIFACT_ID,), ("agent", "reviewer"))
+    assert collision != RejectCollision((_INTENT_ARTIFACT_ID, other_id), ("agent", "auditor"))
+    with pytest.raises(FrozenInstanceError):
+        collision.artifact_ids = ()  # type: ignore[misc]
 
 
 def test_candidate_intents_are_tagged_immutable_value_objects() -> None:
