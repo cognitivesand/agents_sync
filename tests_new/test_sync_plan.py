@@ -143,14 +143,14 @@ def test_sync_result_is_immutable() -> None:
 
 def test_each_intent_payload_tags_itself_with_its_kind() -> None:
     # The IntentKind enum is each payload's discriminator (for logging / SyncResult
-    # categorisation); the executor can read intent.kind without isinstance.
+    # categorisation); the executor can read intent.intent_kind without isinstance.
     absorb = AbsorbToolEdit(artifact_id=_INTENT_ARTIFACT_ID, source=_INTENT_SURFACE)
     project = ProjectToTools(artifact_id=_INTENT_ARTIFACT_ID, targets=(_INTENT_SURFACE,))
     freeze = FreezeArtifact(artifact_id=_INTENT_ARTIFACT_ID)
 
-    assert absorb.kind is IntentKind.ABSORB_TOOL_EDIT
-    assert project.kind is IntentKind.PROJECT_TO_TOOLS
-    assert freeze.kind is IntentKind.FREEZE_ARTIFACT
+    assert absorb.intent_kind is IntentKind.ABSORB_TOOL_EDIT
+    assert project.intent_kind is IntentKind.PROJECT_TO_TOOLS
+    assert freeze.intent_kind is IntentKind.FREEZE_ARTIFACT
 
 
 def test_intent_payloads_carry_their_subject() -> None:
@@ -175,9 +175,9 @@ def test_rename_and_remove_intents_are_tagged_immutable_value_objects() -> None:
     rename = RenameArtifact(artifact_id=_INTENT_ARTIFACT_ID, new_name="auditor")
     remove = RemoveArtifact(artifact_id=_INTENT_ARTIFACT_ID)
 
-    assert rename.kind is IntentKind.RENAME_ARTIFACT
+    assert rename.intent_kind is IntentKind.RENAME_ARTIFACT
     assert rename.new_name == "auditor"
-    assert remove.kind is IntentKind.REMOVE_ARTIFACT
+    assert remove.intent_kind is IntentKind.REMOVE_ARTIFACT
     with pytest.raises(FrozenInstanceError):
         remove.artifact_id = "x"  # type: ignore[misc]
 
@@ -186,8 +186,8 @@ def test_canonical_authority_intents_are_tagged_immutable_value_objects() -> Non
     reproject = ReprojectCanonical(artifact_id=_INTENT_ARTIFACT_ID)
     rebuild = RebuildCorruptCanonical(artifact_id=_INTENT_ARTIFACT_ID)
 
-    assert reproject.kind is IntentKind.REPROJECT_CANONICAL
-    assert rebuild.kind is IntentKind.REBUILD_CORRUPT_CANONICAL
+    assert reproject.intent_kind is IntentKind.REPROJECT_CANONICAL
+    assert rebuild.intent_kind is IntentKind.REBUILD_CORRUPT_CANONICAL
     with pytest.raises(FrozenInstanceError):
         reproject.artifact_id = "x"  # type: ignore[misc]
 
@@ -219,7 +219,7 @@ def test_absorb_into_managed_is_a_tagged_immutable_value_object() -> None:
     # absorbed under it (US-03 AC-6); both fields participate in equality.
     absorb = AbsorbIntoManaged(artifact_id=_INTENT_ARTIFACT_ID, sources=(_INTENT_SURFACE,))
 
-    assert absorb.kind is IntentKind.ABSORB_INTO_MANAGED
+    assert absorb.intent_kind is IntentKind.ABSORB_INTO_MANAGED
     assert absorb == AbsorbIntoManaged(_INTENT_ARTIFACT_ID, (_INTENT_SURFACE,))
     assert absorb != AbsorbIntoManaged("22222222-2222-4222-9222-222222222222", (_INTENT_SURFACE,))
     assert absorb != AbsorbIntoManaged(_INTENT_ARTIFACT_ID, ())
@@ -236,7 +236,7 @@ def test_reject_collision_is_a_tagged_immutable_value_object() -> None:
         reconciliation_key=("agent", "reviewer"),
     )
 
-    assert collision.kind is IntentKind.REJECT_COLLISION
+    assert collision.intent_kind is IntentKind.REJECT_COLLISION
     assert collision == RejectCollision((_INTENT_ARTIFACT_ID, other_id), ("agent", "reviewer"))
     # Both fields participate in equality — a value object differing in either is unequal.
     assert collision != RejectCollision((_INTENT_ARTIFACT_ID,), ("agent", "reviewer"))
@@ -251,8 +251,8 @@ def test_candidate_intents_are_tagged_immutable_value_objects() -> None:
     adopt = AdoptNewArtifact(source=_INTENT_SURFACE, others=())
     report = ReportUnadoptable(surface=_INTENT_SURFACE)
 
-    assert adopt.kind is IntentKind.ADOPT_NEW_ARTIFACT
+    assert adopt.intent_kind is IntentKind.ADOPT_NEW_ARTIFACT
     assert adopt.source == _INTENT_SURFACE
-    assert report.kind is IntentKind.REPORT_UNADOPTABLE
+    assert report.intent_kind is IntentKind.REPORT_UNADOPTABLE
     with pytest.raises(FrozenInstanceError):
         report.surface = _INTENT_SURFACE  # type: ignore[misc]

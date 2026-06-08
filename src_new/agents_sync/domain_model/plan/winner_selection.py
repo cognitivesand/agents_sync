@@ -15,7 +15,13 @@ from agents_sync.domain_model.observation import SurfaceObservation
 
 
 def freshest(observations: Sequence[SurfaceObservation]) -> SurfaceObservation:
-    """Return the most-recently-modified observation; ties to the first tool name."""
+    """Return the most-recently-modified observation; ties to the first tool name.
+
+    Callers pass a non-empty group (a candidate group, or the changed surfaces of a
+    conflict); an empty sequence is a caller bug, reported loudly rather than through
+    ``min()``'s opaque ``ValueError``.
+    """
+    assert observations, "freshest() requires at least one observation"
     return min(observations, key=_recency_then_name)
 
 

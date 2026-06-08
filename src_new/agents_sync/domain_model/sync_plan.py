@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import ClassVar
 
+from agents_sync.domain_model.artifact_naming import ReconciliationKey
 from agents_sync.domain_model.tool_surface import ToolSurface
 
 
@@ -61,7 +62,7 @@ class FreezeArtifact:
     """A managed artifact whose content won't parse — blocked, not synced (FR-11)."""
 
     artifact_id: str
-    kind: ClassVar[IntentKind] = IntentKind.FREEZE_ARTIFACT
+    intent_kind: ClassVar[IntentKind] = IntentKind.FREEZE_ARTIFACT
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ class AbsorbToolEdit:
 
     artifact_id: str
     source: ToolSurface
-    kind: ClassVar[IntentKind] = IntentKind.ABSORB_TOOL_EDIT
+    intent_kind: ClassVar[IntentKind] = IntentKind.ABSORB_TOOL_EDIT
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,7 @@ class ProjectToTools:
 
     artifact_id: str
     targets: tuple[ToolSurface, ...]
-    kind: ClassVar[IntentKind] = IntentKind.PROJECT_TO_TOOLS
+    intent_kind: ClassVar[IntentKind] = IntentKind.PROJECT_TO_TOOLS
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,7 @@ class RenameArtifact:
 
     artifact_id: str
     new_name: str
-    kind: ClassVar[IntentKind] = IntentKind.RENAME_ARTIFACT
+    intent_kind: ClassVar[IntentKind] = IntentKind.RENAME_ARTIFACT
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,7 @@ class RemoveArtifact:
     """A surface was deleted — archive then remove the artifact's surviving projections."""
 
     artifact_id: str
-    kind: ClassVar[IntentKind] = IntentKind.REMOVE_ARTIFACT
+    intent_kind: ClassVar[IntentKind] = IntentKind.REMOVE_ARTIFACT
 
 
 @dataclass(frozen=True)
@@ -104,7 +105,7 @@ class ReprojectCanonical:
     """The canonical changed out of band — re-project it onto the tool surfaces."""
 
     artifact_id: str
-    kind: ClassVar[IntentKind] = IntentKind.REPROJECT_CANONICAL
+    intent_kind: ClassVar[IntentKind] = IntentKind.REPROJECT_CANONICAL
 
 
 @dataclass(frozen=True)
@@ -112,7 +113,7 @@ class RebuildCorruptCanonical:
     """The stored canonical is corrupt — archive it and rebuild from the tools (US-09)."""
 
     artifact_id: str
-    kind: ClassVar[IntentKind] = IntentKind.REBUILD_CORRUPT_CANONICAL
+    intent_kind: ClassVar[IntentKind] = IntentKind.REBUILD_CORRUPT_CANONICAL
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,7 @@ class AdoptNewArtifact:
 
     source: ToolSurface
     others: tuple[ToolSurface, ...] = ()
-    kind: ClassVar[IntentKind] = IntentKind.ADOPT_NEW_ARTIFACT
+    intent_kind: ClassVar[IntentKind] = IntentKind.ADOPT_NEW_ARTIFACT
 
 
 @dataclass(frozen=True)
@@ -133,7 +134,7 @@ class ReportUnadoptable:
     """An id-less candidate whose content won't parse — one structured warning, never minted."""
 
     surface: ToolSurface
-    kind: ClassVar[IntentKind] = IntentKind.REPORT_UNADOPTABLE
+    intent_kind: ClassVar[IntentKind] = IntentKind.REPORT_UNADOPTABLE
 
 
 @dataclass(frozen=True)
@@ -144,7 +145,7 @@ class AbsorbIntoManaged:
 
     artifact_id: str
     sources: tuple[ToolSurface, ...]
-    kind: ClassVar[IntentKind] = IntentKind.ABSORB_INTO_MANAGED
+    intent_kind: ClassVar[IntentKind] = IntentKind.ABSORB_INTO_MANAGED
 
 
 @dataclass(frozen=True)
@@ -154,8 +155,8 @@ class RejectCollision:
     ``(customization_kind, slug)`` key they share (US-04 AC-5, US-03 AC-8)."""
 
     artifact_ids: tuple[str, ...]
-    reconciliation_key: tuple[str, str]
-    kind: ClassVar[IntentKind] = IntentKind.REJECT_COLLISION
+    reconciliation_key: ReconciliationKey
+    intent_kind: ClassVar[IntentKind] = IntentKind.REJECT_COLLISION
 
 
 # The plan's element type — the union of the intent payloads, grown per step.

@@ -10,6 +10,11 @@ from __future__ import annotations
 
 import re
 
+# A reconciliation key: the (customization_type, slug) pair an artifact resolves to. It is
+# the identity two surfaces must share to be the same logical artifact (US-03), and the
+# key the planner's collision and absorb guards group managed artifacts and candidates by.
+type ReconciliationKey = tuple[str, str]
+
 # Bare device names Windows refuses as file basenames, regardless of extension.
 _WINDOWS_RESERVED_BASENAMES = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
@@ -38,6 +43,6 @@ def slugify_name(name: str) -> str:
     return slug
 
 
-def candidate_key(kind: str, name: str) -> tuple[str, str]:
+def candidate_key(kind: str, name: str) -> ReconciliationKey:
     """Pair a customization_type with the slug, to group id-less candidates."""
     return (kind, slugify_name(name))

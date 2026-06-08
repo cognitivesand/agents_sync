@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from agents_sync.domain_model.artifact_naming import candidate_key
+from agents_sync.domain_model.artifact_naming import ReconciliationKey, candidate_key
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 from agents_sync.domain_model.observation import SurfaceObservation
 from agents_sync.domain_model.plan.adopt_candidates import adopt_candidates
@@ -90,7 +90,7 @@ def compute_sync_plan(
         )
     )
     if available_tool_count < _MIN_TOOLS_FOR_DESTRUCTIVE:
-        intents = [intent for intent in intents if intent.kind not in _DESTRUCTIVE_KINDS]
+        intents = [intent for intent in intents if intent.intent_kind not in _DESTRUCTIVE_KINDS]
     return SyncPlan(tuple(intents))
 
 
@@ -130,12 +130,12 @@ def _index_managed_keys(
     managed_plans: Mapping[str, tuple[SyncIntent, ...]],
     managed_observations: Mapping[str, tuple[SurfaceObservation, ...]],
     records: Mapping[str, ArtifactRecord],
-) -> dict[tuple[str, str], list[str]]:
+) -> dict[ReconciliationKey, list[str]]:
     """Map each state-managed artifact's effective ``(kind, slug)`` to the ids resolving to
     it. An orphan id (recovered but absent from ``records``) is not an already-managed
     artifact, so it is excluded — it owns no key and can neither collide nor be absorbed into.
     """
-    owners_by_key: dict[tuple[str, str], list[str]] = {}
+    owners_by_key: dict[ReconciliationKey, list[str]] = {}
     for artifact_id in managed_plans:
         if artifact_id in records:
             key = _effective_key(
@@ -147,7 +147,7 @@ def _index_managed_keys(
 
 def _reject_collisions(
     managed_plans: Mapping[str, tuple[SyncIntent, ...]],
-    owners_by_key: Mapping[tuple[str, str], list[str]],
+    owners_by_key: Mapping[ReconciliationKey, list[str]],
 ) -> list[SyncIntent]:
     """Replace the intents of any managed artifacts sharing a reconciliation key with a
     single ``RejectCollision`` per colliding set (US-03 AC-8, US-04 AC-5)."""
@@ -166,7 +166,7 @@ def _reject_collisions(
 def _absorb_into_managed(
     candidate_intents: Sequence[SyncIntent],
     candidates: Sequence[SurfaceObservation],
-    sole_owner_by_key: Mapping[tuple[str, str], str],
+    sole_owner_by_key: Mapping[ReconciliationKey, str],
 ) -> list[SyncIntent]:
     """Downgrade each ``AdoptNewArtifact`` whose group key matches a sole-owner managed key
     to ``AbsorbIntoManaged`` (managed wins, no mint — US-03 AC-6); other intents pass through.
@@ -189,7 +189,7 @@ def _effective_key(
     observations: Sequence[SurfaceObservation],
     record: ArtifactRecord,
     plan: Sequence[SyncIntent],
-) -> tuple[str, str]:
+) -> ReconciliationKey:
     """The ``(kind, slug)`` a managed artifact would occupy: its kind from the observed
     surfaces, its name from the record unless a pending rename moves it to a new name."""
     name = record.name

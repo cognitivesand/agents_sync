@@ -65,8 +65,11 @@ class CanonicalDocument:
         object.__setattr__(self, "per_tool_extra", _freeze(self.per_tool_extra))
 
     def __hash__(self) -> int:
-        # Hashable and consistent with equality: equal content hashes equal. The
-        # auto-generated hash would raise on the mapping fields, so hash by digest.
+        # Hash by content digest (the auto-generated hash would raise on the mapping
+        # fields). Equality is field-wise, NOT content-wise: two documents that normalise
+        # equal but differ textually (e.g. reordered ``tools``) are unequal yet share a
+        # digest — a legal hash collision, which is the digest's purpose. Equal objects
+        # still hash equal (identical fields normalise identically).
         return hash(self.content_digest())
 
     @classmethod

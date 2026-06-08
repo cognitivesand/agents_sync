@@ -48,6 +48,12 @@ class ArtifactRecord:
     def __post_init__(self) -> None:
         object.__setattr__(self, "surfaces", MappingProxyType(dict(self.surfaces)))
 
+    def __hash__(self) -> int:
+        # ``frozen=True`` advertises hashability, but the read-only ``surfaces`` proxy is
+        # not auto-hashable; hash by content (each ``RecordedSurface`` is itself hashable),
+        # consistent with the field-wise equality the dataclass generates.
+        return hash((self.name, self.canonical_digest, tuple(sorted(self.surfaces.items()))))
+
 
 @dataclass(frozen=True)
 class SyncState:
@@ -57,3 +63,8 @@ class SyncState:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "records", MappingProxyType(dict(self.records)))
+
+    def __hash__(self) -> int:
+        # As for ArtifactRecord: the read-only ``records`` proxy is not auto-hashable, so
+        # hash by content (each ArtifactRecord is itself hashable by content).
+        return hash(tuple(sorted(self.records.items())))
