@@ -17,6 +17,7 @@ from agents_sync.domain_model.canonical_document import CanonicalDocument, Corru
 from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
 from agents_sync.domain_model.plan.compute_sync_plan import compute_sync_plan
 from agents_sync.domain_model.sync_plan import (
+    AbsorbIntoManaged,
     AbsorbToolEdit,
     AdoptNewArtifact,
     FreezeArtifact,
@@ -25,6 +26,7 @@ from agents_sync.domain_model.sync_plan import (
     RejectCollision,
     RemoveArtifact,
     RenameArtifact,
+    ReportUnadoptable,
 )
 from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface, SyncState
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -69,14 +71,24 @@ def _managed(
     )
 
 
-def _candidate(tool: str, name: str) -> SurfaceObservation:
-    # An id-less surface whose parsed canonical supplies the (kind, slug) to group by.
+def _candidate(
+    tool: str,
+    name: str = "reviewer",
+    *,
+    modified_time: float = 10.0,
+    parsed: CanonicalDocument | ParseFailure | None = None,
+) -> SurfaceObservation:
+    # An id-less surface; its parsed canonical supplies the (kind, slug) to group by.
+    canonical: CanonicalDocument | ParseFailure
+    canonical = (
+        parsed if parsed is not None else CanonicalDocument(_PLACEHOLDER_ID, "agent", name=name)
+    )
     return SurfaceObservation(
         tool_surface=_surface(tool, name),
         embedded_id=None,
         content_digest="cand",
-        modified_time=10.0,
-        parsed=CanonicalDocument(_PLACEHOLDER_ID, "agent", name=name),
+        modified_time=modified_time,
+        parsed=canonical,
     )
 
 
@@ -405,5 +417,86 @@ def test_orphan_ids_at_one_key_are_not_a_collision() -> None:
     ]
 
     plan = compute_sync_plan(observations, SyncState(), {}, _TWO_TOOLS)
+
+    assert plan.intents == ()
+
+
+# --- the absorb-into-managed guard: US-03 AC-6 ----------------------------------
+
+
+def test_a_candidate_matching_a_managed_key_absorbs_into_it() -> None:
+    # A new id-less artifact at an already-managed artifact's key: managed wins, the new
+    # bytes absorb under the existing id, no mint (US-03 AC-6).
+    managed = _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer")
+    candidate = _candidate("codex", name="reviewer")
+    state = _state(name="reviewer", claude="same")
+
+    plan = compute_sync_plan([managed, candidate], state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (AbsorbIntoManaged(_ID_X, (candidate.tool_surface,)),)
+
+
+def test_a_candidate_at_a_distinct_key_is_still_adopted() -> None:
+    # No managed artifact shares its key -> it remains a fresh adoption, not an absorb.
+    managed = _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer")
+    candidate = _candidate("codex", name="newhelper")
+    state = _state(name="reviewer", claude="same")
+
+    plan = compute_sync_plan([managed, candidate], state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (AdoptNewArtifact(candidate.tool_surface, ()),)
+
+
+def test_a_candidate_group_absorbs_all_its_surfaces_into_the_managed_id() -> None:
+    # An id-less duplicate on two tools at a managed key absorbs the whole group's bytes.
+    managed = _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer")
+    winner = _candidate("codex", name="reviewer", modified_time=20.0)
+    loser = _candidate("cursor", name="reviewer", modified_time=10.0)
+    state = _state(name="reviewer", claude="same")
+
+    plan = compute_sync_plan([managed, winner, loser], state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (
+        AbsorbIntoManaged(_ID_X, (winner.tool_surface, loser.tool_surface)),
+    )
+
+
+def test_a_candidate_at_a_colliding_key_is_not_absorbed() -> None:
+    # The managed side is ambiguous (two ids collide on the key, so it is rejected); the
+    # candidate cannot absorb into an ambiguous target and stays a fresh adoption.
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X),
+        _managed("codex", content_digest="same", artifact_id=_ID_Y),
+        _candidate("cursor", name="reviewer"),
+    ]
+    state = SyncState(records={_ID_X: _record(claude="same"), _ID_Y: _record(codex="same")})
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (
+        RejectCollision((_ID_X, _ID_Y), ("agent", "reviewer")),
+        AdoptNewArtifact(observations[2].tool_surface, ()),
+    )
+
+
+def test_an_unparseable_candidate_passes_through_the_absorb_guard() -> None:
+    # ReportUnadoptable is not an adoption, so the absorb guard leaves it untouched.
+    managed = _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer")
+    unparseable = _candidate("codex", parsed=ParseFailure(reason="bad yaml"))
+    state = _state(name="reviewer", claude="same")
+
+    plan = compute_sync_plan([managed, unparseable], state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (ReportUnadoptable(unparseable.tool_surface),)
+
+
+def test_two_tool_guard_drops_an_absorb_into_managed() -> None:
+    # absorb_into_managed projects the managed canonical outward -> destructive; dropped
+    # below two available tools (US-07 AC-5).
+    managed = _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer")
+    candidate = _candidate("codex", name="reviewer")
+    state = _state(name="reviewer", claude="same")
+
+    plan = compute_sync_plan([managed, candidate], state, {}, _ONE_TOOL)
 
     assert plan.intents == ()

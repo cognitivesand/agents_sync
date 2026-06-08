@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from agents_sync.domain_model.sync_plan import (
+    AbsorbIntoManaged,
     AbsorbToolEdit,
     AdoptNewArtifact,
     FreezeArtifact,
@@ -211,6 +212,19 @@ def test_sync_plan_is_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         plan.intents = ()  # type: ignore[misc]
+
+
+def test_absorb_into_managed_is_a_tagged_immutable_value_object() -> None:
+    # Carries the winning managed id and the candidate group's surfaces whose bytes are
+    # absorbed under it (US-03 AC-6); both fields participate in equality.
+    absorb = AbsorbIntoManaged(artifact_id=_INTENT_ARTIFACT_ID, sources=(_INTENT_SURFACE,))
+
+    assert absorb.kind is IntentKind.ABSORB_INTO_MANAGED
+    assert absorb == AbsorbIntoManaged(_INTENT_ARTIFACT_ID, (_INTENT_SURFACE,))
+    assert absorb != AbsorbIntoManaged("22222222-2222-4222-9222-222222222222", (_INTENT_SURFACE,))
+    assert absorb != AbsorbIntoManaged(_INTENT_ARTIFACT_ID, ())
+    with pytest.raises(FrozenInstanceError):
+        absorb.sources = ()  # type: ignore[misc]
 
 
 def test_reject_collision_is_a_tagged_immutable_value_object() -> None:

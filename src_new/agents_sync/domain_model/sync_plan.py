@@ -137,6 +137,17 @@ class ReportUnadoptable:
 
 
 @dataclass(frozen=True)
+class AbsorbIntoManaged:
+    """A new id-less group resolves to an already-managed artifact's key — managed wins:
+    archive the new bytes under the existing id and project the managed canonical over
+    them; the new tool joins the entry and no id is minted (US-03 AC-6)."""
+
+    artifact_id: str
+    sources: tuple[ToolSurface, ...]
+    kind: ClassVar[IntentKind] = IntentKind.ABSORB_INTO_MANAGED
+
+
+@dataclass(frozen=True)
 class RejectCollision:
     """Two or more managed artifacts resolve to one reconciliation key — abort them all,
     leave every involved artifact untouched, and name the colliding ids and the
@@ -158,6 +169,7 @@ SyncIntent = (
     | RebuildCorruptCanonical
     | AdoptNewArtifact
     | ReportUnadoptable
+    | AbsorbIntoManaged
     | RejectCollision
 )
 
