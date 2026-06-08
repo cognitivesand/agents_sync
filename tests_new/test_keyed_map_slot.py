@@ -182,6 +182,15 @@ def test_malformed_json_raises() -> None:
         file_to_canonical("{not valid json", _surface(), None)
 
 
+def test_render_over_a_malformed_prior_fails_loud() -> None:
+    # A structurally-broken prior file is not silently overwritten: render fails loud so
+    # the executor can decide (archive then rewrite) rather than clobber user content.
+    canonical = CanonicalDocument(artifact_id=_EMBEDDED_ID, kind="mcp_server", description="x")
+
+    with pytest.raises(MalformedSurfaceError):
+        canonical_to_file(canonical, _surface(), "{not valid json")
+
+
 def test_extract_id_reads_a_well_formed_id() -> None:
     text = _file({"github": {"pair_id": _EMBEDDED_ID}})
 
@@ -194,30 +203,74 @@ def test_extract_id_never_raises_and_returns_none_when_unreadable_or_absent() ->
     assert extract_artifact_id("{}", _surface()) is None  # slot absent
 
 
-def test_an_unsupported_file_format_fails_loud() -> None:
-    # TOML is deferred to the S11 structured-text codec; until then the keyed-map
-    # dialect must fail loud on an unimplemented format (a recipe error, not a
-    # malformed-content error).
-    toml_recipe = SurfaceFormat(
-        dialect="keyed_map_slot",
-        id_field="pair_id",
-        map_key_path=("mcpServers",),
-        file_format="toml",
-    )
-    surface = ToolSurface(
+def _toml_surface(slot: str = "github") -> ToolSurface:
+    return ToolSurface(
         tool="codex",
         kind="mcp_server",
-        location=KeyedMapSlot(file=Path("/u/.codex/config.toml"), slot="github"),
-        surface_format=toml_recipe,
+        location=KeyedMapSlot(file=Path("/u/.codex/config.toml"), slot=slot),
+        surface_format=SurfaceFormat(
+            dialect="keyed_map_slot",
+            id_field="pair_id",
+            known_fields=(("description", "description"),),
+            tool_only_fields=("command", "args"),
+            map_key_path=("mcp_servers",),
+            file_format="toml",
+        ),
     )
 
-    # The distinction matters because MalformedSurfaceError subclasses ValueError: an
-    # unimplemented format is a recipe error, NOT a malformed-content error, so it must
-    # not masquerade as the latter. extract_id fails loud the same way (not None).
-    with pytest.raises(ValueError, match="toml") as parse_error:
+
+def test_a_toml_shared_file_round_trips_one_slot() -> None:
+    # codex's mcp lives in a TOML config: the same dialect, a different file_format.
+    canonical = CanonicalDocument(
+        artifact_id=_EMBEDDED_ID,
+        kind="mcp_server",
+        description="GitHub MCP server",
+        per_tool_only={"codex": {"command": "gh-mcp"}},
+    )
+
+    text = canonical_to_file(canonical, _toml_surface(), None)
+    folded = file_to_canonical(text, _toml_surface(), None)
+
+    assert folded == canonical
+
+
+def test_a_toml_render_preserves_a_sibling_slot() -> None:
+    prior = canonical_to_file(
+        CanonicalDocument(artifact_id="sibling-id", kind="mcp_server", description="other"),
+        _toml_surface(slot="gitlab"),
+        None,
+    )
+
+    rendered = canonical_to_file(
+        CanonicalDocument(artifact_id=_EMBEDDED_ID, kind="mcp_server", description="gh"),
+        _toml_surface(slot="github"),
+        prior,
+    )
+    folded_sibling = file_to_canonical(rendered, _toml_surface(slot="gitlab"), None)
+
+    assert folded_sibling.description == "other"  # the gitlab slot survived the github write
+
+
+def test_an_unsupported_file_format_fails_loud() -> None:
+    # An unimplemented format (yaml) is a recipe error, NOT a malformed-content error.
+    # The distinction matters because MalformedSurfaceError subclasses ValueError, so a
+    # plain ValueError must not be a MalformedSurfaceError. extract_id fails loud too.
+    surface = ToolSurface(
+        tool="continue",
+        kind="mcp_server",
+        location=KeyedMapSlot(file=Path("/u/.continue/config.yaml"), slot="github"),
+        surface_format=SurfaceFormat(
+            dialect="keyed_map_slot",
+            id_field="pair_id",
+            map_key_path=("mcpServers",),
+            file_format="yaml",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="yaml") as parse_error:
         file_to_canonical(_file({"github": {}}), surface, None)
     assert not isinstance(parse_error.value, MalformedSurfaceError)
 
-    with pytest.raises(ValueError, match="toml") as id_error:
+    with pytest.raises(ValueError, match="yaml") as id_error:
         extract_artifact_id(_file({"github": {}}), surface)
     assert not isinstance(id_error.value, MalformedSurfaceError)

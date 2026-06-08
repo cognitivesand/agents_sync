@@ -350,8 +350,13 @@ Both folding dialects share one recipe-application (`dialects/field_mapping` —
 differs in how it extracts the field mapping from the wire (split front-matter vs
 navigate to a slot) and reassembles it, so "apply the recipe" lives in exactly one
 place across dialects.
-- `dialects/structured_text` — JSON/JSONC/TOML round-trip preserving comments and
-  key order.
+- `dialects/structured_text` — the shared JSON/TOML codec (`deserialize` /
+  `serialize`) that `keyed_map_slot` and the whole-file structured-text dialect both
+  call, plus the whole-file dialect itself (codex's whole-`.toml` agent). Round-trip
+  preserves key order and data; it does **not** preserve comments (matching current
+  behaviour — stdlib `tomllib` read + a hand-rolled TOML writer, stdlib `json`; no new
+  dependency). JSONC (comment-tolerant read) is deferred — no tool declares it, and a
+  correct strip must be string-aware (mcp URLs contain `//`).
 - `dialects/global_rules` — whole-file rules with `@import` resolution and
   framework-specific hold-back (US-15).
 - `dialects/mcp_server` — the per-tool MCP dialect differences.

@@ -19,10 +19,9 @@ unimplemented format fails loud (a recipe error, distinct from malformed content
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from agents_sync.dialects import MalformedSurfaceError
+from agents_sync.dialects import MalformedSurfaceError, structured_text
 from agents_sync.dialects.field_mapping import (
     fold_fields_into_canonical,
     project_canonical_to_fields,
@@ -48,15 +47,10 @@ def render(
 ) -> str:
     """Reassemble the shared file from ``prior_text`` with only this slot replaced."""
     surface_format = tool_surface.surface_format
-    if prior_text and prior_text.strip():
-        root = _deserialize(prior_text, surface_format.file_format)
-    else:
-        root = {}
-    if not isinstance(root, dict):
-        root = {}
+    root = structured_text.deserialize(prior_text or "", surface_format.file_format)
     slot_map = _navigate_or_create(root, surface_format.map_key_path)
     slot_map[_slot_key(tool_surface)] = project_canonical_to_fields(canonical, tool_surface)
-    return _serialize(root, surface_format.file_format)
+    return structured_text.serialize(root, surface_format.file_format)
 
 
 def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
@@ -76,9 +70,7 @@ def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
 def _read_slot(text: str, tool_surface: ToolSurface) -> dict[str, Any]:
     """Navigate the shared file to this surface's slot; ``{}`` if file/path/slot is absent."""
     surface_format = tool_surface.surface_format
-    if not text.strip():
-        return {}
-    node: Any = _deserialize(text, surface_format.file_format)
+    node: Any = structured_text.deserialize(text, surface_format.file_format)
     for key in surface_format.map_key_path:
         if not isinstance(node, dict) or key not in node:
             return {}
@@ -114,20 +106,3 @@ def _slot_key(tool_surface: ToolSurface) -> str:
             f"keyed_map_slot surface needs a KeyedMapSlot location, got {type(location).__name__}"
         )
     return location.slot
-
-
-def _deserialize(text: str, file_format: str) -> Any:
-    """Parse the shared file; raise ``MalformedSurfaceError`` on malformed content."""
-    if file_format == "json":
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError as error:
-            raise MalformedSurfaceError(f"shared file is not valid JSON: {error}") from error
-    raise ValueError(f"unsupported keyed-map file format: {file_format!r}")
-
-
-def _serialize(value: Any, file_format: str) -> str:
-    """Serialise the shared file back to text."""
-    if file_format == "json":
-        return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
-    raise ValueError(f"unsupported keyed-map file format: {file_format!r}")
