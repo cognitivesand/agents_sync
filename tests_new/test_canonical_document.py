@@ -195,6 +195,20 @@ def test_equal_documents_are_hashable_and_hash_equal() -> None:
 # --- boundary validation (§8) --------------------------------------------------
 
 
+def test_normalised_sorts_disallowed_tools() -> None:
+    # The order-insensitivity guarantee applies to disallowed_tools as well as tools.
+    doc = CanonicalDocument.from_dict(_agent_doc(disallowed_tools=["write", "edit", "bash"]))
+
+    assert doc.normalised().disallowed_tools == ("bash", "edit", "write")
+
+
+def test_content_digest_is_stable_across_repeated_calls() -> None:
+    # FR-14: the digest of one document is deterministic call-to-call.
+    doc = CanonicalDocument.from_dict(_agent_doc())
+
+    assert doc.content_digest() == doc.content_digest()
+
+
 @pytest.mark.parametrize("required_field", ["artifact_id", "kind"])
 def test_from_dict_rejects_an_absent_required_field(required_field: str) -> None:
     data = _agent_doc()

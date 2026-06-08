@@ -68,3 +68,18 @@ def test_parse_failure_is_an_immutable_value_object() -> None:
     assert a_failure != ParseFailure(reason="other")
     with pytest.raises(FrozenInstanceError):
         a_failure.reason = "changed"  # type: ignore[misc]
+
+
+def test_parsed_defaults_to_a_parse_failure_so_a_forgetful_caller_fails_closed() -> None:
+    # The fail-closed contract: an observation is unparsed until the read phase proves
+    # otherwise, so a caller that omits `parsed` routes to freeze, not to a false success.
+    observation = SurfaceObservation(tool_surface=_SURFACE)
+
+    assert isinstance(observation.parsed, ParseFailure)
+
+
+def test_an_observation_can_carry_a_parse_failure() -> None:
+    failure = ParseFailure(reason="bad front-matter")
+    observation = SurfaceObservation(tool_surface=_SURFACE, parsed=failure)
+
+    assert observation.parsed is failure

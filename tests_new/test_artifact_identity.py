@@ -62,3 +62,11 @@ def test_a_validation_failure_is_catchable_as_a_value_error() -> None:
     # real raised failure, not just the class hierarchy declared on paper.
     with pytest.raises(ValueError):
         validate_artifact_id("not-a-uuid")
+
+
+def test_a_brace_wrapped_uuid_is_rejected_as_non_canonical() -> None:
+    # uuid.UUID parses "{...}" but str() drops the braces, so it is not the canonical
+    # spelling — the `str(parsed) != value` guard must reject it (FR-11), a distinct
+    # rejection path from the uppercase/version cases.
+    with pytest.raises(InvalidArtifactId):
+        validate_artifact_id("{" + _CANONICAL_V4 + "}")

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agents_sync.domain_model.observation import SurfaceObservation
 from agents_sync.domain_model.plan.winner_selection import freshest
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -42,3 +44,19 @@ def test_a_tie_breaks_to_the_alphabetically_first_tool_name() -> None:
     codex = _observed("codex", 15.0)
 
     assert freshest([codex, claude]) is claude
+
+
+def test_the_tie_break_is_case_folded_not_raw_byte_order() -> None:
+    # "Codex" sorts before "claude" by raw ASCII (uppercase C < lowercase c), but the
+    # tiebreak case-folds first, so "claude" < "codex" wins — proving the casefold() is
+    # load-bearing (a raw str sort would pick Codex).
+    capital_codex = _observed("Codex", 15.0)
+    claude = _observed("claude", 15.0)
+
+    assert freshest([capital_codex, claude]) is claude
+
+
+def test_freshest_rejects_an_empty_group() -> None:
+    # An empty group is a caller bug; freshest fails loud rather than via min()'s ValueError.
+    with pytest.raises(AssertionError):
+        freshest([])

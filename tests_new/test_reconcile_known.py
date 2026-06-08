@@ -15,7 +15,7 @@ from pathlib import Path
 
 from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
 from agents_sync.domain_model.observation import ParseFailure, SurfaceObservation
-from agents_sync.domain_model.plan.reconcile_known import reconcile_known
+from agents_sync.domain_model.plan.reconcile_known import reconcile_known, vanished_tools
 from agents_sync.domain_model.sync_plan import (
     AbsorbToolEdit,
     FreezeArtifact,
@@ -338,3 +338,35 @@ def test_a_matching_stored_canonical_yields_no_intent() -> None:
     )
 
     assert intents == ()
+
+
+def test_a_name_change_that_keeps_the_slug_projects_rather_than_renames() -> None:
+    # The rename detector keys on the SLUG, not the raw name: "Reviewer" and "reviewer"
+    # share slug "reviewer", so this propagates (project), it does not rename.
+    cased = CanonicalDocument(artifact_id=_ARTIFACT_ID, kind="agent", name="Reviewer")
+    observations = [
+        _observed("claude", "new", 20.0, parsed=cased),
+        _observed("codex", "old", 10.0),
+    ]
+
+    intents = reconcile_known(
+        _ARTIFACT_ID, observations, _record(name="reviewer", claude="old", codex="old")
+    )
+
+    assert intents == (
+        AbsorbToolEdit(_ARTIFACT_ID, _surface("claude")),
+        ProjectToTools(_ARTIFACT_ID, (_surface("codex"),)),
+    )
+
+
+def test_vanished_tools_reports_recorded_tools_with_no_observation() -> None:
+    observations = [_observed("claude", "x", 10.0)]
+
+    assert vanished_tools(observations, _record(claude="x", codex="x")) == {"codex"}
+
+
+def test_vanished_tools_excludes_a_tool_still_present_this_poll() -> None:
+    # A tool with an observation is present (even if its surface moved) — not a vanish.
+    observations = [_observed("claude", "x", 10.0)]
+
+    assert vanished_tools(observations, _record(claude="x")) == set()

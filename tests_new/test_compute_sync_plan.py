@@ -35,6 +35,7 @@ from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
 _ID_X = "11111111-1111-4111-8111-111111111111"
 _ID_Y = "22222222-2222-4222-9222-222222222222"
 _ID_Z = "33333333-3333-4333-8333-333333333333"
+_ID_W = "44444444-4444-4444-8444-444444444444"
 _PLACEHOLDER_ID = "00000000-0000-4000-8000-000000000000"
 _MARKDOWN = SurfaceFormat(dialect="markdown_frontmatter")
 _TWO_TOOLS = 2
@@ -181,9 +182,7 @@ def test_an_orphan_id_with_a_corrupt_canonical_still_reaches_reconciliation() ->
     # plan above is a deliberate no-op (nothing to do), not the artifact being dropped.
     observation = _managed("claude", content_digest="x")
 
-    plan = compute_sync_plan(
-        [observation], SyncState(), {_ID_X: CorruptCanonical()}, _TWO_TOOLS
-    )
+    plan = compute_sync_plan([observation], SyncState(), {_ID_X: CorruptCanonical()}, _TWO_TOOLS)
 
     assert plan.intents == (RebuildCorruptCanonical(_ID_X),)
 
@@ -457,9 +456,7 @@ def test_a_candidate_group_absorbs_all_its_surfaces_into_the_managed_id() -> Non
 
     plan = compute_sync_plan([managed, winner, loser], state, {}, _TWO_TOOLS)
 
-    assert plan.intents == (
-        AbsorbIntoManaged(_ID_X, (winner.tool_surface, loser.tool_surface)),
-    )
+    assert plan.intents == (AbsorbIntoManaged(_ID_X, (winner.tool_surface, loser.tool_surface)),)
 
 
 def test_a_candidate_at_a_colliding_key_is_not_absorbed() -> None:
@@ -549,4 +546,74 @@ def test_glitch_healing_is_scoped_to_the_glitched_tool() -> None:
         ReprojectCanonical(_ID_X),
         ReprojectCanonical(_ID_Y),
         RemoveArtifact(_ID_Z),
+    )
+
+
+# --- non-destructive intents survive a one-tool poll (US-07 AC-5 boundary) -------
+
+
+def test_glitch_healing_survives_below_two_available_tools() -> None:
+    # A reproject restores files from the canonical; it is not destructive, so a glitch
+    # heal must still run on a degenerate poll (would be silently dropped if reproject
+    # were ever in _DESTRUCTIVE_KINDS).
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer"),
+        _managed("claude", content_digest="same", artifact_id=_ID_Y, name="auditor"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(name="reviewer", claude="same", codex="same"),
+            _ID_Y: _record(name="auditor", claude="same", codex="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _ONE_TOOL)
+
+    assert plan.intents == (ReprojectCanonical(_ID_X), ReprojectCanonical(_ID_Y))
+
+
+def test_a_corrupt_canonical_rebuild_survives_below_two_available_tools() -> None:
+    observation = _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer")
+    state = _state(name="reviewer", claude="same")
+
+    plan = compute_sync_plan([observation], state, {_ID_X: CorruptCanonical()}, _ONE_TOOL)
+
+    assert plan.intents == (RebuildCorruptCanonical(_ID_X),)
+
+
+def test_an_unadoptable_report_survives_below_two_available_tools() -> None:
+    unparseable = _candidate("claude", parsed=ParseFailure(reason="bad yaml"))
+
+    plan = compute_sync_plan([unparseable], SyncState(), {}, _ONE_TOOL)
+
+    assert plan.intents == (ReportUnadoptable(unparseable.tool_surface),)
+
+
+# --- cross-guard interaction: glitch + collision in one poll ---------------------
+
+
+def test_a_glitch_heal_and_a_collision_coexist_in_one_plan() -> None:
+    # codex loses two artifacts (X, Y -> glitch heal) while a separate pair (Z, W) collide
+    # on one key (-> reject). Both guards act on the same poll without interfering.
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer"),
+        _managed("claude", content_digest="same", artifact_id=_ID_Y, name="auditor"),
+        _managed("claude", content_digest="same", artifact_id=_ID_Z, name="helper"),
+        _managed("cursor", content_digest="same", artifact_id=_ID_W, name="helper"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(name="reviewer", claude="same", codex="same"),
+            _ID_Y: _record(name="auditor", claude="same", codex="same"),
+            _ID_Z: _record(name="helper", claude="same"),
+            _ID_W: _record(name="helper", cursor="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (
+        ReprojectCanonical(_ID_X),
+        ReprojectCanonical(_ID_Y),
+        RejectCollision((_ID_Z, _ID_W), ("agent", "helper")),
     )

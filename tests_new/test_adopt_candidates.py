@@ -113,3 +113,24 @@ def test_parsed_and_unparseable_candidates_are_handled_together() -> None:
 
 def test_no_candidates_yields_no_intent() -> None:
     assert adopt_candidates([]) == ()
+
+
+def test_candidates_whose_names_share_a_slug_merge_into_one_group() -> None:
+    # Distinct raw names that slugify to the same slug are one logical artifact — the
+    # grouping keys on the slug, not the raw name (US-03).
+    cased = _candidate("claude", name="Reviewer", modified_time=10.0)
+    plain = _candidate("codex", name="reviewer", modified_time=20.0)
+
+    intents = adopt_candidates([cased, plain])
+
+    assert intents == (AdoptNewArtifact(plain.tool_surface, (cased.tool_surface,)),)
+
+
+def test_candidates_of_different_kinds_at_one_slug_stay_separate() -> None:
+    # The reconciliation key is (kind, slug): the same slug under two kinds is two groups.
+    agent = _candidate("claude", name="helper", kind="agent")
+    command = _candidate("claude", name="helper", kind="slash_command")
+
+    intents = adopt_candidates([agent, command])
+
+    assert len(intents) == 2

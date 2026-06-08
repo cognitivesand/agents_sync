@@ -15,7 +15,7 @@ result's identity tuples.
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import pytest
@@ -192,6 +192,53 @@ def test_canonical_authority_intents_are_tagged_immutable_value_objects() -> Non
         reproject.artifact_id = "x"  # type: ignore[misc]
 
 
+_OTHER_ID = "22222222-2222-4222-9222-222222222222"
+_OTHER_SURFACE = ToolSurface(
+    tool="codex",
+    kind="agent",
+    location=Path("/u/.codex/agents/auditor.md"),
+    surface_format=SurfaceFormat(dialect="markdown_frontmatter"),
+)
+
+# For each of the 11 payloads: an instance and a second instance differing in ONE field,
+# so every payload is shown to put each of its fields into the generated __eq__ (a stray
+# field(compare=False) on any of them would make the two compare equal and fail here).
+_PAYLOAD_EQUALITY_CASES = [
+    (FreezeArtifact(_INTENT_ARTIFACT_ID), FreezeArtifact(_OTHER_ID)),
+    (
+        AbsorbToolEdit(_INTENT_ARTIFACT_ID, _INTENT_SURFACE),
+        AbsorbToolEdit(_INTENT_ARTIFACT_ID, _OTHER_SURFACE),
+    ),
+    (
+        ProjectToTools(_INTENT_ARTIFACT_ID, (_INTENT_SURFACE,)),
+        ProjectToTools(_INTENT_ARTIFACT_ID, ()),
+    ),
+    (
+        RenameArtifact(_INTENT_ARTIFACT_ID, "auditor"),
+        RenameArtifact(_INTENT_ARTIFACT_ID, "reviewer"),
+    ),
+    (RemoveArtifact(_INTENT_ARTIFACT_ID), RemoveArtifact(_OTHER_ID)),
+    (ReprojectCanonical(_INTENT_ARTIFACT_ID), ReprojectCanonical(_OTHER_ID)),
+    (RebuildCorruptCanonical(_INTENT_ARTIFACT_ID), RebuildCorruptCanonical(_OTHER_ID)),
+    (AdoptNewArtifact(_INTENT_SURFACE, ()), AdoptNewArtifact(_INTENT_SURFACE, (_OTHER_SURFACE,))),
+    (ReportUnadoptable(_INTENT_SURFACE), ReportUnadoptable(_OTHER_SURFACE)),
+    (
+        AbsorbIntoManaged(_INTENT_ARTIFACT_ID, (_INTENT_SURFACE,)),
+        AbsorbIntoManaged(_OTHER_ID, (_INTENT_SURFACE,)),
+    ),
+    (
+        RejectCollision((_INTENT_ARTIFACT_ID,), ("agent", "reviewer")),
+        RejectCollision((_OTHER_ID,), ("agent", "reviewer")),
+    ),
+]
+
+
+@pytest.mark.parametrize(("payload", "differing"), _PAYLOAD_EQUALITY_CASES)
+def test_every_payload_field_participates_in_equality(payload: object, differing: object) -> None:
+    assert payload == replace(payload)  # type: ignore[type-var]
+    assert payload != differing
+
+
 def test_sync_plan_holds_its_intents_in_order() -> None:
     # The container the planner returns and the executor walks: an ordered tuple of
     # intents (proposal §6). Order is preserved so the executor sees them as planned.
@@ -253,6 +300,9 @@ def test_candidate_intents_are_tagged_immutable_value_objects() -> None:
 
     assert adopt.intent_kind is IntentKind.ADOPT_NEW_ARTIFACT
     assert adopt.source == _INTENT_SURFACE
+    assert adopt.others == ()
     assert report.intent_kind is IntentKind.REPORT_UNADOPTABLE
+    with pytest.raises(FrozenInstanceError):
+        adopt.source = _OTHER_SURFACE  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
         report.surface = _INTENT_SURFACE  # type: ignore[misc]
