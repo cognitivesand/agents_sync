@@ -36,13 +36,13 @@ This story covers (1) **import resolution within the detected global-rules file*
 
 - [x] AC-6 [Normal]: Given a detected global-rules file whose effective content references a tool-private directory (e.g. `~/.claude/skills`), When the daemon processes it, Then the **whole file is held back** — it is not propagated to any other tool — and a WARNING is logged naming the matched token (`event=rules_framework_specific_held_back`).
 
-- [x] AC-7 [Normal]: Given a participating tool already holds a framework-specific `rules` file, When the daemon would project another tool's `rules` onto it, Then the existing file is **not overwritten** (it is protected exactly as a `private` artifact is).
+- [x] AC-7 [Normal]: Given a participating tool already holds a framework-specific `rules` file, When the daemon would project another tool's `rules` onto it, Then the existing file is **not overwritten** (the framework-specific target is protected from overwrite).
 
 ## Resolved design decisions
 
 - **Canonical representation:** the canonical stores the *resolved effective* body in `body` (propagated to all other tools) plus the *original directive-bearing* body in `rules_source_body` keyed to `rules_import_origin` (the authoring tool). Render emits the raw body only when rendering back to the origin tool; everyone else gets the effective body. This satisfies AC-2 + AC-3 without a separate view.
 - **Detection scope:** framework-specificity is tool-private directory path tokens only (low false-positive); not IDE/repo dirs, not tool-name/command references. Tokens live in `rules_io.FRAMEWORK_SPECIFIC_PATH_TOKENS`, derived from the per-tool roots in `config.py`.
-- **Guard mechanism:** reuses the privacy-gate fail-closed pattern — a framework-specific source is skipped (not adopted/propagated, like `private`) and a framework-specific target is protected from overwrite. Both directions covered.
+- **Guard mechanism:** a fail-closed egress guard — a framework-specific source is skipped (not adopted/propagated) and a framework-specific target is protected from overwrite. Both directions covered.
 
 ## Notes
 

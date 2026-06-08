@@ -78,7 +78,7 @@ Three ideas carry the system:
    surfaces and formats — never a tool name (NFR-11).
 3. **Sync is a pure decision over gathered inputs.** The truth for every managed
    artifact is its **stored canonical**, loaded cheaply from `canonical_store` —
-   that is what the planner reasons over (secrets, `private`, projection, heals
+   that is what the planner reasons over (secrets, projection, heals
    all read it, so they work even when no source surface changed). The read phase
    adds: the cheap `content_digest` + recovered id of every surface; a **fresh
    re-parse** of a tool file (`file_to_canonical` + `@import` resolution) **only
@@ -223,7 +223,7 @@ A pure function over the gathered observations and recorded state:
    artifact → `absorb_into_managed` instead (managed wins, no mint — US-03 AC-6);
    a `remove_artifact` on a tool that suffered a *glitch* — ≥2 of its recorded
    artifacts vanished this poll → `reproject_canonical` instead (US-11 AC-9);
-   private / framework-specific content → no projection (US-13/15).
+   framework-specific content → no projection (US-15).
 
 Pure-over-gathered-inputs ⇒ the hardest part runs with in-memory inputs, no
 `tmp_path`, no clock, no mocks. Every behavioural acceptance criterion is a
@@ -378,7 +378,6 @@ dialect modules they call) perform every translation, in both directions.
 |---|---|---|
 | Secret policy at all four egress points | the planner refuses to **adopt/propagate** a secret-bearing canonical under `secrets_refused` (reading the stored/absorbed canonical, so it holds even for an unchanged artifact being projected — US-13 AC-5, file left untouched); the executor re-checks at each **write/render** egress before writing a target; `portable_library` checks on **export** and **import** and sets the manifest's `contains_secret_literals` flag. Under `secrets_accepted`, one structured warning per affected artifact per poll. | NFR-15, US-13 |
 | Rules `@import` + framework-specific hold-back | `dialects/global_rules` (resolved in the read phase) | US-15 |
-| Privacy (`private: true`) | a `compute_sync_plan` predicate | US-13 |
 | Bounded archive | `artifact_archive` tiered GC on a low-frequency daemon tick (internal; no user-facing command) | NFR-07/08 |
 | Daemon resilience | `poll_daemon` counts only *systemic* failures | FR-02, NFR-04 |
 | Library export/import | `portable_library` **previews** a dry-run plan (the same `compute_sync_plan` over the imported canonicals vs local) **before any write**, requiring `--force` if a local artifact would be displaced (US-12 AC-18); a cross-identity slug match reconciles onto the local id and retires the other, the later `last_modified` winning (ties favour the local artifact, else a deterministic total order — FR-12); accepted canonicals are then written and the next poll adopts them | US-12, FR-12/15 |
