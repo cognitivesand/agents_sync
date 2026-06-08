@@ -242,9 +242,8 @@ A `rules` artifact is a single Markdown file (`.md` or `.mdc`) optionally carryi
   - `alwaysApply` (bool, optional) — Cursor-style flag.
   - `trigger` (string, optional) — Windsurf-style activation mode (`always_on` / `manual` / `model_decision` / `glob`).
   - `provenance` (`"user" | "agent"`, default `"user"`) — set by the adapter at parse time. Adapter declarations enumerate the source paths that produce `"agent"` provenance (e.g. Gemini CLI's `~/.gemini/GEMINI.md`-after-`/memory add` marker, Claude Code's `/memories/*.md`, Goose's `memory/<category>.txt`).
-  - `private` (bool, default `false`) — set by the adapter at parse time. When `true`, the sync engine excludes the artifact end-to-end: no canonical entry, no archive write, no propagation. Adapter declarations enumerate the source paths that produce `private: true` (e.g. `.goosehints.local`, Windsurf hash-keyed memories, Junie user-scope memory).
 - **Parser contract**: as for `agent`. Frontmatter fields not in the canonical schema are stashed in `per_agentic_tool_extra`. Frontmatter fields meaningful only to one tool (e.g. Cursor's exact derived-rule-type semantics, Windsurf's character budget) go in `per_agentic_tool_only`.
-- **Renderer contract**: as for `agent`. When an adapter does not natively support `provenance` or `private`, those fields are not rendered to the artifact but are retained in the canonical (round-trip stable).
+- **Renderer contract**: as for `agent`. When an adapter does not natively support `provenance`, that field is not rendered to the artifact but is retained in the canonical (round-trip stable).
 
 ### `slash_command` (v0.5)
 

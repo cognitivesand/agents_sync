@@ -4,7 +4,8 @@
 - branch: fix/size-explosion-hardening
 - date: 2026-06-08
 - relates to: US-13 AC-4 + Notes; US-15 AC-7 + design notes (de-reference only,
-  framework-specific behaviour unchanged); architecture proposal §4, §7, §12;
+  framework-specific behaviour unchanged); `agentic_tool_integration_protocol.md`
+  (`rules` field spec + renderer contract); architecture proposal §4, §7, §12, §17;
   implementation plan S8 row; `src_new/.../canonical_document.py`.
 
 ## Motivation
@@ -43,15 +44,33 @@ AC-7 and the "Guard mechanism" design note no longer describe the
 framework-specific guard "as a `private` artifact" — the behaviour is unchanged,
 the comparison to the removed flag is dropped.
 
+### Integration protocol — `rules` customization_type (v0.5)
+The `private` canonical-field bullet (the "exclude end-to-end" engine semantics)
+is removed from the `rules` field spec; the renderer contract no longer names
+`private`. US-13 delegates its field specs here, so the contract must match the
+retired AC.
+
 ## Design edits (applied after)
 
-- Proposal §4: `private` removed from the planner's reasoning list.
+- Proposal §4: both `private` mentions removed (the planner reasoning list and the
+  write-target "privacy guard").
 - Proposal §7 step 4: the projection guard is now "framework-specific content →
   no projection (US-15)" only.
 - Proposal §12: the "Privacy (`private: true`)" row is removed.
+- Proposal §17 revision changelog: "privacy" dropped from the starved-heal-inputs note.
 - Implementation plan S8 row: `private/framework predicates` dropped; S8 is the
   four cross-artifact guards; framework-specific projection hold-back stays at S12
   with its read-phase flag.
+
+## Audit note
+
+An `architecture-critic` pass over the first cut caught two dangling references the
+initial footprint map missed: the integration-protocol contract (CRITICAL) and the
+second `private` mention in proposal §4 (MAJOR), both corrected above. Superseded
+planning artifacts (`docs/v0.5_implementation_plan.md`,
+`docs/agentic_frameworks_compatibility_analysis.md`) still describe `private` but
+sit below the authoritative layer (no current governance/architecture doc points to
+them) and are left as historical record.
 
 ## Verification
 

@@ -85,7 +85,7 @@ Three ideas carry the system:
    for a surface whose digest changed** — the one expensive case, needed to
    *absorb* an edit; and, for any target the planner will **write**
    (project/extend/heal/rename), an inspection of that target's current bytes to
-   honour the framework-specific / privacy / secret guards on the target. So an
+   honour the framework-specific / secret guards on the target. So an
    idle poll is digest-only and cost scales with *changes + writes*, not the whole
    tree (NFR-05/08/09). Given those inputs and the recorded `SyncState`, a pure
    function yields a `SyncPlan`; the planner does no I/O. Executing it is a
@@ -520,7 +520,7 @@ Out of scope: **US-16**. One governance wording fix flagged (§17).
 > and the `ParseFailure`/`extract_artifact_id` contract, and removed the
 > user-facing `prune` command (archive GC is daemon-internal). Rev 4 corrected an
 > over-aggressive rev-3 optimisation (gating *all* enrichment to changed
-> surfaces, which had starved the secret/privacy/framework-target and US-11
+> surfaces, which had starved the secret/framework-target and US-11
 > AC-8/AC-9 heal decisions): the planner now reasons over the **stored canonical**
 > for every artifact, tool-file re-parse runs only to absorb a changed surface,
 > write-targets are inspected on write, and the render-egress secret check is an
