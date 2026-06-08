@@ -18,14 +18,20 @@ from agents_sync.domain_model.artifact_naming import candidate_key
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 from agents_sync.domain_model.observation import SurfaceObservation
 from agents_sync.domain_model.plan.adopt_candidates import adopt_candidates
-from agents_sync.domain_model.plan.reconcile_known import StoredCanonical, reconcile_known
+from agents_sync.domain_model.plan.reconcile_known import (
+    StoredCanonical,
+    reconcile_known,
+    vanished_tools,
+)
 from agents_sync.domain_model.plan.recover_identity import recover_identity
 from agents_sync.domain_model.sync_plan import (
     AbsorbIntoManaged,
     AdoptNewArtifact,
     IntentKind,
     RejectCollision,
+    RemoveArtifact,
     RenameArtifact,
+    ReprojectCanonical,
     SyncIntent,
     SyncPlan,
 )
@@ -46,6 +52,9 @@ _DESTRUCTIVE_KINDS: frozenset[IntentKind] = frozenset(
     }
 )
 _MIN_TOOLS_FOR_DESTRUCTIVE = 2
+# US-11 AC-9: a tool losing this many recorded artifacts in one poll is a glitch (an
+# emptied root, an unmounted overlay), not user deletions — a lone vanish is deliberate.
+_GLITCH_THRESHOLD = 2
 
 
 def compute_sync_plan(
@@ -67,6 +76,7 @@ def compute_sync_plan(
         managed_plans[artifact_id] = reconcile_known(
             artifact_id, group, record, stored_canonicals.get(artifact_id)
         )
+    managed_plans = _heal_glitched_removals(managed_plans, recovery.managed, sync_state.records)
     owners_by_key = _index_managed_keys(managed_plans, recovery.managed, sync_state.records)
     # A candidate may absorb only into a key owned by exactly one managed artifact; a
     # colliding key (>= 2 owners) is rejected, never an absorption target.
@@ -82,6 +92,38 @@ def compute_sync_plan(
     if available_tool_count < _MIN_TOOLS_FOR_DESTRUCTIVE:
         intents = [intent for intent in intents if intent.kind not in _DESTRUCTIVE_KINDS]
     return SyncPlan(tuple(intents))
+
+
+def _heal_glitched_removals(
+    managed_plans: Mapping[str, tuple[SyncIntent, ...]],
+    managed_observations: Mapping[str, tuple[SurfaceObservation, ...]],
+    records: Mapping[str, ArtifactRecord],
+) -> dict[str, tuple[SyncIntent, ...]]:
+    """A tool that lost ``_GLITCH_THRESHOLD`` or more recorded artifacts this poll suffered
+    a glitch, not user deletions: each affected artifact's removal becomes a reproject —
+    restoring the files from the canonical (US-11 AC-9). A lone vanish is a deliberate
+    deletion and is left to propagate.
+    """
+    vanished_by_artifact = {
+        artifact_id: vanished_tools(managed_observations[artifact_id], records[artifact_id])
+        for artifact_id in managed_plans
+        if artifact_id in records
+    }
+    vanish_count: dict[str, int] = {}
+    for tools in vanished_by_artifact.values():
+        for tool in tools:
+            vanish_count[tool] = vanish_count.get(tool, 0) + 1
+    glitched = {tool for tool, count in vanish_count.items() if count >= _GLITCH_THRESHOLD}
+    healed: dict[str, tuple[SyncIntent, ...]] = {}
+    for artifact_id, plan in managed_plans.items():
+        if glitched & vanished_by_artifact.get(artifact_id, set()):
+            healed[artifact_id] = tuple(
+                ReprojectCanonical(artifact_id) if isinstance(intent, RemoveArtifact) else intent
+                for intent in plan
+            )
+        else:
+            healed[artifact_id] = plan
+    return healed
 
 
 def _index_managed_keys(

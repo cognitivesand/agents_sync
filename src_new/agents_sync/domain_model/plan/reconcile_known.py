@@ -96,17 +96,27 @@ def _canonical_moved_out_of_band(
     )
 
 
+def vanished_tools(
+    observations: Sequence[SurfaceObservation],
+    record: ArtifactRecord,
+) -> set[str]:
+    """The recorded tools with no observation this poll — where the artifact vanished (US-11).
+
+    Keyed on tool presence, so a surface that merely moved location still counts as present
+    (it has an observation) — that is the ``mv`` case, not a vanish. This is the one home for
+    the vanish rule; the glitch guard (``compute_sync_plan``) reuses it so the removal it
+    rewrites and the vanish it keys on can never drift apart.
+    """
+    observed_tools = {observation.tool_surface.tool for observation in observations}
+    return {tool for tool in record.surfaces if tool not in observed_tools}
+
+
 def _has_vanished_surface(
     observations: Sequence[SurfaceObservation],
     record: ArtifactRecord,
 ) -> bool:
-    """True iff a recorded tool has no observation this poll — a deleted surface (US-11).
-
-    Keyed on tool presence, so a surface that merely moved location still counts as
-    present (it has an observation) — that is the ``mv`` case, not a vanish.
-    """
-    observed_tools = {observation.tool_surface.tool for observation in observations}
-    return any(tool not in observed_tools for tool in record.surfaces)
+    """True iff any recorded tool has no observation this poll — a deleted surface (US-11)."""
+    return bool(vanished_tools(observations, record))
 
 
 def _has_changed(observation: SurfaceObservation, record: ArtifactRecord) -> bool:

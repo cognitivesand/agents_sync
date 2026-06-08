@@ -27,6 +27,7 @@ from agents_sync.domain_model.sync_plan import (
     RemoveArtifact,
     RenameArtifact,
     ReportUnadoptable,
+    ReprojectCanonical,
 )
 from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface, SyncState
 from agents_sync.domain_model.tool_surface import SurfaceFormat, ToolSurface
@@ -500,3 +501,52 @@ def test_two_tool_guard_drops_an_absorb_into_managed() -> None:
     plan = compute_sync_plan([managed, candidate], state, {}, _ONE_TOOL)
 
     assert plan.intents == ()
+
+
+# --- the glitch guard: US-11 AC-9 -----------------------------------------------
+# The structured WARNING US-11 AC-9 requires is the daemon's transition-only logging
+# (NFR-12/13, S22); the planner's decision is the reproject, asserted here.
+
+
+def test_a_tool_losing_two_artifacts_heals_them_instead_of_removing() -> None:
+    # >=2 of a tool's recorded artifacts gone in one poll is a glitch, not deletions:
+    # reproject each from its canonical to restore the files (US-11 AC-9).
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer"),
+        _managed("claude", content_digest="same", artifact_id=_ID_Y, name="auditor"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(name="reviewer", claude="same", codex="same"),
+            _ID_Y: _record(name="auditor", claude="same", codex="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (ReprojectCanonical(_ID_X), ReprojectCanonical(_ID_Y))
+
+
+def test_glitch_healing_is_scoped_to_the_glitched_tool() -> None:
+    # codex loses two artifacts (a glitch -> heal both); cursor loses one (a deletion ->
+    # propagate). The glitch on codex does not rescue the lone cursor deletion.
+    observations = [
+        _managed("claude", content_digest="same", artifact_id=_ID_X, name="reviewer"),
+        _managed("claude", content_digest="same", artifact_id=_ID_Y, name="auditor"),
+        _managed("claude", content_digest="same", artifact_id=_ID_Z, name="helper"),
+    ]
+    state = SyncState(
+        records={
+            _ID_X: _record(name="reviewer", claude="same", codex="same"),
+            _ID_Y: _record(name="auditor", claude="same", codex="same"),
+            _ID_Z: _record(name="helper", claude="same", cursor="same"),
+        }
+    )
+
+    plan = compute_sync_plan(observations, state, {}, _TWO_TOOLS)
+
+    assert plan.intents == (
+        ReprojectCanonical(_ID_X),
+        ReprojectCanonical(_ID_Y),
+        RemoveArtifact(_ID_Z),
+    )
