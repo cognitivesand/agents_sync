@@ -54,7 +54,6 @@ class CanonicalDocument:
     disallowed_tools: tuple[str, ...] = ()
     permission_mode: str | None = None
     provenance: str = "user"
-    private: bool = False
     per_tool_only: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     per_tool_extra: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
@@ -92,7 +91,6 @@ class CanonicalDocument:
             disallowed_tools=tuple(data.get("disallowed_tools") or ()),
             permission_mode=data.get("permission_mode"),
             provenance=str(data.get("provenance", "user")),
-            private=bool(data.get("private", False)),
             per_tool_only=dict(data.get("per_tool_only") or {}),
             per_tool_extra=dict(data.get("per_tool_extra") or {}),
         )
@@ -111,7 +109,6 @@ class CanonicalDocument:
             "disallowed_tools": list(self.disallowed_tools),
             "permission_mode": self.permission_mode,
             "provenance": self.provenance,
-            "private": self.private,
             "per_tool_only": _thaw(self.per_tool_only),
             "per_tool_extra": _thaw(self.per_tool_extra),
         }

@@ -31,7 +31,6 @@ def _agent_doc(**overrides: object) -> dict[str, object]:
         "disallowed_tools": [],
         "permission_mode": None,
         "provenance": "user",
-        "private": False,
         "per_tool_only": {"claude": {"color": "blue"}},
         "per_tool_extra": {"codex": {"x_unknown": 1}},
     }
@@ -194,11 +193,6 @@ def test_equal_documents_are_hashable_and_hash_equal() -> None:
 
 
 # --- boundary validation (§8) --------------------------------------------------
-
-
-def test_private_flag_is_preserved() -> None:
-    assert CanonicalDocument.from_dict(_agent_doc(private=True)).private is True
-    assert CanonicalDocument.from_dict(_agent_doc(private=False)).private is False
 
 
 @pytest.mark.parametrize("required_field", ["artifact_id", "kind"])
