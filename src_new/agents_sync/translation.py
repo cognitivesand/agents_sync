@@ -26,6 +26,7 @@ from agents_sync.dialects import (
     MalformedSurfaceError,
     keyed_map_slot,
     markdown_frontmatter,
+    mcp_server,
     structured_text,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
@@ -56,6 +57,11 @@ _DIALECTS: dict[str, _Dialect] = {
         parse=structured_text.parse,
         render=structured_text.render,
         extract_id=structured_text.extract_id,
+    ),
+    "mcp_server": _Dialect(
+        parse=mcp_server.parse,
+        render=mcp_server.render,
+        extract_id=mcp_server.extract_id,
     ),
 }
 

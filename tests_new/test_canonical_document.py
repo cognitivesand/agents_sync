@@ -31,8 +31,49 @@ def _agent_doc(**overrides: object) -> dict[str, object]:
         "disallowed_tools": [],
         "permission_mode": None,
         "provenance": "user",
+        "transport": None,
+        "command": None,
+        "args": [],
+        "env": {},
+        "cwd": None,
+        "timeout": None,
+        "disabled": None,
+        "always_allow": [],
         "per_tool_only": {"claude": {"color": "blue"}},
         "per_tool_extra": {"codex": {"x_unknown": 1}},
+    }
+    base.update(overrides)
+    return base
+
+
+def _mcp_doc(**overrides: object) -> dict[str, object]:
+    """A representative stdio mcp_server content dict (S13a schema fields).
+
+    Complete (every canonical key present) so the exact-equality dict round-trip holds —
+    ``to_dict`` is lossless and emits every field, defaults included.
+    """
+    base: dict[str, object] = {
+        "artifact_id": "33333333-3333-4333-8333-333333333333",
+        "kind": "mcp_server",
+        "name": "github",
+        "description": "",
+        "body": "",
+        "model": None,
+        "effort": None,
+        "tools": [],
+        "disallowed_tools": [],
+        "permission_mode": None,
+        "provenance": "user",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "gh-mcp"],
+        "env": {"GH_TOKEN": "${GITHUB_TOKEN}"},
+        "cwd": "/srv",
+        "timeout": 30,
+        "disabled": False,
+        "always_allow": ["search_issues", "create_issue"],
+        "per_tool_only": {},
+        "per_tool_extra": {},
     }
     base.update(overrides)
     return base
@@ -239,3 +280,62 @@ def test_corrupt_canonical_is_an_immutable_value_object() -> None:
     assert a_failure != CorruptCanonical(reason="other")
     with pytest.raises(FrozenInstanceError):
         a_failure.reason = "changed"  # type: ignore[misc]
+
+
+# --- mcp_server schema fields (rebuild S13a) -----------------------------------
+
+
+def test_mcp_fields_round_trip_through_from_dict_and_to_dict() -> None:
+    # NFR-16 losslessness extends to the mcp_server fields: every value survives the
+    # dict round-trip unchanged (args/env as JSON list/object).
+    source = _mcp_doc()
+
+    restored = CanonicalDocument.from_dict(source).to_dict()
+
+    assert restored == source
+
+
+def test_args_order_is_preserved_by_normalisation() -> None:
+    # args are command-line arguments: order is semantic, so unlike tools they must
+    # NOT be sorted by normalisation (a reordered command would be a different server).
+    doc = CanonicalDocument.from_dict(_mcp_doc(args=["--port", "8080", "--verbose"]))
+
+    assert doc.normalised().args == ("--port", "8080", "--verbose")
+
+
+def test_always_allow_order_is_preserved_by_normalisation() -> None:
+    # always_allow is carried verbatim (not in the order-insensitive set), so its
+    # declared order round-trips rather than being sorted like tools.
+    doc = CanonicalDocument.from_dict(_mcp_doc(always_allow=["zeta", "alpha"]))
+
+    assert doc.normalised().always_allow == ("zeta", "alpha")
+
+
+def test_env_mapping_is_frozen_against_in_place_mutation() -> None:
+    # env is content that feeds the digest, so like the per-tool bags it must be
+    # read-only — an in-place write cannot silently change content_digest (FR-14).
+    doc = CanonicalDocument.from_dict(_mcp_doc(env={"A": "1"}))
+
+    with pytest.raises(TypeError):
+        doc.env["A"] = "2"  # type: ignore[index]
+
+
+def test_env_round_trips_as_a_plain_dict() -> None:
+    doc = CanonicalDocument.from_dict(_mcp_doc(env={"A": "1", "B": "2"}))
+
+    assert doc.to_dict()["env"] == {"A": "1", "B": "2"}
+
+
+def test_content_digest_changes_when_an_mcp_field_changes() -> None:
+    base = CanonicalDocument.from_dict(_mcp_doc(command="npx"))
+    changed = CanonicalDocument.from_dict(_mcp_doc(command="uvx"))
+
+    assert base.content_digest() != changed.content_digest()
+
+
+def test_content_digest_ignores_env_key_insertion_order() -> None:
+    # Two slots declaring the same env in a different key order are the same server.
+    forward = CanonicalDocument.from_dict(_mcp_doc(env={"A": "1", "B": "2"}))
+    reversed_ = CanonicalDocument.from_dict(_mcp_doc(env={"B": "2", "A": "1"}))
+
+    assert forward.content_digest() == reversed_.content_digest()

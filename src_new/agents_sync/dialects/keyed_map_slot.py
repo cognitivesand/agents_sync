@@ -19,6 +19,7 @@ unimplemented format fails loud (a recipe error, distinct from malformed content
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from agents_sync.dialects import MalformedSurfaceError, structured_text
@@ -36,7 +37,7 @@ def parse(
     prior_canonical: CanonicalDocument | None,
 ) -> CanonicalDocument:
     """Fold this surface's slot into the canonical document (raises if the file is malformed)."""
-    slot = _read_slot(text, tool_surface)
+    slot = read_slot(text, tool_surface)
     return fold_fields_into_canonical(slot, tool_surface, prior_canonical, body=None)
 
 
@@ -46,11 +47,8 @@ def render(
     prior_text: str | None,
 ) -> str:
     """Reassemble the shared file from ``prior_text`` with only this slot replaced."""
-    surface_format = tool_surface.surface_format
-    root = structured_text.deserialize(prior_text or "", surface_format.file_format)
-    slot_map = _navigate_or_create(root, surface_format.map_key_path)
-    slot_map[_slot_key(tool_surface)] = project_canonical_to_fields(canonical, tool_surface)
-    return structured_text.serialize(root, surface_format.file_format)
+    slot = project_canonical_to_fields(canonical, tool_surface)
+    return write_slot(prior_text, tool_surface, slot)
 
 
 def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
@@ -60,15 +58,18 @@ def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
     recipe error, not malformed content, so it still fails loud (as everywhere else).
     """
     try:
-        slot = _read_slot(text, tool_surface)
+        slot = read_slot(text, tool_surface)
     except MalformedSurfaceError:
         return None
     value = slot.get(tool_surface.surface_format.id_field)
     return value if isinstance(value, str) and value else None
 
 
-def _read_slot(text: str, tool_surface: ToolSurface) -> dict[str, Any]:
-    """Navigate the shared file to this surface's slot; ``{}`` if file/path/slot is absent."""
+def read_slot(text: str, tool_surface: ToolSurface) -> dict[str, Any]:
+    """Navigate the shared file to this surface's slot; ``{}`` if file/path/slot is absent.
+
+    The shared keyed-map-file read, used by this dialect's fold and by the ``mcp_server``
+    dialect (which interprets the slot fields itself rather than via the flat recipe)."""
     surface_format = tool_surface.surface_format
     node: Any = structured_text.deserialize(text, surface_format.file_format)
     for key in surface_format.map_key_path:
@@ -79,6 +80,20 @@ def _read_slot(text: str, tool_surface: ToolSurface) -> dict[str, Any]:
         return {}
     slot = node.get(_slot_key(tool_surface))
     return slot if isinstance(slot, dict) else {}
+
+
+def write_slot(
+    prior_text: str | None, tool_surface: ToolSurface, slot_obj: Mapping[str, Any]
+) -> str:
+    """Reassemble the shared file from ``prior_text`` with only this surface's slot replaced.
+
+    The shared keyed-map-file write, used by this dialect's render and by the ``mcp_server``
+    dialect; sibling slots and out-of-map keys are preserved verbatim."""
+    surface_format = tool_surface.surface_format
+    root = structured_text.deserialize(prior_text or "", surface_format.file_format)
+    slot_map = _navigate_or_create(root, surface_format.map_key_path)
+    slot_map[_slot_key(tool_surface)] = dict(slot_obj)
+    return structured_text.serialize(root, surface_format.file_format)
 
 
 def _navigate_or_create(root: dict[str, Any], map_key_path: tuple[str, ...]) -> dict[str, Any]:

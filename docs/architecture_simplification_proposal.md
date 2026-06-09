@@ -363,7 +363,14 @@ place across dialects.
   (the tool-private-path text scan the egress guard consumes). `@import` resolution
   (filesystem I/O) and the framework-specific hold-back *enforcement* run in the
   **read phase**, not here (US-15).
-- `dialects/mcp_server` — the per-tool MCP dialect differences.
+- `dialects/mcp_server` — the per-tool MCP dialect differences (transport
+  canonicalization + alias map, stdio vs http field shapes, per-tool field
+  spellings preserved in `per_tool_only`). The mcp_server canonical fields
+  (`transport`, `command`, `args`, `env`, `url`, `headers`, `auth`, …) are **flat
+  optional attributes on `CanonicalDocument`**, the same pattern as the agent-only
+  `model`/`effort`/`tools` optionals (the per-kind sub-structure stays deferred —
+  YAGNI). The mcp **secret policy** (refuse/warn/redact) is *not* in the dialect: it
+  runs at the planner/executor egress (see the §12 secret-policy row).
 
 `file_to_canonical` *raises* on malformed content; the read phase catches that
 and records a `ParseFailure` in the observation (so the planner sees

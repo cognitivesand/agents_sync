@@ -54,13 +54,25 @@ class CanonicalDocument:
     disallowed_tools: tuple[str, ...] = ()
     permission_mode: str | None = None
     provenance: str = "user"
+    # mcp_server-only fields (S13a): flat optionals, the same pattern as the agent-only
+    # model/effort/tools above. ``args`` is an ordered argument list (NOT order-insensitive
+    # like ``tools``); ``env`` is a frozen string→string map.
+    transport: str | None = None
+    command: str | None = None
+    args: tuple[str, ...] = ()
+    env: Mapping[str, str] = field(default_factory=dict)
+    cwd: str | None = None
+    timeout: int | None = None
+    disabled: bool | None = None
+    always_allow: tuple[str, ...] = ()
     per_tool_only: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     per_tool_extra: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Deep-freeze the per-tool bags: frozen guards attribute rebinding, not
+        # Deep-freeze the mapping fields: frozen guards attribute rebinding, not
         # container contents, so every nested mapping is made read-only to keep the
         # value object immutable and its content digest stable.
+        object.__setattr__(self, "env", _freeze(self.env))
         object.__setattr__(self, "per_tool_only", _freeze(self.per_tool_only))
         object.__setattr__(self, "per_tool_extra", _freeze(self.per_tool_extra))
 
@@ -94,6 +106,14 @@ class CanonicalDocument:
             disallowed_tools=tuple(data.get("disallowed_tools") or ()),
             permission_mode=data.get("permission_mode"),
             provenance=str(data.get("provenance", "user")),
+            transport=data.get("transport"),
+            command=data.get("command"),
+            args=tuple(data.get("args") or ()),
+            env=dict(data.get("env") or {}),
+            cwd=data.get("cwd"),
+            timeout=data.get("timeout"),
+            disabled=data.get("disabled"),
+            always_allow=tuple(data.get("always_allow") or ()),
             per_tool_only=dict(data.get("per_tool_only") or {}),
             per_tool_extra=dict(data.get("per_tool_extra") or {}),
         )
@@ -112,6 +132,14 @@ class CanonicalDocument:
             "disallowed_tools": list(self.disallowed_tools),
             "permission_mode": self.permission_mode,
             "provenance": self.provenance,
+            "transport": self.transport,
+            "command": self.command,
+            "args": list(self.args),
+            "env": dict(self.env),
+            "cwd": self.cwd,
+            "timeout": self.timeout,
+            "disabled": self.disabled,
+            "always_allow": list(self.always_allow),
             "per_tool_only": _thaw(self.per_tool_only),
             "per_tool_extra": _thaw(self.per_tool_extra),
         }
