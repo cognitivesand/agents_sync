@@ -20,12 +20,16 @@
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
 - **Phase C — translation:** S9 ✓ (0.7.16) · S10 ✓ (0.7.17) · S11a ✓ (0.7.18) · S11b ✓ (0.7.19)
   · S12 ✓ (0.7.20) · **S13a ✓ (0.7.21)**.
-- **Next step → S13b** (MCP http/auth; splits `mcp_server.py` into a `parse`/`render` package).
+- **Next step → S13b** (MCP dialect package split — behavior-preserving refactor; http is S13c).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
   S24 gate; mcp `@import` resolution + framework egress-guard *enforcement* → read phase S17–S19;
-  mcp secret policy → S18; per-tool field-spelling overrides (incl. opencode `enabled` inversion) →
-  S20. Each rebuild step also writes a markdown report under `docs/audits/` (untracked).
+  mcp secret policy → S18; per-tool field-spelling overrides (incl. opencode `enabled` inversion),
+  env-reference syntax conversion + per-tool `env_reference_style` + dedicated `env_http_headers`/
+  `bearer_token_env_var` carriers → S20; mcp dialect P1 hardening from the S13b audit (validate
+  `timeout` against the canonical's `int | None`, wire-faithful scalar coercion instead of Python
+  `str()` reprs, array-form `command` spelling preservation) → S13c. Each rebuild step also writes
+  a markdown report under `docs/audits/` (untracked).
 
 ---
 
@@ -108,8 +112,10 @@ the superseded modules retired. The conformance suite holds throughout.
 | S11a | Structured-text codec + keyed-map wiring | `dialects/structured_text`, `dialects/keyed_map_slot` | the shared `json`+`toml` codec (`deserialize`/`serialize`): key-order + data round-trip, **comments not preserved**, stdlib only (`tomllib` read + hand-rolled TOML writer; no new dependency). `keyed_map_slot` switches to it, removing the S10 toml fail-loud stub — **unblocks codex mcp (toml)**. JSONC deferred (no tool declares it; a correct comment strip must be string-aware) |
 | S11b | Structured-text whole-file dialect | `dialects/structured_text` | the whole-file `parse`/`render`/`extract_id` for a structured-text artifact (codex's whole-`.toml` agent), using the S11a codec + `field_mapping` with body-field handling |
 | S12 | Framework-specificity predicate | `dialects/global_rules` | the pure `detect_framework_specific` text-scan + tool-private-path token constant the egress guard consumes (US-15 detection). Whole-file global rules **fold via `markdown_frontmatter`** (no new dialect code — rules differ only by recipe data). `@import` resolution (FS I/O), the source/effective body split, and the egress-guard *enforcement* (US-15 AC-1/2/3/4/6/7) land in the **read phase (S17–S19)**, where the I/O and the planner live |
-| S13a | MCP dialect — stdio core + canonical schema | `domain_model/canonical_document`, `dialects/mcp_server` | grow `CanonicalDocument` with flat optional mcp_server fields (`transport`, `command`, `args`, `env`, `cwd`, `timeout`, `disabled`, `always_allow`) — same pattern as the existing agent-only `model`/`effort`/`tools` optionals; the stdio dialect over a keyed-map slot: transport canonicalization + alias map (`local`→`stdio`, `streamableHttp`→`streamable-http`, validated against the canonical set), transport inference (command→stdio), command/args (array-form split), env (verbatim), cwd/timeout, disabled, always_allow, per-tool spelling preservation, unknown→`per_tool_extra`. Default alias lists are module constants (per-tool overrides deferred to tools-as-data S20 — incl. opencode's inverted-polarity `enabled` spelling, which round-trips verbatim via `per_tool_extra` until then). http/sse fails loud (S13b). FR-09 |
-| S13b | MCP dialect — http/auth | `dialects/mcp_server`, `domain_model/canonical_document` | http/sse transport: `url`/`headers`/`auth` canonical fields + alias detection, the headers concern, auth, env-reference-style conversion, bearer-token. FR-09 |
+| S13a | MCP dialect — stdio core + canonical schema | `domain_model/canonical_document`, `dialects/mcp_server` | grow `CanonicalDocument` with flat optional mcp_server fields (`transport`, `command`, `args`, `env`, `cwd`, `timeout`, `disabled`, `always_allow`) — same pattern as the existing agent-only `model`/`effort`/`tools` optionals; the stdio dialect over a keyed-map slot: transport canonicalization + alias map (`local`→`stdio`, `streamableHttp`→`streamable-http`, validated against the canonical set), transport inference (command→stdio), command/args (array-form split), env (verbatim), cwd/timeout, disabled, always_allow, per-tool spelling preservation, unknown→`per_tool_extra`. Default alias lists are module constants (per-tool overrides deferred to tools-as-data S20 — incl. opencode's inverted-polarity `enabled` spelling, which round-trips verbatim via `per_tool_extra` until then). http/sse fails loud (S13c). FR-09 |
+| S13b | MCP dialect — package split | `dialects/mcp_server` (→ package) | behavior-preserving refactor: split the stdio dialect module into a `mcp_server/` package (`parse` / `render` / shared vocabulary `_shared`) to respect the 300-line limit and set up http. **No new behaviour** — the unchanged S13a tests are the proof the refactor preserved behaviour. FR-09 |
+| S13c | MCP dialect — http/sse transport | `dialects/mcp_server`, `domain_model/canonical_document` | http/sse: `url`/`headers`/`auth` flat canonical fields + url alias detection (`url`/`httpUrl`/`serverUrl`), inline `headers` + `auth` maps (**verbatim**, like S13a's stdio env), per-tool url/headers/auth spelling preservation. FR-09 |
+| — | MCP env-reference conversion + carriers | `tools/*` recipes (S20) | env-reference SYNTAX conversion (`${env:NAME}`↔`${NAME}`↔`{env:NAME}`), the per-tool `env_reference_style`, and the dedicated `env_http_headers`/`bearer_token_env_var` carriers are **per-tool recipe data** → land with tools-as-data at **S20** (converting env-refs without per-tool render styles would break round-trip). Until then env/headers/auth round-trip verbatim |
 | — | MCP secret policy (refuse/warn/redact) | `secret_policy` (read phase) | NOT in the dialect — enforcement runs at the planner/executor egress (proposal §12), landing at **S18** alongside the other secret/egress guards |
 
 ### Phase D — Gateways (the only filesystem touch points)

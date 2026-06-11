@@ -8,7 +8,7 @@ resolution-markers = [
 
 [[package]]
 name = "agents-sync"
-version = "0.7.21"
+version = "0.7.22"
 source = { editable = "." }
 dependencies = [
     { name = "ruamel-yaml" },

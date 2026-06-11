@@ -369,8 +369,12 @@ place across dialects.
   (`transport`, `command`, `args`, `env`, `url`, `headers`, `auth`, …) are **flat
   optional attributes on `CanonicalDocument`**, the same pattern as the agent-only
   `model`/`effort`/`tools` optionals (the per-kind sub-structure stays deferred —
-  YAGNI). The mcp **secret policy** (refuse/warn/redact) is *not* in the dialect: it
-  runs at the planner/executor egress (see the §12 secret-policy row).
+  YAGNI). The dialect is a `parse` / `render` package (stdio is S13a, http is S13c).
+  Env-reference syntax conversion, the per-tool `env_reference_style`, and the
+  dedicated `env_http_headers`/`bearer_token_env_var` carriers are **per-tool recipe
+  data** and land with tools-as-data (S20), not here. The mcp **secret policy**
+  (refuse/warn/redact) is *not* in the dialect either: it runs at the planner/executor
+  egress (see the §12 secret-policy row).
 
 `file_to_canonical` *raises* on malformed content; the read phase catches that
 and records a `ParseFailure` in the observation (so the planner sees
