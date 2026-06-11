@@ -1,11 +1,12 @@
-"""Unit tests for the mcp_server dialect — stdio core (rebuild S13a).
+"""Unit tests for the mcp_server dialect — stdio core (S13a) + http/sse (S13c).
 
 An mcp_server artifact is one slot in a shared keyed-map file (like keyed_map_slot),
 but its wire shape needs interpretation a flat field map cannot express: transport
 canonicalization + an alias map, transport inference (command -> stdio), command/args
-(array-form split), env, cwd/timeout, disabled, always_allow, and preservation of each
-tool's own field spellings under ``per_tool_only``. http/sse transport and the
-url/headers/auth fields are S13c; the mcp secret policy is the read phase (S18).
+(array-form split), env, cwd/timeout, disabled, always_allow, the http/sse fields
+(url with alias detection, verbatim headers/auth maps), and preservation of each
+tool's own field spellings under ``per_tool_only``. Env-reference conversion is per-tool
+recipe data (S20); the mcp secret policy is the read phase (S18).
 Pure in-memory tests through the translation seam (FR-09).
 """
 
@@ -56,6 +57,17 @@ def _stdio_slot(**overrides: Any) -> dict[str, Any]:
         "name": "github",
         "command": "npx",
         "args": ["-y", "gh-mcp"],
+    }
+    slot.update(overrides)
+    return slot
+
+
+def _http_slot(**overrides: Any) -> dict[str, Any]:
+    slot: dict[str, Any] = {
+        "pair_id": _EMBEDDED_ID,
+        "name": "github",
+        "transport": "http",
+        "url": "https://mcp.example.com",
     }
     slot.update(overrides)
     return slot
@@ -326,14 +338,150 @@ def test_a_non_string_always_allow_item_is_malformed_content() -> None:
         file_to_canonical(text, _surface(), None)
 
 
-def test_http_transport_fails_loud_pending_s13c() -> None:
-    # http/sse (url/headers/auth) land in S13c. Until then an http slot fails loud with a
-    # plain ValueError that is NOT a MalformedSurfaceError: the content is valid, the
-    # dialect just does not support it yet, so it must not be swallowed as a ParseFailure.
-    text = _file({"github": {"name": "x", "transport": "http", "url": "https://x"}})
+def test_a_fully_populated_http_slot_is_stable_across_parse_render_parse() -> None:
+    # The http counterpart of the stdio anti-drift round-trip: every http field populated.
+    text = _file(
+        {
+            "github": _http_slot(
+                headers={"Authorization": "Bearer ${TOK}"},
+                auth={"type": "oauth"},
+                timeout=30,
+                disabled=False,
+                alwaysAllow=["search"],
+            )
+        }
+    )
 
-    with pytest.raises(ValueError) as error:
+    once = file_to_canonical(text, _surface(), None)
+    twice = file_to_canonical(canonical_to_file(once, _surface(), text), _surface(), None)
+
+    assert once == twice
+
+
+def test_url_headers_and_auth_are_folded_to_the_canonical() -> None:
+    text = _file({"github": _http_slot(headers={"X-Key": "${KEY}"}, auth={"type": "oauth"})})
+
+    canonical = file_to_canonical(text, _surface(), None)
+
+    assert canonical.transport == "http"
+    assert canonical.url == "https://mcp.example.com"
+    assert canonical.headers == {"X-Key": "${KEY}"}
+    assert canonical.auth == {"type": "oauth"}
+
+
+def test_transport_is_inferred_from_url_when_no_transport_field() -> None:
+    text = _file({"github": {"name": "x", "url": "https://mcp.example.com"}})
+
+    assert file_to_canonical(text, _surface(), None).transport == "http"
+
+
+def test_sse_transport_parses_with_a_url() -> None:
+    text = _file({"github": _http_slot(transport="sse")})
+
+    assert file_to_canonical(text, _surface(), None).transport == "sse"
+
+
+def test_timeout_is_folded_for_http_too() -> None:
+    # timeout is transport-independent (request timeout for remote servers).
+    text = _file({"github": _http_slot(timeout=45)})
+
+    assert file_to_canonical(text, _surface(), None).timeout == 45
+
+
+def test_the_http_url_alias_spelling_is_recognised_and_preserved() -> None:
+    # A tool spelling the endpoint `httpUrl` folds to the canonical url and gets its own
+    # key back on render — the same spelling-preservation promise the transport field gets.
+    slot_dict = {"name": "x", "transport": "http", "httpUrl": "https://mcp.example.com"}
+    text = _file({"github": slot_dict})
+
+    canonical = file_to_canonical(text, _surface(), None)
+    slot = json.loads(canonical_to_file(canonical, _surface(), text))["mcpServers"]["github"]
+
+    assert canonical.url == "https://mcp.example.com"
+    assert slot["httpUrl"] == "https://mcp.example.com"
+    assert "url" not in slot
+
+
+def test_the_oauth_spelling_is_recognised_and_preserved() -> None:
+    text = _file({"github": _http_slot(oauth={"type": "oauth"})})
+
+    canonical = file_to_canonical(text, _surface(), None)
+    slot = json.loads(canonical_to_file(canonical, _surface(), text))["mcpServers"]["github"]
+
+    assert canonical.auth == {"type": "oauth"}
+    assert slot["oauth"] == {"type": "oauth"}
+    assert "auth" not in slot
+
+
+def test_streamable_http_transport_parses_and_its_spelling_survives_render() -> None:
+    # streamableHttp canonicalises to streamable-http and the tool's own spelling re-emits.
+    text = _file({"github": _http_slot(transport="streamableHttp")})
+
+    canonical = file_to_canonical(text, _surface(), None)
+    slot = json.loads(canonical_to_file(canonical, _surface(), text))["mcpServers"]["github"]
+
+    assert canonical.transport == "streamable-http"
+    assert slot["transport"] == "streamableHttp"
+
+
+def test_two_url_spellings_in_one_slot_are_malformed_content() -> None:
+    # Two aliases of the same field are two conflicting declarations: folding one and
+    # silently dropping the other would mangle the user's file (same doctrine as the
+    # cross-shape and command-array/args conflicts).
+    text = _file({"github": _http_slot(httpUrl="https://other.example.com")})
+
+    with pytest.raises(MalformedSurfaceError):
         file_to_canonical(text, _surface(), None)
-    # exactly a plain ValueError, not the MalformedSurfaceError subclass (which would be
-    # swallowed into a ParseFailure and freeze a perfectly valid http server).
-    assert type(error.value) is ValueError
+
+
+def test_two_always_allow_spellings_in_one_slot_are_malformed_content() -> None:
+    text = _file({"github": _stdio_slot(alwaysAllow=["a"], allowedTools=["b"])})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_an_http_slot_without_a_url_is_malformed_content() -> None:
+    text = _file({"github": {"name": "x", "transport": "http"}})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_url_is_malformed_content() -> None:
+    text = _file({"github": _http_slot(url=7)})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_header_value_is_malformed_content() -> None:
+    text = _file({"github": _http_slot(headers={"X-Key": 7})})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_auth_value_is_malformed_content() -> None:
+    # auth is a verbatim flat string map like env; nested objects are not folded silently.
+    text = _file({"github": _http_slot(auth={"type": {"nested": True}})})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_an_http_slot_with_stdio_fields_is_malformed_content() -> None:
+    # Conflicting transport shapes (an http slot also declaring a command) would silently
+    # drop one side on round-trip — bad content, freeze instead (same doctrine as
+    # the command-array/args conflict).
+    text = _file({"github": _http_slot(command="npx")})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_stdio_slot_with_http_fields_is_malformed_content() -> None:
+    text = _file({"github": _stdio_slot(url="https://mcp.example.com")})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)

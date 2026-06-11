@@ -17,6 +17,7 @@ _URL_FIELDS = ("url", "httpUrl", "serverUrl")
 # wire semantics, not plain aliases. Until then those keys fall through to per_tool_extra and
 # round-trip verbatim; the dialect's defaults are the single spellings `env` / `disabled`.
 _ALWAYS_ALLOW_FIELDS = ("always_allow", "alwaysAllow", "allowedTools")
+_AUTH_FIELDS = ("auth", "oauth")
 _CANONICAL_TRANSPORTS = frozenset({"stdio", "http", "sse", "streamable-http"})
 # alias (casefolded) → canonical transport; an alias not here passes through to be
 # validated against _CANONICAL_TRANSPORTS, so an unknown value is rejected.
@@ -39,7 +40,9 @@ _FIXED_KNOWN_FIELDS = (
     "timeout",
     "env",
     "disabled",
+    "headers",
     *_ALWAYS_ALLOW_FIELDS,
+    *_AUTH_FIELDS,
     *_TRANSPORT_FIELDS,
     *_URL_FIELDS,
 )

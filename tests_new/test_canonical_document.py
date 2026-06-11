@@ -39,6 +39,9 @@ def _agent_doc(**overrides: object) -> dict[str, object]:
         "timeout": None,
         "disabled": None,
         "always_allow": [],
+        "url": None,
+        "headers": {},
+        "auth": {},
         "per_tool_only": {"claude": {"color": "blue"}},
         "per_tool_extra": {"codex": {"x_unknown": 1}},
     }
@@ -72,6 +75,9 @@ def _mcp_doc(**overrides: object) -> dict[str, object]:
         "timeout": 30,
         "disabled": False,
         "always_allow": ["search_issues", "create_issue"],
+        "url": None,
+        "headers": {},
+        "auth": {},
         "per_tool_only": {},
         "per_tool_extra": {},
     }
@@ -318,6 +324,42 @@ def test_env_mapping_is_frozen_against_in_place_mutation() -> None:
 
     with pytest.raises(TypeError):
         doc.env["A"] = "2"  # type: ignore[index]
+
+
+def test_http_fields_round_trip_through_the_dict_form() -> None:
+    # The S13c http fields (url, headers, auth) are carried lossless, like env.
+    doc = CanonicalDocument.from_dict(
+        _mcp_doc(
+            transport="http",
+            command=None,
+            args=[],
+            env={},
+            cwd=None,
+            url="https://mcp.example.com",
+            headers={"Authorization": "Bearer ${TOK}"},
+            auth={"type": "oauth"},
+        )
+    )
+
+    round_tripped = doc.to_dict()
+
+    assert round_tripped["url"] == "https://mcp.example.com"
+    assert round_tripped["headers"] == {"Authorization": "Bearer ${TOK}"}
+    assert round_tripped["auth"] == {"type": "oauth"}
+
+
+def test_headers_mapping_is_frozen_against_in_place_mutation() -> None:
+    doc = CanonicalDocument.from_dict(_mcp_doc(headers={"A": "1"}))
+
+    with pytest.raises(TypeError):
+        doc.headers["A"] = "2"  # type: ignore[index]
+
+
+def test_auth_mapping_is_frozen_against_in_place_mutation() -> None:
+    doc = CanonicalDocument.from_dict(_mcp_doc(auth={"type": "oauth"}))
+
+    with pytest.raises(TypeError):
+        doc.auth["type"] = "basic"  # type: ignore[index]
 
 
 def test_env_round_trips_as_a_plain_dict() -> None:

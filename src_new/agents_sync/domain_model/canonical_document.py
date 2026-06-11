@@ -54,9 +54,10 @@ class CanonicalDocument:
     disallowed_tools: tuple[str, ...] = ()
     permission_mode: str | None = None
     provenance: str = "user"
-    # mcp_server-only fields (S13a): flat optionals, the same pattern as the agent-only
-    # model/effort/tools above. ``args`` is an ordered argument list (NOT order-insensitive
-    # like ``tools``); ``env`` is a frozen string→string map.
+    # mcp_server-only fields (S13a stdio, S13c http/sse): flat optionals, the same pattern
+    # as the agent-only model/effort/tools above. ``args`` is an ordered argument list (NOT
+    # order-insensitive like ``tools``); ``env``/``headers``/``auth`` are frozen
+    # string→string maps.
     transport: str | None = None
     command: str | None = None
     args: tuple[str, ...] = ()
@@ -65,6 +66,9 @@ class CanonicalDocument:
     timeout: int | None = None
     disabled: bool | None = None
     always_allow: tuple[str, ...] = ()
+    url: str | None = None
+    headers: Mapping[str, str] = field(default_factory=dict)
+    auth: Mapping[str, str] = field(default_factory=dict)
     per_tool_only: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     per_tool_extra: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
@@ -73,6 +77,8 @@ class CanonicalDocument:
         # container contents, so every nested mapping is made read-only to keep the
         # value object immutable and its content digest stable.
         object.__setattr__(self, "env", _freeze(self.env))
+        object.__setattr__(self, "headers", _freeze(self.headers))
+        object.__setattr__(self, "auth", _freeze(self.auth))
         object.__setattr__(self, "per_tool_only", _freeze(self.per_tool_only))
         object.__setattr__(self, "per_tool_extra", _freeze(self.per_tool_extra))
 
@@ -114,6 +120,9 @@ class CanonicalDocument:
             timeout=data.get("timeout"),
             disabled=data.get("disabled"),
             always_allow=tuple(data.get("always_allow") or ()),
+            url=data.get("url"),
+            headers=dict(data.get("headers") or {}),
+            auth=dict(data.get("auth") or {}),
             per_tool_only=dict(data.get("per_tool_only") or {}),
             per_tool_extra=dict(data.get("per_tool_extra") or {}),
         )
@@ -140,6 +149,9 @@ class CanonicalDocument:
             "timeout": self.timeout,
             "disabled": self.disabled,
             "always_allow": list(self.always_allow),
+            "url": self.url,
+            "headers": dict(self.headers),
+            "auth": dict(self.auth),
             "per_tool_only": _thaw(self.per_tool_only),
             "per_tool_extra": _thaw(self.per_tool_extra),
         }

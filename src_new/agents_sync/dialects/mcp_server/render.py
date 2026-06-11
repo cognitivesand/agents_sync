@@ -1,8 +1,8 @@
-"""mcp_server render — render the canonical onto its keyed-map slot (stdio core, pure).
+"""mcp_server render — render the canonical onto its keyed-map slot (pure).
 
-Builds the slot from the canonical and the tool's recorded field spellings, then reuses
-``keyed_map_slot.write_slot`` to reassemble the shared file with siblings preserved. http/sse
-is S13c.
+Builds the slot from the canonical and the tool's recorded field spellings (stdio and
+http/sse shapes), then reuses ``keyed_map_slot.write_slot`` to reassemble the shared file
+with siblings preserved.
 """
 
 from __future__ import annotations
@@ -13,8 +13,10 @@ from typing import Any
 from agents_sync.dialects import keyed_map_slot
 from agents_sync.dialects.mcp_server._shared import (
     _ALWAYS_ALLOW_FIELDS,
+    _AUTH_FIELDS,
     _NAME_FIELD,
     _TRANSPORT_FIELDS,
+    _URL_FIELDS,
     _canonical_transport,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
@@ -31,22 +33,21 @@ def render(canonical: CanonicalDocument, tool_surface: ToolSurface, prior_text: 
         slot[_NAME_FIELD] = canonical.name
 
     transport = _canonical_transport(canonical.transport)
-    if transport != "stdio":
-        raise ValueError(f"mcp_server {transport} transport is not yet supported (S13c)")
-    slot[_render_transport_field(only)] = _render_transport_value(transport, only)
-    _render_stdio(canonical, slot, only)
+    slot[_spelled_field(only, "transport_field", _TRANSPORT_FIELDS)] = _render_transport_value(
+        transport, only
+    )
+    if transport == "stdio":
+        _render_stdio(canonical, slot, only)
+    else:
+        _render_http(canonical, slot, only)
     _render_common(canonical, slot, only)
     return keyed_map_slot.write_slot(prior_text, tool_surface, slot)
 
 
-def _render_transport_field(only: Mapping[str, Any]) -> str:
-    """The transport key to emit — this tool's recorded spelling, else the canonical default."""
-    spelled = only.get("transport_field")
-    return (
-        spelled
-        if isinstance(spelled, str) and spelled in _TRANSPORT_FIELDS
-        else _TRANSPORT_FIELDS[0]
-    )
+def _spelled_field(only: Mapping[str, Any], key: str, allowed: tuple[str, ...]) -> str:
+    """The key to emit — this tool's recorded spelling if valid, else the canonical default."""
+    spelled = only.get(key)
+    return spelled if isinstance(spelled, str) and spelled in allowed else allowed[0]
 
 
 def _render_transport_value(transport: str, only: Mapping[str, Any]) -> str:
@@ -77,17 +78,28 @@ def _render_stdio(
         slot["env"] = dict(canonical.env)
     if canonical.cwd is not None:
         slot["cwd"] = canonical.cwd
-    if canonical.timeout is not None:
-        slot["timeout"] = canonical.timeout
+
+
+def _render_http(
+    canonical: CanonicalDocument, slot: dict[str, Any], only: Mapping[str, Any]
+) -> None:
+    """Emit the http/sse fields (url, headers, auth) back onto ``slot``."""
+    if canonical.url is not None:
+        slot[_spelled_field(only, "url_field", _URL_FIELDS)] = canonical.url
+    if canonical.headers:
+        slot["headers"] = dict(canonical.headers)
+    if canonical.auth:
+        slot[_spelled_field(only, "auth_field", _AUTH_FIELDS)] = dict(canonical.auth)
 
 
 def _render_common(
     canonical: CanonicalDocument, slot: dict[str, Any], only: Mapping[str, Any]
 ) -> None:
     """Emit the transport-independent fields back onto ``slot``."""
+    if canonical.timeout is not None:
+        slot["timeout"] = canonical.timeout
     if canonical.disabled is not None:
         slot["disabled"] = canonical.disabled
     if canonical.always_allow:
-        spelled = only.get("always_allow_field")
-        field = spelled if isinstance(spelled, str) else _ALWAYS_ALLOW_FIELDS[0]
+        field = _spelled_field(only, "always_allow_field", _ALWAYS_ALLOW_FIELDS)
         slot[field] = list(canonical.always_allow)
