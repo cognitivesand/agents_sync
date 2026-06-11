@@ -5,7 +5,7 @@ but its wire shape needs interpretation a flat field map cannot express: transpo
 canonicalization + an alias map, transport inference (command -> stdio), command/args
 (array-form split), env, cwd/timeout, disabled, always_allow, and preservation of each
 tool's own field spellings under ``per_tool_only``. http/sse transport and the
-url/headers/auth fields are S13b; the mcp secret policy is the read phase (S18).
+url/headers/auth fields are S13c; the mcp secret policy is the read phase (S18).
 Pure in-memory tests through the translation seam (FR-09).
 """
 
@@ -242,8 +242,92 @@ def test_stdio_args_that_is_neither_list_nor_string_is_malformed_content() -> No
         file_to_canonical(text, _surface(), None)
 
 
-def test_http_transport_fails_loud_pending_s13b() -> None:
-    # http/sse (url/headers/auth) land in S13b. Until then an http slot fails loud with a
+def test_a_command_array_spelling_is_preserved_on_render() -> None:
+    # A tool that spells the invocation as a single array gets that shape back on render
+    # (the same spelling-preservation promise transport and always_allow get): command
+    # re-emits as [command, *args] under the one `command` key, with no split `args` key.
+    text = _file({"github": {"name": "x", "command": ["npx", "-y", "gh-mcp"]}})
+
+    canonical = file_to_canonical(text, _surface(), None)
+    slot = json.loads(canonical_to_file(canonical, _surface(), text))["mcpServers"]["github"]
+
+    assert slot["command"] == ["npx", "-y", "gh-mcp"]
+    assert "args" not in slot
+
+
+def test_a_command_array_with_a_separate_args_key_is_malformed_content() -> None:
+    # The invocation declared twice in two conflicting shapes: folding one and silently
+    # dropping the other would mangle the user's file, so it is bad content (-> freeze).
+    text = _file({"github": {"name": "x", "command": ["npx", "-y"], "args": ["server.js"]}})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_integer_timeout_is_malformed_content() -> None:
+    # The canonical declares ``timeout: int | None``: a wire value of any other type is bad
+    # user content (-> ParseFailure -> freeze), never silently stored against the schema.
+    text = _file({"github": _stdio_slot(timeout="5s")})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_boolean_timeout_is_malformed_content() -> None:
+    # bool is an int subclass in Python; the schema means a genuine integer, so JSON
+    # true/false is rejected rather than silently folded to 1/0.
+    text = _file({"github": _stdio_slot(timeout=True)})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_env_value_is_malformed_content() -> None:
+    # The canonical declares ``env: Mapping[str, str]``: a JSON true must not become the
+    # Python repr 'True' and be written back to the user's file — it fails loud instead.
+    text = _file({"github": _stdio_slot(env={"DEBUG": True})})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_cwd_is_malformed_content() -> None:
+    text = _file({"github": _stdio_slot(cwd=7)})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_scalar_command_is_malformed_content() -> None:
+    text = _file({"github": {"name": "x", "command": 42}})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_command_array_item_is_malformed_content() -> None:
+    text = _file({"github": {"name": "x", "command": ["npx", 7]}})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_args_item_is_malformed_content() -> None:
+    text = _file({"github": {"name": "x", "command": "npx", "args": ["-y", 7]}})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_a_non_string_always_allow_item_is_malformed_content() -> None:
+    text = _file({"github": _stdio_slot(alwaysAllow=["search", 7])})
+
+    with pytest.raises(MalformedSurfaceError):
+        file_to_canonical(text, _surface(), None)
+
+
+def test_http_transport_fails_loud_pending_s13c() -> None:
+    # http/sse (url/headers/auth) land in S13c. Until then an http slot fails loud with a
     # plain ValueError that is NOT a MalformedSurfaceError: the content is valid, the
     # dialect just does not support it yet, so it must not be swallowed as a ParseFailure.
     text = _file({"github": {"name": "x", "transport": "http", "url": "https://x"}})

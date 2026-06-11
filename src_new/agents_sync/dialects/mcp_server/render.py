@@ -34,7 +34,7 @@ def render(canonical: CanonicalDocument, tool_surface: ToolSurface, prior_text: 
     if transport != "stdio":
         raise ValueError(f"mcp_server {transport} transport is not yet supported (S13c)")
     slot[_render_transport_field(only)] = _render_transport_value(transport, only)
-    _render_stdio(canonical, slot)
+    _render_stdio(canonical, slot, only)
     _render_common(canonical, slot, only)
     return keyed_map_slot.write_slot(prior_text, tool_surface, slot)
 
@@ -61,12 +61,18 @@ def _render_transport_value(transport: str, only: Mapping[str, Any]) -> str:
     return transport
 
 
-def _render_stdio(canonical: CanonicalDocument, slot: dict[str, Any]) -> None:
+def _render_stdio(
+    canonical: CanonicalDocument, slot: dict[str, Any], only: Mapping[str, Any]
+) -> None:
     """Emit the stdio fields back onto ``slot``."""
-    if canonical.command is not None:
-        slot["command"] = canonical.command
-    if canonical.args:
-        slot["args"] = list(canonical.args)
+    if only.get("command_array") is True and canonical.command is not None:
+        # the tool spelled the invocation as one array: give that shape back, no args key.
+        slot["command"] = [canonical.command, *canonical.args]
+    else:
+        if canonical.command is not None:
+            slot["command"] = canonical.command
+        if canonical.args:
+            slot["args"] = list(canonical.args)
     if canonical.env:
         slot["env"] = dict(canonical.env)
     if canonical.cwd is not None:

@@ -102,24 +102,33 @@ def _fold_stdio(slot: dict[str, Any], changes: dict[str, Any]) -> None:
     if command is None:
         raise MalformedSurfaceError("stdio mcp_server requires a command")
     if isinstance(command, list):
-        parts = [str(part) for part in command]
+        if "args" in slot:
+            # the invocation declared twice in conflicting shapes — folding one and silently
+            # dropping the other would mangle the user's file on round-trip.
+            raise MalformedSurfaceError("mcp_server command array and args must not coexist")
+        parts = [_as_string(part, "command array item") for part in command]
         if not parts:
             raise MalformedSurfaceError("stdio mcp_server command array must not be empty")
         changes["command"] = parts[0]
         changes["args"] = tuple(parts[1:])
     else:
-        changes["command"] = str(command)
+        changes["command"] = _as_string(command, "command")
         if "args" in slot:
-            changes["args"] = tuple(str(arg) for arg in _as_list(slot["args"]))
+            changes["args"] = tuple(_as_string(arg, "args item") for arg in _as_list(slot["args"]))
     if "env" in slot:
         env = slot["env"]
         if not isinstance(env, dict):
             raise MalformedSurfaceError("mcp_server env must be an object")
-        changes["env"] = {str(key): str(value) for key, value in env.items()}
+        changes["env"] = {str(key): _as_string(value, "env value") for key, value in env.items()}
     if "cwd" in slot:
-        changes["cwd"] = str(slot["cwd"])
+        changes["cwd"] = _as_string(slot["cwd"], "cwd")
     if "timeout" in slot:
-        changes["timeout"] = slot["timeout"]
+        timeout = slot["timeout"]
+        # bool is an int subclass; the canonical's ``timeout: int | None`` means a genuine
+        # integer, so JSON true/false is malformed, not silently folded to 1/0.
+        if not isinstance(timeout, int) or isinstance(timeout, bool):
+            raise MalformedSurfaceError("mcp_server timeout must be an integer")
+        changes["timeout"] = timeout
 
 
 def _fold_common(slot: dict[str, Any], changes: dict[str, Any]) -> None:
@@ -130,7 +139,7 @@ def _fold_common(slot: dict[str, Any], changes: dict[str, Any]) -> None:
     if always_allow_field is not None:
         value = slot[always_allow_field]
         items = value if isinstance(value, list) else [value]
-        changes["always_allow"] = tuple(str(item) for item in items)
+        changes["always_allow"] = tuple(_as_string(item, "always_allow item") for item in items)
 
 
 def _spellings(slot: dict[str, Any], transport_field: str | None) -> dict[str, Any]:
@@ -142,6 +151,8 @@ def _spellings(slot: dict[str, Any], transport_field: str | None) -> dict[str, A
     always_allow_field = _first_present(slot, _ALWAYS_ALLOW_FIELDS)
     if always_allow_field is not None and always_allow_field != _ALWAYS_ALLOW_FIELDS[0]:
         result["always_allow_field"] = always_allow_field
+    if isinstance(slot.get("command"), list):
+        result["command_array"] = True
     return result
 
 
@@ -164,6 +175,12 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, str):
         return [value]
     raise MalformedSurfaceError("mcp_server args must be a list or string")
+
+
+def _as_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise MalformedSurfaceError(f"mcp_server {field_name} must be a string")
+    return value
 
 
 def _recover_id(slot: dict[str, Any], id_field: str, base: CanonicalDocument) -> str:
