@@ -14,15 +14,16 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.24` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.25` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
 - **Phase C — translation:** S9 ✓ (0.7.16) · S10 ✓ (0.7.17) · S11a ✓ (0.7.18) · S11b ✓ (0.7.19)
   · S12 ✓ (0.7.20) · S13a ✓ (0.7.21) · S13b ✓ (0.7.22) · **S13c ✓ (0.7.23 hardening,
   0.7.24 http/sse)** — Phase C complete.
-- **Next step → S14** (atomic file writer). Quality audits now run once per step number, at
-  the end of all its sub-increments (e.g. after all of S13x, before S14).
+- **Phase D — gateways:** **S14 ✓ (0.7.25)**.
+- **Next step → S15** (canonical & state stores). Quality audits run once per step number,
+  at the end of all its sub-increments (e.g. after all of S13x, before S14).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
   S24 gate; mcp `@import` resolution + framework egress-guard *enforcement* → read phase S17–S19;
