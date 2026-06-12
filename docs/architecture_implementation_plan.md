@@ -14,23 +14,26 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.26` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.27` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
 - **Phase C — translation:** S9 ✓ (0.7.16) · S10 ✓ (0.7.17) · S11a ✓ (0.7.18) · S11b ✓ (0.7.19)
   · S12 ✓ (0.7.20) · S13a ✓ (0.7.21) · S13b ✓ (0.7.22) · **S13c ✓ (0.7.23 hardening,
   0.7.24 http/sse)** — Phase C complete.
-- **Phase D — gateways:** S14 ✓ (0.7.25) · **S15a ✓ (0.7.26 canonical_store)**.
-- **Next step → S15b** (sync_state_store; end-of-S15 audit after it). Quality audits run once per step number,
+- **Phase D — gateways:** S14 ✓ (0.7.25) · **S15 ✓ (0.7.26 canonical_store, 0.7.27
+  sync_state_store + shared store_quarantine)**.
+- **Next step → S16** (archive + GC). Quality audits run once per step number,
   at the end of all its sub-increments (e.g. after all of S13x, before S14).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
   S24 gate; mcp `@import` resolution + framework egress-guard *enforcement* → read phase S17–S19;
   mcp secret policy → S18; per-tool field-spelling overrides (incl. opencode `enabled` inversion),
   env-reference syntax conversion + per-tool `env_reference_style` + dedicated `env_http_headers`/
-  `bearer_token_env_var` carriers → S20. Each rebuild step also writes a markdown report under
-  `docs/audits/` (untracked).
+  `bearer_token_env_var` carriers → S20; `CanonicalDocument.from_dict` type-coercion hardening
+  (it silently coerces e.g. `tools: "abc"` / `timeout: "x"` instead of raising into the store's
+  quarantine catch — S15 audit note) → revisit when the schema next grows (S20). Each rebuild
+  step also writes a markdown report under `docs/audits/` (untracked).
 
 ---
 

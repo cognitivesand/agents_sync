@@ -17,13 +17,13 @@ import pytest
 
 from agents_sync.canonical_store import (
     CANONICAL_SCHEMA_VERSION,
-    QuarantineError,
     list_canonical_ids,
     load_canonical,
     save_canonical,
 )
 from agents_sync.domain_model.artifact_identity import InvalidArtifactId
 from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
+from agents_sync.store_quarantine import QuarantineError
 
 _ARTIFACT_ID = "11111111-1111-4111-8111-111111111111"
 _OTHER_ID = "22222222-2222-4222-8222-222222222222"
@@ -138,6 +138,35 @@ def test_an_unsupported_schema_version_is_quarantined(tmp_path: Path) -> None:
     assert "schema_version" in result.reason
 
 
+def test_a_type_corrupt_field_is_quarantined(tmp_path: Path) -> None:
+    # A wrong container type (tools: 5) corrupts the document just like a missing
+    # field: it must quarantine, not crash the poll loop on every load forever.
+    path = _canonical_file(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": CANONICAL_SCHEMA_VERSION,
+                "artifact_id": _ARTIFACT_ID,
+                "kind": "agent",
+                "tools": 5,
+            }
+        )
+    )
+
+    assert isinstance(load_canonical(tmp_path, _ARTIFACT_ID), CorruptCanonical)
+    assert len(_quarantined_files(tmp_path)) == 1
+
+
+def test_saving_an_invalid_artifact_id_is_a_recipe_error(tmp_path: Path) -> None:
+    # The save side enforces the same id boundary as the load side: no file is
+    # ever written under a garbage name.
+    with pytest.raises(InvalidArtifactId):
+        save_canonical(tmp_path, _document(artifact_id="not-a-uuid"))
+
+    assert not (tmp_path / "canonical").exists()
+
+
 def test_unreadable_bytes_are_quarantined(tmp_path: Path) -> None:
     path = _canonical_file(tmp_path)
     path.parent.mkdir(parents=True)
@@ -166,6 +195,26 @@ def test_a_failed_quarantine_move_fails_closed(
         load_canonical(tmp_path, _ARTIFACT_ID)
 
     assert path.read_text() == "{truncated"  # the corrupt bytes were not destroyed
+
+
+def test_an_already_vanished_source_does_not_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The overlapping-daemon race the design survives (US-09 AC-3): the winner already
+    # quarantined the file, so the loser's move finds nothing left to protect — it
+    # must converge (report corrupt for this poll), not raise QuarantineError.
+    import os
+
+    path = _canonical_file(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text("{truncated")
+
+    def already_gone(src: Any, dst: Any) -> None:
+        raise FileNotFoundError(src)
+
+    monkeypatch.setattr(os, "replace", already_gone)
+
+    assert isinstance(load_canonical(tmp_path, _ARTIFACT_ID), CorruptCanonical)
 
 
 def test_two_corrupt_loads_quarantine_two_distinct_files(tmp_path: Path) -> None:

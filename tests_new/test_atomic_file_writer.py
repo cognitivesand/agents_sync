@@ -256,6 +256,30 @@ def test_move_file_atomic_retries_transient_errors(
     assert failures["remaining"] == 0
 
 
+def test_move_file_atomic_fsyncs_both_parent_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The move's durability mirrors write_text_atomic's: both the vacated source
+    # directory and the gaining target directory are fsynced, or a power loss could
+    # durably remove the source entry while losing the target entry (the preserved
+    # quarantine bytes). Boundary spy, as for the write-path fsync test.
+    source = tmp_path / "from" / "a.txt"
+    source.parent.mkdir()
+    source.write_text("x")
+    destination = tmp_path / "to" / "b.txt"
+    fsync_calls: list[int] = []
+    real_fsync = os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        fsync_calls.append(descriptor)
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    move_file_atomic(source, destination)
+
+    assert len(fsync_calls) == 2  # the target parent and the source parent
+
+
 # --- replace_directory_atomic ---------------------------------------------------
 
 

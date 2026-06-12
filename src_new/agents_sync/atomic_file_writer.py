@@ -70,9 +70,13 @@ def move_file_atomic(source_file: Path, target_file: Path) -> None:
 
     Used to put a file aside (e.g. quarantine a corrupt store file) without a copy
     window; a transient OS hold is retried, any other failure propagates loudly.
+    Both parent directories are fsynced — otherwise a crash could durably persist
+    the source entry's removal while losing the target entry.
     """
     target_file.parent.mkdir(parents=True, exist_ok=True)
     _retry_transient(lambda: os.replace(source_file, target_file))
+    _fsync_directory(target_file.parent)
+    _fsync_directory(source_file.parent)
 
 
 def replace_directory_atomic(target_dir: Path, populate: Callable[[Path], None]) -> None:

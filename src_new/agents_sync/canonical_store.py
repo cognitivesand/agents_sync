@@ -6,28 +6,23 @@ so digests never churn). ``load_canonical`` returns exactly the planner's
 stored-canonical input type: a ``CanonicalDocument``, a ``CorruptCanonical`` (the
 unreadable file was MOVED to ``store_dir/quarantine/`` first, bytes preserved for
 recovery), or ``None`` (absent). If the quarantine move itself fails, the load fails
-closed with ``QuarantineError`` — rebuilding would overwrite the corrupt bytes.
-The structured-error logging for quarantine events lands with the daemon (S22);
-until then ``CorruptCanonical.reason`` carries the cause.
+closed with ``store_quarantine.QuarantineError`` — rebuilding would overwrite the
+corrupt bytes. The structured-error logging for quarantine events lands with the
+daemon (S22); until then ``CorruptCanonical.reason`` carries the cause.
 """
 
 from __future__ import annotations
 
 import json
-import time
-import uuid
 from pathlib import Path
 from typing import Any
 
-from agents_sync.atomic_file_writer import move_file_atomic, write_text_atomic
+from agents_sync.atomic_file_writer import write_text_atomic
 from agents_sync.domain_model.artifact_identity import InvalidArtifactId, validate_artifact_id
 from agents_sync.domain_model.canonical_document import CanonicalDocument, CorruptCanonical
+from agents_sync.store_quarantine import quarantine_corrupt_file
 
 CANONICAL_SCHEMA_VERSION = 1
-
-
-class QuarantineError(OSError):
-    """A corrupt store file could not be moved to quarantine — fail closed."""
 
 
 def save_canonical(store_dir: Path, document: CanonicalDocument) -> None:
@@ -63,7 +58,9 @@ def load_canonical(
         )
     try:
         return CanonicalDocument.from_dict(data)
-    except ValueError as error:
+    except (TypeError, ValueError) as error:
+        # TypeError covers type-corrupt fields (e.g. tools: 5 -> tuple(5)); leaving
+        # it uncaught would re-crash every poll on the same file, never healing.
         return _quarantine(store_dir, path, str(error))
 
 
@@ -86,18 +83,6 @@ def _canonical_file_path(store_dir: Path, artifact_id: str) -> Path:
 
 
 def _quarantine(store_dir: Path, source: Path, reason: str) -> CorruptCanonical:
-    """Move ``source`` into ``store_dir/quarantine/`` (bytes preserved) and report why.
-
-    Fails closed: if the move fails, the corrupt file is still at ``source`` and a
-    rebuild would overwrite it, so raise instead of returning (US-09 AC-4)."""
-    # monotonic ns + random suffix: two quarantines of the same file never collide
-    # (a colliding name would silently overwrite the first preserved bytes).
-    unique_suffix = f"{time.monotonic_ns()}.{uuid.uuid4().hex[:8]}"
-    destination = store_dir / "quarantine" / f"{source.name}.{unique_suffix}.corrupt"
-    try:
-        move_file_atomic(source, destination)
-    except OSError as error:
-        raise QuarantineError(
-            f"could not quarantine corrupt {source} ({reason}): {error}"
-        ) from error
+    """Quarantine ``source`` (raises ``QuarantineError`` on failure) and report why."""
+    quarantine_corrupt_file(store_dir, source, reason)
     return CorruptCanonical(reason=reason)
