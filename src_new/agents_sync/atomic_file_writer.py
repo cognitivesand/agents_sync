@@ -56,7 +56,7 @@ def write_text_atomic(target_file: Path, content: str) -> None:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        _retry_transient(lambda: os.replace(staging_file, target_file))
+        retry_transient_io(lambda: os.replace(staging_file, target_file))
     except Exception:
         # The commit never landed — the prior content is intact; drop the staging
         # file (each attempt mints a unique suffix, so nothing else reclaims it).
@@ -74,7 +74,7 @@ def move_file_atomic(source_file: Path, target_file: Path) -> None:
     the source entry's removal while losing the target entry.
     """
     target_file.parent.mkdir(parents=True, exist_ok=True)
-    _retry_transient(lambda: os.replace(source_file, target_file))
+    retry_transient_io(lambda: os.replace(source_file, target_file))
     _fsync_directory(target_file.parent)
     _fsync_directory(source_file.parent)
 
@@ -104,7 +104,7 @@ def replace_directory_atomic(target_dir: Path, populate: Callable[[Path], None])
 def _clear_stale_directories(*directories: Path) -> None:
     for directory in directories:
         if directory.exists():
-            _retry_transient(
+            retry_transient_io(
                 lambda d=directory: shutil.rmtree(d),  # type: ignore[misc]
             )
 
@@ -117,18 +117,18 @@ def _rename_with_rollback(staging_dir: Path, target_dir: Path, backup_dir: Path)
     have no exchange primitive); the rollback guarantees the gap is never permanent."""
     target_existed = target_dir.exists()
     if target_existed:
-        _retry_transient(lambda: os.rename(target_dir, backup_dir))
+        retry_transient_io(lambda: os.rename(target_dir, backup_dir))
     try:
-        _retry_transient(lambda: os.rename(staging_dir, target_dir))
+        retry_transient_io(lambda: os.rename(staging_dir, target_dir))
     except Exception:
         if target_existed:
-            _retry_transient(lambda: os.rename(backup_dir, target_dir))
+            retry_transient_io(lambda: os.rename(backup_dir, target_dir))
         raise
     if target_existed:
-        _retry_transient(lambda: shutil.rmtree(backup_dir))
+        retry_transient_io(lambda: shutil.rmtree(backup_dir))
 
 
-def _retry_transient[ResultT](operation_call: Callable[[], ResultT]) -> ResultT:
+def retry_transient_io[ResultT](operation_call: Callable[[], ResultT]) -> ResultT:
     """Run ``operation_call``, retrying transient OS errors with jittered backoff.
 
     A non-transient error re-raises immediately; the final attempt's error
