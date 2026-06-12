@@ -65,6 +65,16 @@ def write_text_atomic(target_file: Path, content: str) -> None:
     _fsync_directory(target_file.parent)
 
 
+def move_file_atomic(source_file: Path, target_file: Path) -> None:
+    """Move ``source_file`` onto ``target_file`` in one atomic rename (parents created).
+
+    Used to put a file aside (e.g. quarantine a corrupt store file) without a copy
+    window; a transient OS hold is retried, any other failure propagates loudly.
+    """
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    _retry_transient(lambda: os.replace(source_file, target_file))
+
+
 def replace_directory_atomic(target_dir: Path, populate: Callable[[Path], None]) -> None:
     """Replace ``target_dir`` wholesale with a directory built by ``populate``.
 

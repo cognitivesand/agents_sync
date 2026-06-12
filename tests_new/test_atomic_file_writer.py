@@ -16,7 +16,11 @@ from typing import Any
 import pytest
 
 from agents_sync import atomic_file_writer
-from agents_sync.atomic_file_writer import replace_directory_atomic, write_text_atomic
+from agents_sync.atomic_file_writer import (
+    move_file_atomic,
+    replace_directory_atomic,
+    write_text_atomic,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -214,6 +218,42 @@ def test_a_non_transient_error_is_not_retried(
         write_text_atomic(tmp_path / "artifact.md", "x")
 
     assert attempts["count"] == 1
+
+
+# --- move_file_atomic -----------------------------------------------------------
+
+
+def test_move_file_atomic_moves_and_creates_parents(tmp_path: Path) -> None:
+    source = tmp_path / "corrupt.json"
+    source.write_text("bytes to preserve")
+    destination = tmp_path / "quarantine" / "corrupt.json.1.corrupt"
+
+    move_file_atomic(source, destination)
+
+    assert destination.read_text() == "bytes to preserve"
+    assert not source.exists()
+
+
+def test_move_file_atomic_retries_transient_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "a.txt"
+    source.write_text("x")
+    destination = tmp_path / "b.txt"
+    real_replace = os.replace
+    failures = {"remaining": 1}
+
+    def flaky_replace(src: Any, dst: Any) -> None:
+        if failures["remaining"] > 0:
+            failures["remaining"] -= 1
+            raise PermissionError("transient")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky_replace)
+    move_file_atomic(source, destination)
+
+    assert destination.read_text() == "x"
+    assert failures["remaining"] == 0
 
 
 # --- replace_directory_atomic ---------------------------------------------------
