@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.31` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.32` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -25,8 +25,9 @@
   artifact_archive)** — Phase D complete.
 - **Phase E:** S17 ✓ (0.7.29 read_tool_surfaces + rules_import_resolution) · **S18 ✓
   (0.7.30 secret_policy — headers detection now matches NFR-15's any-literal text)**.
-- **Next step → S19b** (identity family; end-of-S19 audit after it). S19a ✓ (0.7.31
-  content family). Quality audits run once per step number,
+- **Phase E complete:** S17 · S18 · **S19 ✓ (0.7.31 content family, 0.7.32 identity
+  family — all 11 intents executable; executor is a package)**.
+- **Next step → S20** (tool definitions + registry). Quality audits run once per step number,
   at the end of all its sub-increments (e.g. after all of S13x, before S14).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
@@ -35,7 +36,12 @@
   env-reference syntax conversion + per-tool `env_reference_style` + dedicated `env_http_headers`/
   `bearer_token_env_var` carriers → S20; `CanonicalDocument.from_dict` type-coercion hardening
   (it silently coerces e.g. `tools: "abc"` / `timeout: "x"` instead of raising into the store's
-  quarantine catch — S15 audit note) → revisit when the schema next grows (S20). Each rebuild
+  quarantine catch — S15 audit note) → revisit when the schema next grows (S20); S19 audit
+  watch-items for **S20**: (a) verify the planner prunes a vanished tool's recorded surface
+  after a rename (else the record keeps a stale old-slug entry under the new name), (b) when
+  tools-as-data can make two targets share one render file, either chain prior_text through
+  same-file targets or keep relying on the executor's loud duplicate-render-file guard
+  (project has it; give rename/remove siblings if reachable). Each rebuild
   step also writes a markdown report under `docs/audits/` (untracked).
 
 ---

@@ -1,12 +1,14 @@
 """Centralized translation — the single seam between tool bytes and the canonical (§10).
 
-Three pure functions convert between a tool's on-disk text and the canonical document,
-dispatching on the surface's dialect:
+The seam's pure functions convert between a tool's on-disk text and the canonical
+document, dispatching on the surface's dialect:
 
 - ``file_to_canonical`` — the one full-parse path; raises ``MalformedSurfaceError`` on
   malformed content (the read phase catches it into a ``ParseFailure``); never mints.
 - ``canonical_to_file`` — the one render path; preserves the user's prior formatting.
 - ``extract_artifact_id`` — the id in isolation; never raises on malformed text.
+- ``remove_surface_content`` / ``surface_fragment_text`` — the executor's removal and
+  archive-fragment views of a surface (S19), so it never touches a dialect directly.
 
 Each takes the whole ``ToolSurface`` (not just its ``SurfaceFormat``) because the seam
 keys the canonical's per-tool bags by ``tool`` and stamps ``kind`` — neither derivable
@@ -19,6 +21,7 @@ configuration error, so dispatch fails loud — even for ``extract_artifact_id``
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -30,7 +33,7 @@ from agents_sync.dialects import (
     structured_text,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
-from agents_sync.domain_model.tool_surface import ToolSurface
+from agents_sync.domain_model.tool_surface import KeyedMapSlot, ToolSurface
 
 
 @dataclass(frozen=True)
@@ -97,9 +100,29 @@ def extract_artifact_id(text: str, tool_surface: ToolSurface) -> str | None:
     return _dialect_for(tool_surface).extract_id(text, tool_surface)
 
 
+def remove_surface_content(text: str, tool_surface: ToolSurface) -> str | None:
+    """The shared file's text with this surface's slot removed — or ``None`` when the
+    surface owns its whole file (the caller deletes the file instead)."""
+    if isinstance(tool_surface.location, KeyedMapSlot):
+        return keyed_map_slot.remove_slot(text, tool_surface)
+    return None
+
+
+def surface_fragment_text(text: str, tool_surface: ToolSurface) -> str:
+    """The bytes this surface owns within ``text`` — the slot's serialization for a
+    keyed-map surface (stable JSON, faithful enough for archive recovery), the whole
+    text otherwise. What archive-before-write preserves for one surface."""
+    if isinstance(tool_surface.location, KeyedMapSlot):
+        slot_value = keyed_map_slot.read_slot(text, tool_surface)
+        return json.dumps(slot_value, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    return text
+
+
 __all__ = [
     "MalformedSurfaceError",
     "canonical_to_file",
     "extract_artifact_id",
     "file_to_canonical",
+    "remove_surface_content",
+    "surface_fragment_text",
 ]

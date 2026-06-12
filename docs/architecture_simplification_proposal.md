@@ -264,7 +264,7 @@ intent is applied as a per-artifact transaction** — all-or-nothing:
   *intended* writer; two overlapping daemons are a tolerated failure mode —
   atomic writes + recompute-from-disk converge regardless of order, US-09 AC-3).
 
-All translation goes through the two centralized functions in §10; the executor
+All translation goes through the centralized translation seam (§10); the executor
 never knows a dialect.
 
 ---

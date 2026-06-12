@@ -11,8 +11,9 @@ This dialect translates the one slot named by ``location.slot``:
   slot replaced; sibling slots and out-of-map keys are preserved verbatim.
 - ``extract_id`` — read the slot's id field in isolation; never raises (FR-11).
 
-Pure: operates on the shared file's ``text: str`` and does no I/O — the read, the
-cross-process lock, and the atomic write are the executor's job (S19). S10 supports the
+Pure: operates on the shared file's ``text: str`` and does no I/O — the read and the
+atomic write are the executor's job (S19; there is no lock — concurrency is atomic
+writes + recompute-from-disk, proposal §9). S10 supports the
 ``json`` file format; TOML/JSONC arrive with the structured-text codec at S11, so an
 unimplemented format fails loud (a recipe error, distinct from malformed content).
 """
@@ -93,6 +94,22 @@ def write_slot(
     root = structured_text.deserialize(prior_text or "", surface_format.file_format)
     slot_map = _navigate_or_create(root, surface_format.map_key_path)
     slot_map[_slot_key(tool_surface)] = dict(slot_obj)
+    return structured_text.serialize(root, surface_format.file_format)
+
+
+def remove_slot(prior_text: str, tool_surface: ToolSurface) -> str:
+    """Reassemble the shared file with this surface's slot removed (siblings verbatim).
+
+    The executor's removal/rename counterpart to ``write_slot``. An absent slot —
+    or an absent map path — reassembles the file unchanged: a removal never
+    injects parent objects (that self-healing is a WRITE concern)."""
+    surface_format = tool_surface.surface_format
+    root = structured_text.deserialize(prior_text, surface_format.file_format)
+    node: Any = root
+    for key in surface_format.map_key_path:
+        node = node.get(key) if isinstance(node, dict) else None
+    if isinstance(node, dict):
+        node.pop(_slot_key(tool_surface), None)
     return structured_text.serialize(root, surface_format.file_format)
 
 

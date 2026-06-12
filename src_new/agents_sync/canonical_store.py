@@ -30,7 +30,7 @@ def save_canonical(store_dir: Path, document: CanonicalDocument) -> None:
     payload: dict[str, Any] = {"schema_version": CANONICAL_SCHEMA_VERSION}
     payload.update(document.normalised().to_dict())
     write_text_atomic(
-        _canonical_file_path(store_dir, document.artifact_id),
+        canonical_file_path(store_dir, document.artifact_id),
         json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
     )
 
@@ -39,7 +39,7 @@ def load_canonical(
     store_dir: Path, artifact_id: str
 ) -> CanonicalDocument | CorruptCanonical | None:
     """Return the stored canonical, ``None`` if absent, or quarantine-and-report corrupt."""
-    path = _canonical_file_path(store_dir, artifact_id)
+    path = canonical_file_path(store_dir, artifact_id)
     if not path.exists():
         return None
     try:
@@ -78,7 +78,8 @@ def list_canonical_ids(store_dir: Path) -> list[str]:
     return artifact_ids
 
 
-def _canonical_file_path(store_dir: Path, artifact_id: str) -> Path:
+def canonical_file_path(store_dir: Path, artifact_id: str) -> Path:
+    """Where this artifact's canonical lives — public so the executor can archive it."""
     return store_dir / "canonical" / f"{validate_artifact_id(artifact_id)}.json"
 
 
