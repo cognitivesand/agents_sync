@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.29` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.30` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -23,8 +23,9 @@
   0.7.24 http/sse)** — Phase C complete.
 - **Phase D — gateways:** S14 ✓ (0.7.25) · S15 ✓ (0.7.26, 0.7.27) · **S16 ✓ (0.7.28
   artifact_archive)** — Phase D complete.
-- **Phase E:** **S17 ✓ (0.7.29 read_tool_surfaces + rules_import_resolution)**.
-- **Next step → S18** (secret_policy). Quality audits run once per step number,
+- **Phase E:** S17 ✓ (0.7.29 read_tool_surfaces + rules_import_resolution) · **S18 ✓
+  (0.7.30 secret_policy — headers detection now matches NFR-15's any-literal text)**.
+- **Next step → S19** (execute_sync_plan). Quality audits run once per step number,
   at the end of all its sub-increments (e.g. after all of S13x, before S14).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
