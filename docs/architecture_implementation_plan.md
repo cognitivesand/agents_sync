@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.30` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.31` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -25,7 +25,8 @@
   artifact_archive)** — Phase D complete.
 - **Phase E:** S17 ✓ (0.7.29 read_tool_surfaces + rules_import_resolution) · **S18 ✓
   (0.7.30 secret_policy — headers detection now matches NFR-15's any-literal text)**.
-- **Next step → S19** (execute_sync_plan). Quality audits run once per step number,
+- **Next step → S19b** (identity family; end-of-S19 audit after it). S19a ✓ (0.7.31
+  content family). Quality audits run once per step number,
   at the end of all its sub-increments (e.g. after all of S13x, before S14).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
@@ -136,7 +137,7 @@ the superseded modules retired. The conformance suite holds throughout.
 |---|---|---|---|
 | S17 | Read tool surfaces | `read_tool_surfaces` | two increments. **(1) core** — declarative surface specs (directory / keyed-map / FR-10 rules-precedence; populated by tools-as-data at S20) → `SurfaceObservation`s: raw-text digest, mtime, isolation-extracted id, parse with `MalformedSurfaceError`→`ParseFailure` (recipe errors stay loud); re-parse only changed via a previous-observations map (same digest → reuse prior parsed; the daemon owns the cache, S22); a malformed keyed-map file yields `ParseFailure` for its previously-known slots (freeze, never removal). **(2)** `@import` resolution + source/effective body split (the S12 deferral). Write-target inspection → its consumer (S19/S20); directory-tree (skill-folder) surfaces → their dialect at S20 |
 | S18 | Secret policy | `secret_policy` | detection heuristics + egress enforcement at adopt/render/export/import (NFR-15); refuse vs accept-warn |
-| S19 | Execute sync plan | `execute_sync_plan` | per-intent transactions (atomic-across-losers, US-06 AC-6); sole mint; archive-before-write; secret egress |
+| S19 | Execute sync plan | `execute_sync_plan` | two increments. **(1) content family** — freeze/report/reject (result-only: frozen/diagnosed), absorb_tool_edit (secret egress at absorb → `blocked`), project_to_tools/reproject_canonical (render egress; per-artifact transaction: archive ALL first, write only if all archives landed — US-06 AC-6; identical renders skipped, NFR-05), rebuild_corrupt_canonical (freshest parsed observation); `read_tool_surfaces` exposes `surface_content_digest` so recorded digests match the next poll's observations (no churn). Render targets resolve through this poll's observations (records carry no `surface_format`); rules-surface projection (composite import digest) → S20 with the rules recipes. **(2) identity family** — adopt_new_artifact (the SOLE mint + id injection + pre-injection archive), absorb_into_managed, rename_artifact, remove_artifact (+ the S16-deferred `archive_canonical`) |
 
 ### Phase F — Tools as data, drivers, library
 | # | Step | Touches | Spec / test focus |

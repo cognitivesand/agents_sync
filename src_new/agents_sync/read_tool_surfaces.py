@@ -259,6 +259,23 @@ def _freeze_known_slots(
 # --- shared mechanics -----------------------------------------------------------------
 
 
+def surface_content_digest(text: str, tool_surface: ToolSurface) -> str:
+    """The digest this read phase would observe for ``text`` at ``tool_surface``.
+
+    The executor records it after a write, so the next poll sees the written
+    surface as unchanged (NFR-05). Keyed-map slots digest their slot VALUE (the
+    canonical JSON form), per-file surfaces the raw text. Rules surfaces with
+    imports use a composite recipe the executor does not yet write (S20)."""
+    location = tool_surface.location
+    if isinstance(location, KeyedMapSlot):
+        slot_map = _navigate_slot_map(
+            deserialize(text, tool_surface.surface_format.file_format),
+            tool_surface.surface_format.map_key_path,
+        )
+        return _slot_digest(slot_map[location.slot])
+    return _text_digest(text)
+
+
 def _parse_or_failure(text: str, tool_surface: ToolSurface) -> CanonicalDocument | ParseFailure:
     try:
         return file_to_canonical(text, tool_surface, None)
