@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.28` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.29` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -23,7 +23,8 @@
   0.7.24 http/sse)** — Phase C complete.
 - **Phase D — gateways:** S14 ✓ (0.7.25) · S15 ✓ (0.7.26, 0.7.27) · **S16 ✓ (0.7.28
   artifact_archive)** — Phase D complete.
-- **Next step → S17** (read tool surfaces). Quality audits run once per step number,
+- **Phase E:** **S17 ✓ (0.7.29 read_tool_surfaces + rules_import_resolution)**.
+- **Next step → S18** (secret_policy). Quality audits run once per step number,
   at the end of all its sub-increments (e.g. after all of S13x, before S14).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
@@ -132,7 +133,7 @@ the superseded modules retired. The conformance suite holds throughout.
 ### Phase E — Read phase, secrets, executor
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
-| S17 | Read tool surfaces | `read_tool_surfaces` | cheap digests for all; re-parse only changed surfaces; inspect write-targets; FR-10 filename precedence |
+| S17 | Read tool surfaces | `read_tool_surfaces` | two increments. **(1) core** — declarative surface specs (directory / keyed-map / FR-10 rules-precedence; populated by tools-as-data at S20) → `SurfaceObservation`s: raw-text digest, mtime, isolation-extracted id, parse with `MalformedSurfaceError`→`ParseFailure` (recipe errors stay loud); re-parse only changed via a previous-observations map (same digest → reuse prior parsed; the daemon owns the cache, S22); a malformed keyed-map file yields `ParseFailure` for its previously-known slots (freeze, never removal). **(2)** `@import` resolution + source/effective body split (the S12 deferral). Write-target inspection → its consumer (S19/S20); directory-tree (skill-folder) surfaces → their dialect at S20 |
 | S18 | Secret policy | `secret_policy` | detection heuristics + egress enforcement at adopt/render/export/import (NFR-15); refuse vs accept-warn |
 | S19 | Execute sync plan | `execute_sync_plan` | per-intent transactions (atomic-across-losers, US-06 AC-6); sole mint; archive-before-write; secret egress |
 
