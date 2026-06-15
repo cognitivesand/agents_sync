@@ -9,10 +9,18 @@ from agents_sync.tools.tool_definition import (
     ToolDefinition,
 )
 
+# Cursor's agent front-matter spellings → canonical attributes (S20 increment 2).
+_AGENT_FIELD_MAP = (
+    ("model", "model"),
+    ("tools", "tools"),
+)
+
 CURSOR_TOOL = ToolDefinition(
     name="cursor",
     surface_recipes=(
-        DirectorySurfaceRecipe("agent", "cursor_agents_dir", ".md", markdown_surface_format()),
+        DirectorySurfaceRecipe(
+            "agent", "cursor_agents_dir", ".md", markdown_surface_format(_AGENT_FIELD_MAP)
+        ),
         DirectorySurfaceRecipe(
             "slash_command", "cursor_commands_dir", ".md", markdown_surface_format()
         ),

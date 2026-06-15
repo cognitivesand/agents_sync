@@ -14,11 +14,20 @@ from agents_sync.tools.tool_definition import (
     ToolDefinition,
 )
 
+# Codex's whole-file TOML agent spellings → canonical attributes (S20 increment 2).
+_AGENT_FIELD_MAP = (
+    ("model", "model"),
+    ("model_reasoning_effort", "effort"),
+)
+
 CODEX_TOOL = ToolDefinition(
     name="codex",
     surface_recipes=(
         DirectorySurfaceRecipe(
-            "agent", "codex_agents_dir", ".toml", structured_text_surface_format("toml")
+            "agent",
+            "codex_agents_dir",
+            ".toml",
+            structured_text_surface_format("toml", _AGENT_FIELD_MAP),
         ),
         DirectorySurfaceRecipe(
             "slash_command", "codex_prompts_dir", ".md", markdown_surface_format()

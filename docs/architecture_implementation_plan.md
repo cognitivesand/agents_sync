@@ -29,9 +29,13 @@
   family — all 11 intents executable; executor is a package)**.
 - **Phase F:** S20 increment 1 ✓ (0.7.33 — tools-as-data core: 7 definitions, registry,
   cross-adapter matrix).
-- **Next step → S20 increment 2** (per-tool field maps + mcp spellings; end-of-S20 audit
-  after the final increment). Quality audits run once per step number,
-  at the end of all its sub-increments (e.g. after all of S13x, before S14).
+- **Next step → S20 increment 2** — per-tool **agent** field maps only: model/effort/tools
+  (+ claude `disallowedTools`/`permissionMode`, codex `model_reasoning_effort`) fold onto the
+  existing canonical attrs as pure additive `known_fields` data (zero dialect change). The mcp
+  spellings are split out to **increment 3** (they need new recipe knobs + translation wiring);
+  the opencode model/tools *transforms* (provider-split, tools→permission) defer further. The
+  end-of-S20 two-auditor audit runs after the final increment. Quality audits run once per step
+  number, at the end of all its sub-increments (e.g. after all of S20x, before S21).
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
   S24 gate; mcp `@import` resolution + framework egress-guard *enforcement* → read phase S17–S19;
@@ -151,7 +155,7 @@ the superseded modules retired. The conformance suite holds throughout.
 ### Phase F — Tools as data, drivers, library
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
-| S20 | Tool definitions + registry | `tools/*`, `tools/agentic_tools_registry` | increments. **(1) data core** — `ToolDefinition` + per-kind surface recipes (config key + layout + `SurfaceFormat`, no callables) for all 7 tools over the kinds today's dialects support (agent / slash_command / rules / mcp_server; codex agents + gemini commands are whole-file TOML; antigravity registers empty until the skill dialect); `surface_specs_for` skips unresolved config keys (US-11); cross-adapter agent matrix + per-tool mcp round-trips through the REAL dialects (NFR-11/18). **(later increments)** — per-tool field maps (model/effort/tools…) and mcp spellings (opencode `environment` + inverted `enabled`, array command mode, claude `oauth` render), env-reference styles + `env_http_headers`/`bearer_token_env_var` carriers, the skill (directory-tree) dialect + antigravity recipes, reserved names, `from_dict` hardening, the S19 watch-items |
+| S20 | Tool definitions + registry | `tools/*`, `tools/agentic_tools_registry` | increments. **(1) data core** — `ToolDefinition` + per-kind surface recipes (config key + layout + `SurfaceFormat`, no callables) for all 7 tools over the kinds today's dialects support (agent / slash_command / rules / mcp_server; codex agents + gemini commands are whole-file TOML; antigravity registers empty until the skill dialect); `surface_specs_for` skips unresolved config keys (US-11); cross-adapter agent matrix + per-tool mcp round-trips through the REAL dialects (NFR-11/18). **(2) per-tool agent field maps** — model/effort/tools (+ claude `disallowedTools`/`permissionMode`, codex `model_reasoning_effort`) fold onto existing canonical attrs as additive `known_fields` data, zero dialect change; opencode model/tools *transforms* (provider-split, tools→permission) and gemini private `tools` deferred. **(3) mcp spellings** — opencode `environment` + inverted `enabled`, array command mode, claude `oauth` render, env-reference styles + `env_http_headers`/`bearer_token_env_var` carriers. **(later)** the skill (directory-tree) dialect + antigravity recipes, reserved names, `from_dict` hardening, the S19 watch-items |
 | S21 | Runtime config | `runtime_config` | load/validate/platform paths; fail-closed config errors + distinct exit code (NFR-10, US-07 AC-7) |
 | S22 | Daemon + CLI | `poll_daemon`, `command_line_interface` | systemic-only failure budget (FR-02), GC tick, latency (NFR-02); export/import/run; exit-code matrix (NFR-10) |
 | S23 | Portable library | `portable_library` | export; import preview-then-write + `--force`; last-modified-wins / cross-identity retire (US-12, FR-12/15) |

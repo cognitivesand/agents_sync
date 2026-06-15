@@ -1,9 +1,11 @@
 """Shared surface-format builders for the tool data modules (pure data helpers).
 
-The common field map (``name``/``description``) is the S20 increment-1 baseline;
-per-tool field maps and spellings (model/effort/tools, opencode ``environment`` +
-inverted ``enabled``, env-reference styles, header carriers) are the next
-increments — each will move format details into the owning tool module.
+The common field map (``name``/``description``) is shared by every surface; a tool's own
+agent spellings (model/effort/tools, claude ``disallowedTools``/``permissionMode``, codex
+``model_reasoning_effort``) are appended per tool via ``extra_known_fields`` (S20 increment
+2). The mcp spellings (opencode ``environment`` + inverted ``enabled``, array command,
+claude ``oauth``, env-reference styles, header carriers) are increment 3 — they need new
+recipe knobs, not just an extra field map.
 """
 
 from __future__ import annotations
@@ -14,21 +16,32 @@ _COMMON_KNOWN_FIELDS = (("name", "name"), ("description", "description"))
 _ID_FIELD = "pair_id"
 
 
-def markdown_surface_format() -> SurfaceFormat:
-    """A markdown front-matter surface (agents, commands, rule files)."""
+def markdown_surface_format(
+    extra_known_fields: tuple[tuple[str, str], ...] = (),
+) -> SurfaceFormat:
+    """A markdown front-matter surface (agents, commands, rule files).
+
+    ``extra_known_fields`` are a tool's own (front-matter key → canonical attribute)
+    spellings, appended to the shared name/description map — e.g. claude's agent surface
+    adds ``permissionMode`` → ``permission_mode`` (S20 increment 2)."""
     return SurfaceFormat(
         dialect="markdown_frontmatter",
         id_field=_ID_FIELD,
-        known_fields=_COMMON_KNOWN_FIELDS,
+        known_fields=_COMMON_KNOWN_FIELDS + extra_known_fields,
     )
 
 
-def structured_text_surface_format(file_format: str) -> SurfaceFormat:
-    """A whole-file structured-text surface (codex TOML agents, gemini TOML commands)."""
+def structured_text_surface_format(
+    file_format: str, extra_known_fields: tuple[tuple[str, str], ...] = ()
+) -> SurfaceFormat:
+    """A whole-file structured-text surface (codex TOML agents, gemini TOML commands).
+
+    ``extra_known_fields`` carry the tool's own field spellings (e.g. codex's
+    ``model_reasoning_effort`` → ``effort``), appended to the shared map."""
     return SurfaceFormat(
         dialect="structured_text",
         id_field=_ID_FIELD,
-        known_fields=_COMMON_KNOWN_FIELDS,
+        known_fields=_COMMON_KNOWN_FIELDS + extra_known_fields,
         file_format=file_format,
     )
 

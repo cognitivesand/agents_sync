@@ -10,10 +10,21 @@ from agents_sync.tools.tool_definition import (
     ToolDefinition,
 )
 
+# Claude's agent front-matter spellings → canonical attributes (S20 increment 2).
+_AGENT_FIELD_MAP = (
+    ("model", "model"),
+    ("effort", "effort"),
+    ("tools", "tools"),
+    ("disallowedTools", "disallowed_tools"),
+    ("permissionMode", "permission_mode"),
+)
+
 CLAUDE_TOOL = ToolDefinition(
     name="claude",
     surface_recipes=(
-        DirectorySurfaceRecipe("agent", "claude_agents_dir", ".md", markdown_surface_format()),
+        DirectorySurfaceRecipe(
+            "agent", "claude_agents_dir", ".md", markdown_surface_format(_AGENT_FIELD_MAP)
+        ),
         DirectorySurfaceRecipe(
             "slash_command", "claude_commands_dir", ".md", markdown_surface_format()
         ),

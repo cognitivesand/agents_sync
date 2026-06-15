@@ -9,11 +9,20 @@ from agents_sync.tools.tool_definition import (
     ToolDefinition,
 )
 
+# Copilot's agent front-matter spellings → canonical attributes (S20 increment 2).
+_AGENT_FIELD_MAP = (
+    ("model", "model"),
+    ("tools", "tools"),
+)
+
 COPILOT_TOOL = ToolDefinition(
     name="copilot",
     surface_recipes=(
         DirectorySurfaceRecipe(
-            "agent", "copilot_cli_agents_dir", ".agent.md", markdown_surface_format()
+            "agent",
+            "copilot_cli_agents_dir",
+            ".agent.md",
+            markdown_surface_format(_AGENT_FIELD_MAP),
         ),
         DirectorySurfaceRecipe(
             "slash_command",
