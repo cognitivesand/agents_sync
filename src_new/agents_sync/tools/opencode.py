@@ -1,18 +1,37 @@
 """opencode — tool definition (data only).
 
-The per-tool mcp spellings this tool needs (``environment`` for env, the
-inverted-polarity ``enabled`` flag, array-form command) are the next S20
-increment; until then those keys round-trip verbatim via ``per_tool_extra``.
+opencode's mcp wire spellings live in ``_MCP_SPELLING`` below and are consumed generically
+by the mcp_server dialect (S20 increment 3): ``environment`` for env, the inverted-polarity
+``enabled`` flag, the array-form command, ``type`` transport with ``local``/``remote``
+values, and ``oauth`` auth. The env-reference SYNTAX conversion is a later, cross-cutting
+increment. The agent ``model`` provider-split and ``tools``→``permission`` transforms remain
+deferred (they round-trip verbatim via ``per_tool_extra`` until then).
 """
 
 from __future__ import annotations
 
+from agents_sync.domain_model.tool_surface import McpSpellingRecipe
 from agents_sync.tools._shared_formats import markdown_surface_format, mcp_surface_format
 from agents_sync.tools.tool_definition import (
     DirectorySurfaceRecipe,
     KeyedMapSurfaceRecipe,
     RulesFileSurfaceRecipe,
     ToolDefinition,
+)
+
+_MCP_SPELLING = McpSpellingRecipe(
+    env_field="environment",
+    disabled_field="enabled",
+    disabled_inverted=True,
+    command_mode="array",
+    transport_render_field="type",
+    transport_render_values=(
+        ("stdio", "local"),
+        ("http", "remote"),
+        ("sse", "remote"),
+        ("streamable-http", "remote"),
+    ),
+    auth_render_field="oauth",
 )
 
 OPENCODE_TOOL = ToolDefinition(
@@ -26,7 +45,9 @@ OPENCODE_TOOL = ToolDefinition(
             "rules", "opencode_rules_dir", ("AGENTS.md",), markdown_surface_format()
         ),
         KeyedMapSurfaceRecipe(
-            "mcp_server", "opencode_config_file", mcp_surface_format(("mcp",), "json")
+            "mcp_server",
+            "opencode_config_file",
+            mcp_surface_format(("mcp",), "json", _MCP_SPELLING),
         ),
     ),
 )

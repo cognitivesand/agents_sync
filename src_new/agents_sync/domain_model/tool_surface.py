@@ -30,6 +30,29 @@ class KeyedMapSlot:
 
 
 @dataclass(frozen=True)
+class McpSpellingRecipe:
+    """One tool's mcp wire spellings/semantics — declarative data the mcp_server dialect
+    reads (proposal §10). The defaults reproduce the canonical wire, so a tool overrides
+    only what differs; the dialect never branches on the tool name (the quirks are data).
+
+    ``env_field`` / ``disabled_field`` are this tool's spellings for env and the disabled
+    flag; ``disabled_inverted`` marks an inverted flag (opencode's ``enabled`` = not
+    disabled). ``command_mode`` ``"array"`` spells the stdio invocation as one
+    ``[command, *args]`` list. ``transport_render_field`` and ``auth_render_field`` are the
+    keys a *fresh* projection emits (an observed spelling still wins on round-trip);
+    ``transport_render_values`` maps a canonical transport to this tool's wire value
+    (opencode: ``stdio``→``local``)."""
+
+    env_field: str = "env"
+    disabled_field: str = "disabled"
+    disabled_inverted: bool = False
+    command_mode: str = "split"
+    transport_render_field: str = "transport"
+    transport_render_values: tuple[tuple[str, str], ...] = ()
+    auth_render_field: str = "auth"
+
+
+@dataclass(frozen=True)
 class SurfaceFormat:
     """How a surface is encoded — the dialect plus the recipe its translation applies.
 
@@ -38,8 +61,9 @@ class SurfaceFormat:
     field keys preserved under ``per_tool_only[tool]``. ``map_key_path`` and
     ``file_format`` are the keyed-map recipe: the nested keys to the slot-map inside the
     shared file (e.g. ``("mcpServers",)``) and the structured-text format that file is in
-    (``"json"``). All default empty so a format that needs no recipe is
-    ``SurfaceFormat(dialect=...)``.
+    (``"json"``). ``mcp_spelling`` carries the per-tool mcp wire recipe (the mcp_server
+    dialect substitutes the canonical defaults when it is ``None``). All default empty so a
+    format that needs no recipe is ``SurfaceFormat(dialect=...)``.
     """
 
     dialect: str
@@ -48,6 +72,7 @@ class SurfaceFormat:
     tool_only_fields: tuple[str, ...] = ()
     map_key_path: tuple[str, ...] = ()
     file_format: str = ""
+    mcp_spelling: McpSpellingRecipe | None = None
 
 
 @dataclass(frozen=True)

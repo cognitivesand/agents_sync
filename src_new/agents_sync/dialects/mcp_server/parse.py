@@ -19,18 +19,20 @@ from agents_sync.dialects import MalformedSurfaceError, keyed_map_slot
 from agents_sync.dialects.mcp_server._shared import (
     _ALWAYS_ALLOW_FIELDS,
     _AUTH_FIELDS,
-    _FIXED_KNOWN_FIELDS,
     _NAME_FIELD,
     _TRANSPORT_FIELDS,
     _URL_FIELDS,
     _canonical_transport,
+    _known_slot_fields,
+    _spelling,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
-from agents_sync.domain_model.tool_surface import ToolSurface
+from agents_sync.domain_model.tool_surface import McpSpellingRecipe, ToolSurface
 
 # The fields owned by exactly one transport shape: a slot declaring fields from the OTHER
 # shape describes two conflicting servers at once — malformed content, never silently halved.
-_STDIO_ONLY_FIELDS = ("command", "args", "env", "cwd")
+# The env spelling is per-tool (recipe data), so it is added to the stdio-only set per parse.
+_STDIO_ONLY_FIELDS = ("command", "args", "cwd")
 _HTTP_ONLY_FIELDS = (*_URL_FIELDS, "headers", *_AUTH_FIELDS)
 # The alias families where one field accepts several spellings: a slot using two spellings
 # of one family declares the field twice — the same conflict, the same fail-loud answer.
@@ -44,6 +46,7 @@ def parse(
 ) -> CanonicalDocument:
     """Fold one mcp_server slot into the canonical document (raises if malformed)."""
     slot = keyed_map_slot.read_slot(text, tool_surface)
+    spelling = _spelling(tool_surface.surface_format)
     _reject_duplicate_aliases(slot)
     transport, transport_field = _detect_transport(slot)
     base = prior_canonical or CanonicalDocument(artifact_id="", kind=tool_surface.kind)
@@ -68,16 +71,16 @@ def parse(
     if isinstance(name, str):
         changes["name"] = name
     if transport == "stdio":
-        _fold_stdio(slot, changes)
+        _fold_stdio(slot, changes, spelling)
     else:
-        _fold_http(slot, changes, transport)
-    _fold_common(slot, changes)
+        _fold_http(slot, changes, transport, spelling)
+    _fold_common(slot, changes, spelling)
     tool = tool_surface.tool
     changes["per_tool_only"] = _with_tool_slot(
         base.per_tool_only, tool, _spellings(slot, transport_field)
     )
     changes["per_tool_extra"] = _with_tool_slot(
-        base.per_tool_extra, tool, _foreign_keys(slot, id_field)
+        base.per_tool_extra, tool, _foreign_keys(slot, id_field, spelling)
     )
     return replace(base, **changes)
 
@@ -111,7 +114,7 @@ def _canonical_or_malformed(value: Any) -> str:
         raise MalformedSurfaceError(str(error)) from error
 
 
-def _fold_stdio(slot: dict[str, Any], changes: dict[str, Any]) -> None:
+def _fold_stdio(slot: dict[str, Any], changes: dict[str, Any], spelling: McpSpellingRecipe) -> None:
     """Fold the stdio fields (command/args/env/cwd) onto ``changes``."""
     _reject_foreign_shape(slot, _HTTP_ONLY_FIELDS, "stdio")
     command = slot.get("command")
@@ -131,15 +134,17 @@ def _fold_stdio(slot: dict[str, Any], changes: dict[str, Any]) -> None:
         changes["command"] = _as_string(command, "command")
         if "args" in slot:
             changes["args"] = tuple(_as_string(arg, "args item") for arg in _as_list(slot["args"]))
-    if "env" in slot:
-        changes["env"] = _as_string_map(slot["env"], "env")
+    if spelling.env_field in slot:
+        changes["env"] = _as_string_map(slot[spelling.env_field], "env")
     if "cwd" in slot:
         changes["cwd"] = _as_string(slot["cwd"], "cwd")
 
 
-def _fold_http(slot: dict[str, Any], changes: dict[str, Any], transport: str) -> None:
+def _fold_http(
+    slot: dict[str, Any], changes: dict[str, Any], transport: str, spelling: McpSpellingRecipe
+) -> None:
     """Fold the http/sse fields (url, headers, auth — verbatim maps) onto ``changes``."""
-    _reject_foreign_shape(slot, _STDIO_ONLY_FIELDS, transport)
+    _reject_foreign_shape(slot, (*_STDIO_ONLY_FIELDS, spelling.env_field), transport)
     url_field = _first_present(slot, _URL_FIELDS)
     if url_field is None:
         raise MalformedSurfaceError(f"{transport} mcp_server requires a url")
@@ -172,8 +177,13 @@ def _reject_foreign_shape(
         raise MalformedSurfaceError(f"{transport} mcp_server must not declare {foreign_field!r}")
 
 
-def _fold_common(slot: dict[str, Any], changes: dict[str, Any]) -> None:
-    """Fold the transport-independent fields (timeout, disabled, always_allow)."""
+def _fold_common(
+    slot: dict[str, Any], changes: dict[str, Any], spelling: McpSpellingRecipe
+) -> None:
+    """Fold the transport-independent fields (timeout, disabled, always_allow).
+
+    ``disabled`` reads the tool's own flag spelling; an inverted flag (opencode's
+    ``enabled``) folds to its complement so the canonical always stores ``disabled``."""
     if "timeout" in slot:
         timeout = slot["timeout"]
         # bool is an int subclass; the canonical's ``timeout: int | None`` means a genuine
@@ -181,8 +191,9 @@ def _fold_common(slot: dict[str, Any], changes: dict[str, Any]) -> None:
         if not isinstance(timeout, int) or isinstance(timeout, bool):
             raise MalformedSurfaceError("mcp_server timeout must be an integer")
         changes["timeout"] = timeout
-    if "disabled" in slot:
-        changes["disabled"] = bool(slot["disabled"])
+    if spelling.disabled_field in slot:
+        flag = bool(slot[spelling.disabled_field])
+        changes["disabled"] = (not flag) if spelling.disabled_inverted else flag
     always_allow_field = _first_present(slot, _ALWAYS_ALLOW_FIELDS)
     if always_allow_field is not None:
         value = slot[always_allow_field]
@@ -213,9 +224,11 @@ def _record_alias(
         result[key] = used
 
 
-def _foreign_keys(slot: dict[str, Any], id_field: str) -> dict[str, Any]:
+def _foreign_keys(
+    slot: dict[str, Any], id_field: str, spelling: McpSpellingRecipe
+) -> dict[str, Any]:
     """Slot keys the dialect does not own — kept verbatim under per_tool_extra (no-foreign-leak)."""
-    known = {id_field, *_FIXED_KNOWN_FIELDS}
+    known = {id_field, *_known_slot_fields(spelling)}
     return {key: value for key, value in slot.items() if key not in known}
 
 

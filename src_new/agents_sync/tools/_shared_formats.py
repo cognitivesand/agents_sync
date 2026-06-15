@@ -10,7 +10,7 @@ recipe knobs, not just an extra field map.
 
 from __future__ import annotations
 
-from agents_sync.domain_model.tool_surface import SurfaceFormat
+from agents_sync.domain_model.tool_surface import McpSpellingRecipe, SurfaceFormat
 
 _COMMON_KNOWN_FIELDS = (("name", "name"), ("description", "description"))
 _ID_FIELD = "pair_id"
@@ -46,11 +46,20 @@ def structured_text_surface_format(
     )
 
 
-def mcp_surface_format(map_key_path: tuple[str, ...], file_format: str) -> SurfaceFormat:
-    """One mcp-server slot in the tool's shared config file."""
+def mcp_surface_format(
+    map_key_path: tuple[str, ...],
+    file_format: str,
+    mcp_spelling: McpSpellingRecipe | None = None,
+) -> SurfaceFormat:
+    """One mcp-server slot in the tool's shared config file.
+
+    ``mcp_spelling`` carries the tool's non-default mcp wire spellings (opencode's
+    ``environment``/inverted ``enabled``/``array`` command/…); ``None`` means the canonical
+    wire (S20 increment 3)."""
     return SurfaceFormat(
         dialect="mcp_server",
         id_field=_ID_FIELD,
         map_key_path=map_key_path,
         file_format=file_format,
+        mcp_spelling=mcp_spelling,
     )
