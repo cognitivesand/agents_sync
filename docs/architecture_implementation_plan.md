@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.46` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.47` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -61,9 +61,11 @@
     [new-model: a tool is available when ≥1 resolved root exists; S24 conformance validates] +
     `make_periodic_poll` [threads state + digest cache across polls, NFR-08]) — 0.7.46 ✓.
     `sync_once` is its own module (poll_daemon stays loop-only — SRP).
-  - **S22c** (remaining): `command_line_interface` — `run` (→ `watch(make_periodic_poll(config))`)
-    + `prune` (→ `prune_archive`), argparse, exit-code matrix (config→2/runtime→1/normal→0), `__main__`.
-  The batched end-of-S22 two-auditor `/code_and_tests_quality_review` runs after S22c.
+  - **S22c** (`command_line_interface` + `__main__` — `run` (→ `watch(make_periodic_poll(config))`)
+    + `prune` (→ `prune_archive`), argparse, exit-code matrix config→2/runtime→1/normal→0;
+    `home`/`env`/`run_daemon` injectable for testability; export/import deferred to S23) — 0.7.47 ✓.
+  **S22 code complete** (runnable daemon). The batched end-of-S22 two-auditor
+  `/code_and_tests_quality_review` runs next.
   **Tracked gap / later cleanup:** gemini's `oauth`
   auth-field spelling — an increment-4-style auth knob gemini still lacks (renders auth under
   `auth`, not `oauth`).
