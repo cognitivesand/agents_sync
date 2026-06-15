@@ -28,7 +28,9 @@ def render(canonical: CanonicalDocument, tool_surface: ToolSurface, prior_text: 
     """Render the canonical onto its slot, reassembling the shared file (siblings preserved)."""
     spelling = _spelling(tool_surface.surface_format)
     only = canonical.per_tool_only.get(tool_surface.tool, {})
-    slot: dict[str, Any] = dict(canonical.per_tool_extra.get(tool_surface.tool, {}))
+    # to_dict() deep-thaws the per-tool bag: a foreign nested object is frozen to a
+    # mappingproxy that json.dumps cannot serialize (the markdown dialect thaws the same way).
+    slot: dict[str, Any] = dict(canonical.to_dict()["per_tool_extra"].get(tool_surface.tool, {}))
     if canonical.artifact_id:
         slot[tool_surface.surface_format.id_field] = canonical.artifact_id
     if canonical.name:

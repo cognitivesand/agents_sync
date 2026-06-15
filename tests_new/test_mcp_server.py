@@ -201,6 +201,20 @@ def test_an_unknown_slot_key_is_preserved_in_per_tool_extra() -> None:
     assert slot["weirdKey"] == 7
 
 
+def test_a_foreign_nested_object_value_round_trips_without_crashing() -> None:
+    # Regression: a foreign key whose value is a nested object is deep-frozen to a
+    # mappingproxy on the canonical; render shallow-copied the per_tool_extra bag, leaving
+    # the nested mappingproxy to crash json.dumps. It must round-trip verbatim like a scalar.
+    nested = {"settings": {"retries": 3}}
+    text = _file({"github": _stdio_slot(customBlock=nested)})
+
+    canonical = file_to_canonical(text, _surface(), None)
+    slot = json.loads(canonical_to_file(canonical, _surface(), text))["mcpServers"]["github"]
+
+    assert canonical.to_dict()["per_tool_extra"]["cursor"]["customBlock"] == nested
+    assert slot["customBlock"] == nested
+
+
 def test_render_preserves_sibling_slots() -> None:
     prior = _file({"github": _stdio_slot(), "gitlab": {"command": "glab"}})
     canonical = file_to_canonical(prior, _surface(slot="github"), None)
