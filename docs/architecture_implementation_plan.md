@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.45` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.46` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -51,13 +51,19 @@
   WARNING/INFO findings, 0 CRITICAL/MAJOR) and was remediated → 0.7.44 (`assert_never` exhaustive
   anchor dispatch; `_load_config_file` requires the `[agents-sync]` table; +test/docstring hardening;
   4 findings accepted-as-is).
-- **S22 in progress** (Daemon + CLI). Sub-increment **S22a** (`poll_daemon.watch` — the poll loop:
-  systemic-only failure budget FR-02, low-freq GC tick NFR-07/08, clean SIGINT/SIGTERM shutdown
-  US-07 AC-2/AC-3, transition-only logging NFR-12/13, exit codes NFR-10; `sync_once`/`run_gc` are
-  injected callables) — 0.7.45 ✓. Remaining: **S22b** `command_line_interface` — but its `run`/
-  `export`/`import` subcommands depend on the S24 `sync_once` wiring (read→plan→execute) and the S23
-  `portable_library`, so the S22b/S23/S24 ordering is an open decision (raised with the user). The
-  batched end-of-S22 two-auditor `/code_and_tests_quality_review` runs after the final S22 sub-increment.
+- **S22 in progress** (Daemon + CLI). **Sequencing (user decision — "build runnable daemon now"):**
+  S22a/S22b/S22c build a runnable daemon; export/import land in S23 (with `portable_library`);
+  `parser_bounds` + pointing the conformance suite at the new pipeline stay at S24 (the cutover).
+  - **S22a** (`poll_daemon.watch` — the poll loop: systemic-only failure budget FR-02, low-freq GC
+    tick NFR-07/08, clean SIGINT/SIGTERM shutdown US-07 AC-2/AC-3, transition-only logging
+    NFR-12/13, exit codes NFR-10; `sync_once`/`run_gc` are injected callables) — 0.7.45 ✓.
+  - **S22b** (`sync_once` — one poll's read→plan→execute orchestration + `count_available_tools`
+    [new-model: a tool is available when ≥1 resolved root exists; S24 conformance validates] +
+    `make_periodic_poll` [threads state + digest cache across polls, NFR-08]) — 0.7.46 ✓.
+    `sync_once` is its own module (poll_daemon stays loop-only — SRP).
+  - **S22c** (remaining): `command_line_interface` — `run` (→ `watch(make_periodic_poll(config))`)
+    + `prune` (→ `prune_archive`), argparse, exit-code matrix (config→2/runtime→1/normal→0), `__main__`.
+  The batched end-of-S22 two-auditor `/code_and_tests_quality_review` runs after S22c.
   **Tracked gap / later cleanup:** gemini's `oauth`
   auth-field spelling — an increment-4-style auth knob gemini still lacks (renders auth under
   `auth`, not `oauth`).

@@ -487,6 +487,16 @@ unregistered dialect (the new-model analog of a missing IO function), or a
 constants (`0` normal, `1` runtime failure, `2` configuration failure) that the
 daemon and CLI return at the process boundary (NFR-10, US-07 AC-7).
 
+The daemon is two cohesive modules, not one: `poll_daemon` owns only the loop
+(timing, the systemic-only failure budget, the GC cadence, signal handling,
+transition-only logging), while `sync_once` owns one poll's read→plan→execute
+orchestration (build read specs → `read_tool_surfaces` → load stored canonicals →
+`compute_sync_plan` → `execute_sync_plan` → persist `SyncState`). `sync_once`
+takes `available_tool_count` (the two-tool destructive guard input); a tool is
+available when at least one of its resolved roots exists. `make_periodic_poll`
+adapts `sync_once` to the `() -> SyncResult` the loop calls, threading the state
+and digest cache across polls (NFR-08).
+
 ---
 
 ## 14. Compliance traceability (condensed)
