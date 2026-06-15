@@ -186,7 +186,9 @@ def test_an_mcp_slot_round_trips_through_every_tool_recipe(tool_name: str, tmp_p
 
     assert reparsed.command == "npx"
     assert reparsed.args == ("-y", "gh-mcp")
-    assert reparsed.env == {"GH": "${TOKEN}"}
+    # round-trips through every tool's native env-reference style back to the canonical
+    # ${env:NAME} form, regardless of how each tool spells it on the wire (S20 increment 7).
+    assert reparsed.env == {"GH": "${env:TOKEN}"}
     assert reparsed.artifact_id == _ARTIFACT_ID
 
 

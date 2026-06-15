@@ -20,8 +20,13 @@ _AGENT_FIELD_MAP = (
     ("permissionMode", "permission_mode"),
 )
 
-# Claude's mcp wire: transport under `type`, auth under `oauth` (S20 increment 4).
-_MCP_SPELLING = McpSpellingRecipe(transport_render_field="type", auth_render_field="oauth")
+# Claude's mcp wire: transport under `type`, auth under `oauth` (S20 increment 4); env
+# references in the `${NAME}` inline style (S20 increment 7).
+_MCP_SPELLING = McpSpellingRecipe(
+    transport_render_field="type",
+    auth_render_field="oauth",
+    env_reference_style=("${", "}"),
+)
 
 CLAUDE_TOOL = ToolDefinition(
     name="claude",

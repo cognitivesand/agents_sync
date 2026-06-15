@@ -23,8 +23,8 @@ _AGENT_FIELD_MAP = (("model", "model"),)
 
 # Gemini carries no explicit transport field: the url-field SPELLING encodes it (S20
 # increment 6) — ``httpUrl`` means http, ``url`` means sse — and the slot key is the server
-# name, so no inner ``name`` is emitted. ``oauth`` auth spelling is deferred to a later
-# increment. The env-reference inline style is increment 7.
+# name, so no inner ``name`` is emitted. Env references use the ``${NAME}`` inline style (S20
+# increment 7). ``oauth`` auth spelling is deferred to a later increment.
 _MCP_SPELLING = McpSpellingRecipe(
     transport_render_field=None,
     name_render_field=None,
@@ -34,6 +34,7 @@ _MCP_SPELLING = McpSpellingRecipe(
         ("streamable-http", "httpUrl"),
         ("sse", "url"),
     ),
+    env_reference_style=("${", "}"),
 )
 
 GEMINI_CLI_TOOL = ToolDefinition(

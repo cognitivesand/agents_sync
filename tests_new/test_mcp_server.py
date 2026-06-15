@@ -140,7 +140,8 @@ def test_the_transport_type_field_spelling_is_recognised_and_preserved() -> None
 def test_env_is_folded_to_the_canonical() -> None:
     text = _file({"github": _stdio_slot(env={"GH": "${TOKEN}"})})
 
-    assert file_to_canonical(text, _surface(), None).env == {"GH": "${TOKEN}"}
+    # env-reference values fold in the canonical ${env:NAME} style (S20 increment 7).
+    assert file_to_canonical(text, _surface(), None).env == {"GH": "${env:TOKEN}"}
 
 
 def test_disabled_flag_is_folded() -> None:
@@ -379,7 +380,8 @@ def test_url_headers_and_auth_are_folded_to_the_canonical() -> None:
 
     assert canonical.transport == "http"
     assert canonical.url == "https://mcp.example.com"
-    assert canonical.headers == {"X-Key": "${KEY}"}
+    # env-reference header values fold in the canonical ${env:NAME} style (S20 increment 7).
+    assert canonical.headers == {"X-Key": "${env:KEY}"}
     assert canonical.auth == {"type": "oauth"}
 
 

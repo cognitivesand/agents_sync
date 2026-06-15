@@ -21,10 +21,10 @@ Package layout (split to respect the 300-line limit):
 - ``parse`` — fold a slot into the canonical (plus ``extract_id``, the id-in-isolation probe).
 - ``render`` — render the canonical back onto its slot.
 
-The header carriers are now handled here as per-tool recipe DATA (``McpSpellingRecipe``); the
-per-tool inline ``env_reference_style`` (the ``${env:NAME}``↔``${NAME}``↔``{env:NAME}`` *style*
-conversion) is still deferred (S20 increment 7), and the mcp secret policy runs in the read
-phase (S18), not the dialect.
+The header carriers (S20 increment 5) and the per-tool inline ``env_reference_style`` (the
+``${env:NAME}``↔``${NAME}``↔``{env:NAME}`` conversion across env/auth/headers, S20 increment 7)
+are now handled here as per-tool recipe DATA (``McpSpellingRecipe``). The mcp secret policy
+runs in the read phase (S18), not the dialect.
 """
 
 from __future__ import annotations

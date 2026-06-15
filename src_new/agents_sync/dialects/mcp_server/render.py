@@ -19,6 +19,7 @@ from agents_sync.dialects.mcp_server._shared import (
     _TRANSPORT_FIELDS,
     _URL_FIELDS,
     _canonical_transport,
+    _restyle_env_map,
     _spelling,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
@@ -97,7 +98,7 @@ def _render_stdio(
         if canonical.args:
             slot["args"] = list(canonical.args)
     if canonical.env:
-        slot[spelling.env_field] = dict(canonical.env)
+        slot[spelling.env_field] = _restyle_env_map(canonical.env, spelling.env_reference_style)
     if canonical.cwd is not None:
         slot["cwd"] = canonical.cwd
 
@@ -119,7 +120,7 @@ def _render_http(
     _render_headers(canonical, slot, only, spelling)
     if canonical.auth and spelling.auth_render_field is not None:
         field = _spelled_field(only, "auth_field", _AUTH_FIELDS, spelling.auth_render_field)
-        slot[field] = dict(canonical.auth)
+        slot[field] = _restyle_env_map(canonical.auth, spelling.env_reference_style)
 
 
 def _render_headers(
@@ -138,7 +139,7 @@ def _render_headers(
         spelled = _spelled_field(
             only, "headers_field", _HEADERS_FIELDS, spelling.headers_render_field
         )
-        slot[spelled] = literal
+        slot[spelled] = _restyle_env_map(literal, spelling.env_reference_style)
 
 
 def _render_common(

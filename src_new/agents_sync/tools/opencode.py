@@ -3,9 +3,9 @@
 opencode's mcp wire spellings live in ``_MCP_SPELLING`` below and are consumed generically
 by the mcp_server dialect (S20 increment 3): ``environment`` for env, the inverted-polarity
 ``enabled`` flag, the array-form command, ``type`` transport with ``local``/``remote``
-values, and ``oauth`` auth. The env-reference SYNTAX conversion is a later, cross-cutting
-increment. The agent ``model`` provider-split and ``tools``→``permission`` transforms remain
-deferred (they round-trip verbatim via ``per_tool_extra`` until then).
+values, ``oauth`` auth, and the ``{env:NAME}`` env-reference inline style (S20 increment 7).
+The agent ``model`` provider-split and ``tools``→``permission`` transforms remain deferred
+(they round-trip verbatim via ``per_tool_extra`` until then).
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ _MCP_SPELLING = McpSpellingRecipe(
         ("streamable-http", "remote"),
     ),
     auth_render_field="oauth",
+    env_reference_style=("{env:", "}"),  # opencode writes env refs as {env:NAME} (S20 increment 7)
 )
 
 OPENCODE_TOOL = ToolDefinition(

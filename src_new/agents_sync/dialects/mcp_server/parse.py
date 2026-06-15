@@ -20,6 +20,7 @@ from agents_sync.dialects.mcp_server._carriers import fold_headers
 from agents_sync.dialects.mcp_server._shared import (
     _ALWAYS_ALLOW_FIELDS,
     _AUTH_FIELDS,
+    _CANONICAL_ENV_STYLE,
     _HEADERS_FIELDS,
     _NAME_FIELD,
     _TRANSPORT_FIELDS,
@@ -30,6 +31,7 @@ from agents_sync.dialects.mcp_server._shared import (
     _first_present,
     _http_only_fields,
     _known_slot_fields,
+    _restyle_env_map,
     _spelling,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
@@ -87,6 +89,7 @@ def parse(
     else:
         _fold_http(slot, changes, transport, spelling)
     _fold_common(slot, changes, spelling)
+    _canonicalize_env_references(changes)
     tool = tool_surface.tool
     changes["per_tool_only"] = _with_tool_slot(
         base.per_tool_only, tool, _spellings(slot, transport_field)
@@ -217,6 +220,13 @@ def _fold_common(
         value = slot[always_allow_field]
         items = value if isinstance(value, list) else [value]
         changes["always_allow"] = tuple(_as_string(item, "always_allow item") for item in items)
+
+
+def _canonicalize_env_references(changes: dict[str, Any]) -> None:
+    """Fold every env-reference value (env/auth/headers) to the canonical ``${env:NAME}`` form,
+    so a value's textual shape no longer depends on the originating tool's inline style."""
+    for field in ("env", "auth", "headers"):
+        changes[field] = _restyle_env_map(changes[field], _CANONICAL_ENV_STYLE)
 
 
 def _spellings(slot: dict[str, Any], transport_field: str | None) -> dict[str, Any]:

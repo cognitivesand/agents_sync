@@ -57,11 +57,12 @@ def _stdio(**fields: Any) -> CanonicalDocument:
 
 def test_opencode_environment_folds_to_canonical_env() -> None:
     surface = _mcp_surface("opencode")
-    text = _file_for(surface, {"github": {"command": "npx", "environment": {"GH": "${TOKEN}"}}})
+    # opencode's native env-reference style is `{env:NAME}`; it canonicalizes on the fold.
+    text = _file_for(surface, {"github": {"command": "npx", "environment": {"GH": "{env:TOKEN}"}}})
 
     canonical = file_to_canonical(text, surface, None)
 
-    assert canonical.env == {"GH": "${TOKEN}"}
+    assert canonical.env == {"GH": "${env:TOKEN}"}
     assert "environment" not in canonical.per_tool_extra.get("opencode", {})
 
 
@@ -84,9 +85,10 @@ def test_opencode_enabled_false_folds_to_canonical_disabled_true() -> None:
 
 
 def test_fresh_projection_to_opencode_emits_environment() -> None:
-    slot = _rendered_slot(_stdio(env={"GH": "${TOKEN}"}), _mcp_surface("opencode"))
+    # the env value carries a canonical env-reference; opencode emits it in its `{env:NAME}` style.
+    slot = _rendered_slot(_stdio(env={"GH": "${env:TOKEN}"}), _mcp_surface("opencode"))
 
-    assert slot["environment"] == {"GH": "${TOKEN}"}
+    assert slot["environment"] == {"GH": "{env:TOKEN}"}
     assert "env" not in slot
 
 

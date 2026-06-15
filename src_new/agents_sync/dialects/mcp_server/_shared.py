@@ -9,6 +9,7 @@ shared vocabulary has a single home across the package (no I/O, no import of a d
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from agents_sync.dialects import MalformedSurfaceError
@@ -24,13 +25,20 @@ _ALWAYS_ALLOW_FIELDS = ("always_allow", "alwaysAllow", "allowedTools")
 _AUTH_FIELDS = ("auth", "oauth")
 _HEADERS_FIELDS = ("headers", "http_headers")
 
-# Env-reference vocabulary (S20 increment 5). The canonical stores an env-reference header in
-# one FIXED style, ``${env:NAME}`` — the per-tool inline *style* (`${NAME}`/`{env:NAME}`) is
-# increment 7. codex's carriers map a bare env var NAME to/from that canonical form.
+# Env-reference vocabulary (S20 increments 5, 7). The canonical stores an env-reference in one
+# FIXED style, ``${env:NAME}``; each tool's wire uses its own inline ``env_reference_style``
+# (claude/gemini ``${NAME}``, opencode ``{env:NAME}``). The dialect canonicalizes any recognized
+# form on parse and restyles on render. codex's carriers map a bare env var NAME to/from the
+# canonical form. ``_ENV_REFERENCE_TOKEN_PATTERN`` finds an env-ref token (any form) inside a
+# larger string (e.g. ``Bearer ${env:TOK}``); the per-form matchers below anchor a whole value.
 _ENV_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 _ENV_NAME_PATTERN = re.compile(rf"^{_ENV_NAME}$")
 _ENV_REFERENCE_PATTERN = re.compile(rf"^\$\{{env:({_ENV_NAME})\}}$")
 _BEARER_REFERENCE_PATTERN = re.compile(rf"^Bearer \$\{{env:({_ENV_NAME})\}}$")
+_ENV_REFERENCE_TOKEN_PATTERN = re.compile(
+    rf"\$\{{env:({_ENV_NAME})\}}|\$\{{({_ENV_NAME})\}}|\{{env:({_ENV_NAME})\}}"
+)
+_CANONICAL_ENV_STYLE = ("${env:", "}")
 _CANONICAL_TRANSPORTS = frozenset({"stdio", "http", "sse", "streamable-http"})
 # alias (casefolded) → canonical transport; an alias not here passes through to be
 # validated against _CANONICAL_TRANSPORTS, so an unknown value is rejected.
@@ -110,6 +118,25 @@ def _bearer_reference_name(value: Any) -> str | None:
     """The env var name if ``value`` is exactly ``Bearer ${env:NAME}``, else None."""
     match = _BEARER_REFERENCE_PATTERN.match(value) if isinstance(value, str) else None
     return match.group(1) if match is not None else None
+
+
+def _restyle_env_references(value: str, style: tuple[str, str]) -> str:
+    """Rewrite every env-reference token in ``value`` to ``(prefix, suffix)`` around its name.
+
+    Recognizes any supported inline form, so it both canonicalizes (style = the canonical
+    ``("${env:", "}")``) and renders a tool's native style. Non-reference text is untouched."""
+    prefix, suffix = style
+
+    def rewrite(match: re.Match[str]) -> str:
+        name = next(group for group in match.groups() if group is not None)
+        return f"{prefix}{name}{suffix}"
+
+    return _ENV_REFERENCE_TOKEN_PATTERN.sub(rewrite, value)
+
+
+def _restyle_env_map(mapping: Mapping[str, str], style: tuple[str, str]) -> dict[str, str]:
+    """Apply :func:`_restyle_env_references` to every value of a string→string map."""
+    return {key: _restyle_env_references(value, style) for key, value in mapping.items()}
 
 
 def _first_present(slot: dict[str, Any], keys: tuple[str, ...]) -> str | None:

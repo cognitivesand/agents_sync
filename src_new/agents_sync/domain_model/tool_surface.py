@@ -55,7 +55,12 @@ class McpSpellingRecipe:
     ``env_http_headers_field`` / ``bearer_token_env_var_field`` are codex's dedicated HTTP
     auth carriers: when set, an env-reference header (``${env:NAME}``) round-trips through the
     named field (a header→env-name map, and a single bearer env-name) instead of an inline
-    header value; ``None`` (the default) leaves env-reference headers inline."""
+    header value; ``None`` (the default) leaves env-reference headers inline.
+
+    ``env_reference_style`` is the ``(prefix, suffix)`` this tool wraps a bare env var name in
+    (the default ``("${env:", "}")`` is the canonical form the document stores; claude/gemini
+    use ``("${", "}")``, opencode ``("{env:", "}")``). The dialect canonicalizes any recognized
+    form to ``${env:NAME}`` on parse and restyles to this on render, across env/auth/headers."""
 
     env_field: str = "env"
     disabled_field: str = "disabled"
@@ -70,6 +75,7 @@ class McpSpellingRecipe:
     headers_render_field: str = "headers"
     env_http_headers_field: str | None = None
     bearer_token_env_var_field: str | None = None
+    env_reference_style: tuple[str, str] = ("${env:", "}")
 
 
 @dataclass(frozen=True)
