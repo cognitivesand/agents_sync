@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agents_sync.domain_model.tool_surface import McpSpellingRecipe
 from agents_sync.tools._shared_formats import markdown_surface_format, mcp_surface_format
 from agents_sync.tools.tool_definition import (
     DirectorySurfaceRecipe,
@@ -19,6 +20,9 @@ _AGENT_FIELD_MAP = (
     ("permissionMode", "permission_mode"),
 )
 
+# Claude's mcp wire: transport under `type`, auth under `oauth` (S20 increment 4).
+_MCP_SPELLING = McpSpellingRecipe(transport_render_field="type", auth_render_field="oauth")
+
 CLAUDE_TOOL = ToolDefinition(
     name="claude",
     surface_recipes=(
@@ -32,7 +36,9 @@ CLAUDE_TOOL = ToolDefinition(
             "rules", "claude_rules_dir", ("AGENTS.md", "CLAUDE.md"), markdown_surface_format()
         ),
         KeyedMapSurfaceRecipe(
-            "mcp_server", "claude_mcp_servers_file", mcp_surface_format(("mcpServers",), "json")
+            "mcp_server",
+            "claude_mcp_servers_file",
+            mcp_surface_format(("mcpServers",), "json", _MCP_SPELLING),
         ),
     ),
 )

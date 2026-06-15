@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agents_sync.domain_model.tool_surface import McpSpellingRecipe
 from agents_sync.tools._shared_formats import markdown_surface_format, mcp_surface_format
 from agents_sync.tools.tool_definition import (
     DirectorySurfaceRecipe,
@@ -14,6 +15,9 @@ _AGENT_FIELD_MAP = (
     ("model", "model"),
     ("tools", "tools"),
 )
+
+# Copilot's mcp wire: transport under `type`, auth under `oauth` (S20 increment 4).
+_MCP_SPELLING = McpSpellingRecipe(transport_render_field="type", auth_render_field="oauth")
 
 COPILOT_TOOL = ToolDefinition(
     name="copilot",
@@ -37,7 +41,9 @@ COPILOT_TOOL = ToolDefinition(
             markdown_surface_format(),
         ),
         KeyedMapSurfaceRecipe(
-            "mcp_server", "copilot_cli_mcp_config_file", mcp_surface_format(("servers",), "json")
+            "mcp_server",
+            "copilot_cli_mcp_config_file",
+            mcp_surface_format(("servers",), "json", _MCP_SPELLING),
         ),
     ),
 )
