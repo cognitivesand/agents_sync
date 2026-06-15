@@ -477,6 +477,16 @@ agents_sync/
 the only places a format is known; the four `*_store` / `*_archive` / `*_writer`
 modules are the only places persistence touches disk; tools are data.
 
+`runtime_config` loads the TOML config over the per-OS defaults (resolving each
+recipe's `DefaultLocation` into the `config_key → Path` map the read phase
+consumes), then fails **closed** with a `ConfigurationError` that names the
+specific defect — malformed TOML, a non-positive `poll_interval_seconds`, an
+unknown `secret_policy`, two tools sharing a `name`, a recipe naming an
+unregistered dialect (the new-model analog of a missing IO function), or a
+`state_path` parent that cannot be created. It owns the distinct exit-code
+constants (`0` normal, `1` runtime failure, `2` configuration failure) that the
+daemon and CLI return at the process boundary (NFR-10, US-07 AC-7).
+
 ---
 
 ## 14. Compliance traceability (condensed)

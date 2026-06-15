@@ -69,6 +69,11 @@ _DIALECTS: dict[str, _Dialect] = {
 }
 
 
+KNOWN_DIALECTS: frozenset[str] = frozenset(_DIALECTS)
+"""The registered dialect names — runtime_config validates every recipe against
+this set so a tool naming an unimplemented dialect fails closed at startup."""
+
+
 def _dialect_for(tool_surface: ToolSurface) -> _Dialect:
     name = tool_surface.surface_format.dialect
     try:
