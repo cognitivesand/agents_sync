@@ -16,7 +16,7 @@ import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, assert_never
 
 from agents_sync.secret_policy import ALLOWED_SECRET_POLICIES, SECRET_POLICY_REFUSED
 from agents_sync.tools.agentic_tools_registry import ALL_TOOL_DEFINITIONS
@@ -69,7 +69,9 @@ def _resolve_anchor(
 ) -> Path:
     if anchor is PathAnchor.HOME:
         return home
-    return _config_root(os_name=os_name, env=env, home=home)
+    elif anchor is PathAnchor.CONFIG_ROOT:
+        return _config_root(os_name=os_name, env=env, home=home)
+    assert_never(anchor)
 
 
 def default_config_path(*, os_name: str, env: Mapping[str, str], home: Path) -> Path:
@@ -158,7 +160,11 @@ def _load_config_file(path: Path) -> Mapping[str, Any]:
         data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError) as exc:
         raise ConfigurationError(f"malformed TOML in config file {path}: {exc}") from exc
-    table = data.get(_CONFIG_TABLE_KEY, data)
+    if not data:
+        return {}
+    if _CONFIG_TABLE_KEY not in data:
+        raise ConfigurationError(f"config file {path} has no [{_CONFIG_TABLE_KEY}] table")
+    table = data[_CONFIG_TABLE_KEY]
     if not isinstance(table, Mapping):
         raise ConfigurationError(f"config table [{_CONFIG_TABLE_KEY}] must be a table in {path}")
     return table

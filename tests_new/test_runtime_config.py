@@ -175,7 +175,7 @@ def test_unknown_secret_policy_fails_closed(tmp_path: Path) -> None:
 
 
 def test_duplicate_tool_names_fail_closed(tmp_path: Path) -> None:
-    duplicated = (tool_definition("claude"), tool_definition("claude"))
+    duplicated = (tool_definition("claude"), ToolDefinition("claude", ()))
 
     with pytest.raises(ConfigurationError, match="(?i)duplicate"):
         load_runtime_config(

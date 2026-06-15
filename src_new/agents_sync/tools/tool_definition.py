@@ -33,7 +33,11 @@ class PathAnchor(Enum):
 class DefaultLocation:
     """A surface's built-in default path, as data: an anchor plus the parts
     joined under it. ``runtime_config`` resolves the anchor and joins the parts.
-    A surface with no built-in default declares ``default_location=None``."""
+    A surface with no built-in default declares ``default_location=None``.
+
+    ``relative_parts`` resolves to a directory for directory recipes and to a
+    file for keyed-map / single-file recipes; the target kind is the consuming
+    recipe's, not ``DefaultLocation``'s."""
 
     anchor: PathAnchor
     relative_parts: tuple[str, ...]

@@ -65,7 +65,12 @@ _RECIPES_BY_CONFIG_KEY: dict[str, SurfaceRecipe] = {
 
 
 def test_expected_table_covers_exactly_the_declared_config_keys() -> None:
-    assert set(_RECIPES_BY_CONFIG_KEY) == set(EXPECTED_DEFAULT_LOCATIONS)
+    declared = set(_RECIPES_BY_CONFIG_KEY)
+    expected = set(EXPECTED_DEFAULT_LOCATIONS)
+    assert declared == expected, (
+        f"config-key completeness drift: only in recipes={declared - expected}, "
+        f"only in expected table={expected - declared}"
+    )
 
 
 @pytest.mark.parametrize("config_key", sorted(EXPECTED_DEFAULT_LOCATIONS))

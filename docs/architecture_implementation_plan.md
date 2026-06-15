@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.43` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.44` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -47,7 +47,10 @@
   the per-tool-default-paths design (user choice: tools-as-data) spans two concerns: **S21a**
   (default-location DATA on each surface recipe — 0.7.42) ✓ and **S21b** (`runtime_config`:
   resolve anchors → paths, load/validate TOML fail-closed, distinct exit codes 0/1/2 — 0.7.43) ✓.
-  Code complete; the batched end-of-S21 two-auditor `/code_and_tests_quality_review` runs next.
+  **S21 COMPLETE.** End-of-S21 two-auditor `/code_and_tests_quality_review` ran (all AUDIT_PASS; 9
+  WARNING/INFO findings, 0 CRITICAL/MAJOR) and was remediated → 0.7.44 (`assert_never` exhaustive
+  anchor dispatch; `_load_config_file` requires the `[agents-sync]` table; +test/docstring hardening;
+  4 findings accepted-as-is). Next plan step: **S22 — Daemon + CLI**.
   **Tracked gap / later cleanup:** gemini's `oauth`
   auth-field spelling — an increment-4-style auth knob gemini still lacks (renders auth under
   `auth`, not `oauth`).
