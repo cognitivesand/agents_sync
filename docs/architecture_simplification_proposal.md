@@ -408,6 +408,15 @@ tool. A tool file contributes only `SurfaceFormat` recipes; it contains **no
 translation code** — `file_to_canonical` / `canonical_to_file` (and the shared
 dialect modules they call) perform every translation, in both directions.
 
+Each surface recipe also carries its **default location** as data — a
+`DefaultLocation(anchor, relative_parts)` where `anchor` is a platform-neutral
+`PathAnchor` (`HOME`, or `CONFIG_ROOT` for the per-OS config dir) — or `None`
+when the surface has no built-in default (configured/discovered only).
+`runtime_config` resolves each anchor to a real directory per OS and joins the
+parts, producing the `config_key → Path` map the read phase consumes. The
+NFR-11 "matching configuration entry" thus lives with the tool, not in a central
+table: a new tool's default paths arrive in its own data module.
+
 ---
 
 ## 12. Cross-cutting concerns, each with one home

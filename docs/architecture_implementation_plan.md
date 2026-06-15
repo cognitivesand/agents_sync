@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.33` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.42` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -42,10 +42,14 @@
   knob; parse canonicalizes any form (`${NAME}`/`{env:NAME}`/`${env:NAME}`) → `${env:NAME}` for
   stable digests, render restyles to the tool's native form (claude/gemini `${NAME}`, opencode
   `{env:NAME}`, others canonical) across env/auth/headers). **S20 complete.**
-- **Audit due now:** S20 increment 7 is the final S20 sub-increment, so the batched end-of-S20
-  two-auditor `/code_and_tests_quality_review` runs after it (before S21). **Tracked gap carried
-  into the S20 audit / a later cleanup:** gemini's `oauth` auth-field spelling — an increment-4-
-  style auth knob gemini still lacks (it renders auth under `auth`, not `oauth`).
+- **S20 audit done:** the batched end-of-S20 two-auditor `/code_and_tests_quality_review` ran and
+  was remediated → 0.7.41. **S21 in progress** (Runtime config), split into sub-increments because
+  the per-tool-default-paths design (user choice: tools-as-data) spans two concerns: **S21a**
+  (default-location DATA on each surface recipe — 0.7.42) ✓, then **S21b** (`runtime_config`:
+  resolve anchors → paths, load/validate TOML fail-closed, distinct exit codes). The batched
+  end-of-S21 audit runs once after S21b. **Tracked gap / later cleanup:** gemini's `oauth`
+  auth-field spelling — an increment-4-style auth knob gemini still lacks (renders auth under
+  `auth`, not `oauth`).
 - **Audit cadence:** the end-of-S20 two-auditor audit runs once, after the final S20
   sub-increment (before S21) — not between sub-increments. Each sub-increment still gets docs,
   red-first tests, full CI, and its own commit/`/bcp`.

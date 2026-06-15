@@ -9,11 +9,15 @@ from agents_sync.tools._shared_formats import (
     structured_text_surface_format,
 )
 from agents_sync.tools.tool_definition import (
+    DefaultLocation,
     DirectorySurfaceRecipe,
     KeyedMapSurfaceRecipe,
+    PathAnchor,
     RulesFileSurfaceRecipe,
     ToolDefinition,
 )
+
+_HOME = PathAnchor.HOME
 
 # Codex's whole-file TOML agent spellings → canonical attributes (S20 increment 2).
 _AGENT_FIELD_MAP = (
@@ -44,17 +48,27 @@ CODEX_TOOL = ToolDefinition(
             "codex_agents_dir",
             ".toml",
             structured_text_surface_format("toml", _AGENT_FIELD_MAP),
+            default_location=DefaultLocation(_HOME, (".codex", "agents")),
         ),
         DirectorySurfaceRecipe(
-            "slash_command", "codex_prompts_dir", ".md", markdown_surface_format()
+            "slash_command",
+            "codex_prompts_dir",
+            ".md",
+            markdown_surface_format(),
+            default_location=DefaultLocation(_HOME, (".codex", "prompts")),
         ),
         RulesFileSurfaceRecipe(
-            "rules", "codex_rules_dir", ("AGENTS.md",), markdown_surface_format()
+            "rules",
+            "codex_rules_dir",
+            ("AGENTS.md",),
+            markdown_surface_format(),
+            default_location=DefaultLocation(_HOME, (".codex",)),
         ),
         KeyedMapSurfaceRecipe(
             "mcp_server",
             "codex_config_file",
             mcp_surface_format(("mcp_servers",), "toml", _MCP_SPELLING),
+            default_location=DefaultLocation(_HOME, (".codex", "config.toml")),
         ),
     ),
 )

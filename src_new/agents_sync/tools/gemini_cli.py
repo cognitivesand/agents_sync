@@ -10,11 +10,15 @@ from agents_sync.tools._shared_formats import (
     structured_text_surface_format,
 )
 from agents_sync.tools.tool_definition import (
+    DefaultLocation,
     DirectorySurfaceRecipe,
     KeyedMapSurfaceRecipe,
+    PathAnchor,
     RulesFileSurfaceRecipe,
     ToolDefinition,
 )
+
+_HOME = PathAnchor.HOME
 
 # Gemini CLI's agent front-matter spellings → canonical attributes (S20 increment 2).
 # Only ``model`` folds; gemini's ``tools`` stay tool-private (per_tool_extra) until a
@@ -41,21 +45,31 @@ GEMINI_CLI_TOOL = ToolDefinition(
     name="gemini_cli",
     surface_recipes=(
         DirectorySurfaceRecipe(
-            "agent", "gemini_cli_agents_dir", ".md", markdown_surface_format(_AGENT_FIELD_MAP)
+            "agent",
+            "gemini_cli_agents_dir",
+            ".md",
+            markdown_surface_format(_AGENT_FIELD_MAP),
+            default_location=DefaultLocation(_HOME, (".gemini", "agents")),
         ),
         DirectorySurfaceRecipe(
             "slash_command",
             "gemini_cli_commands_dir",
             ".toml",
             structured_text_surface_format("toml"),
+            default_location=DefaultLocation(_HOME, (".gemini", "commands")),
         ),
         RulesFileSurfaceRecipe(
-            "rules", "gemini_cli_rules_dir", ("GEMINI.md",), markdown_surface_format()
+            "rules",
+            "gemini_cli_rules_dir",
+            ("GEMINI.md",),
+            markdown_surface_format(),
+            default_location=DefaultLocation(_HOME, (".gemini",)),
         ),
         KeyedMapSurfaceRecipe(
             "mcp_server",
             "gemini_cli_settings_file",
             mcp_surface_format(("mcpServers",), "json", _MCP_SPELLING),
+            default_location=DefaultLocation(_HOME, (".gemini", "settings.json")),
         ),
     ),
 )
