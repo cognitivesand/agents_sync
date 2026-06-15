@@ -16,7 +16,6 @@ from agents_sync.dialects.mcp_server._shared import (
     _ALWAYS_ALLOW_FIELDS,
     _AUTH_FIELDS,
     _HEADERS_FIELDS,
-    _NAME_FIELD,
     _TRANSPORT_FIELDS,
     _URL_FIELDS,
     _canonical_transport,
@@ -35,18 +34,21 @@ def render(canonical: CanonicalDocument, tool_surface: ToolSurface, prior_text: 
     slot: dict[str, Any] = dict(canonical.to_dict()["per_tool_extra"].get(tool_surface.tool, {}))
     if canonical.artifact_id:
         slot[tool_surface.surface_format.id_field] = canonical.artifact_id
-    if canonical.name:
-        slot[_NAME_FIELD] = canonical.name
+    if canonical.name and spelling.name_render_field is not None:
+        slot[spelling.name_render_field] = canonical.name
 
     transport = _canonical_transport(canonical.transport)
-    field = _spelled_field(
-        only, "transport_field", _TRANSPORT_FIELDS, spelling.transport_render_field
-    )
-    slot[field] = _render_transport_value(transport, only, spelling)
+    if spelling.transport_render_field is not None:
+        # A transport-field-less tool (gemini/codex) infers the transport from command/url
+        # on re-parse, so emitting it would be a spurious field, not a faithful projection.
+        field = _spelled_field(
+            only, "transport_field", _TRANSPORT_FIELDS, spelling.transport_render_field
+        )
+        slot[field] = _render_transport_value(transport, only, spelling)
     if transport == "stdio":
         _render_stdio(canonical, slot, only, spelling)
     else:
-        _render_http(canonical, slot, only, spelling)
+        _render_http(canonical, slot, only, spelling, transport)
     _render_common(canonical, slot, only, spelling)
     return keyed_map_slot.write_slot(prior_text, tool_surface, slot)
 
@@ -105,10 +107,15 @@ def _render_http(
     slot: dict[str, Any],
     only: Mapping[str, Any],
     spelling: McpSpellingRecipe,
+    transport: str,
 ) -> None:
-    """Emit the http/sse fields (url, headers + carriers, auth) back onto ``slot``."""
+    """Emit the http/sse fields (url, headers + carriers, auth) back onto ``slot``.
+
+    The url-field spelling may itself encode the transport (gemini renders ``httpUrl`` for
+    http, ``url`` for sse — ``url_field_by_transport``); an observed spelling still wins."""
     if canonical.url is not None:
-        slot[_spelled_field(only, "url_field", _URL_FIELDS)] = canonical.url
+        preferred = dict(spelling.url_field_by_transport).get(transport, "")
+        slot[_spelled_field(only, "url_field", _URL_FIELDS, preferred)] = canonical.url
     _render_headers(canonical, slot, only, spelling)
     if canonical.auth and spelling.auth_render_field is not None:
         field = _spelled_field(only, "auth_field", _AUTH_FIELDS, spelling.auth_render_field)

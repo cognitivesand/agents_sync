@@ -4,10 +4,13 @@ An mcp_server artifact is one slot in a shared keyed-map file, so this dialect r
 ``keyed_map_slot``'s ``read_slot`` / ``write_slot`` for the navigate-and-reassemble (sibling
 preservation) and adds the wire interpretation a flat field map cannot express: transport
 canonicalization + an alias map (``local``→``stdio``), transport inference (``command``→stdio,
-``url``→http), the stdio fields (``command``/``args`` with array-form split, ``env``, ``cwd``),
-the http/sse fields (``url`` with alias detection, verbatim ``headers``/``auth`` maps), the
-transport-independent fields (``timeout``, ``disabled``, ``always_allow``), and preservation
-of each tool's own field spelling under ``per_tool_only`` (unknown keys under
+``url``→http, or — for a transport-field-less tool — the url-field SPELLING via
+``transport_by_url_field``: gemini's ``httpUrl``→http, ``url``→sse), the stdio fields
+(``command``/``args`` with array-form split, ``env``, ``cwd``), the http/sse fields (``url``
+with alias detection, verbatim ``headers``/``auth`` maps), the transport-independent fields
+(``timeout``, ``disabled``, ``always_allow``), suppression of the transport and inner-name
+fields a tool does not carry (``transport_render_field``/``name_render_field`` = ``None``), and
+preservation of each tool's own field spelling under ``per_tool_only`` (unknown keys under
 ``per_tool_extra``).
 
 Package layout (split to respect the 300-line limit):

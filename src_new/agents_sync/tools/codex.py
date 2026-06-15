@@ -24,8 +24,12 @@ _AGENT_FIELD_MAP = (
 # Codex spells HTTP auth across dedicated carriers, not a generic headers/auth block (S20
 # increment 5): `http_headers` for literal headers, `env_http_headers` (header→env-name) and
 # `bearer_token_env_var` (one env-name → Authorization bearer) for env-reference headers, and
-# no generic auth field. The dialect folds all three onto the canonical `headers` map.
+# no generic auth field. The dialect folds all three onto the canonical `headers` map. Codex
+# also carries no explicit transport field (inferred from command/url) and no inner name (the
+# slot key is the name) — both suppressed (S20 increment 6).
 _MCP_SPELLING = McpSpellingRecipe(
+    transport_render_field=None,
+    name_render_field=None,
     headers_render_field="http_headers",
     env_http_headers_field="env_http_headers",
     bearer_token_env_var_field="bearer_token_env_var",

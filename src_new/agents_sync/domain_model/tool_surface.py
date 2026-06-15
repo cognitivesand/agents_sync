@@ -38,11 +38,19 @@ class McpSpellingRecipe:
     ``env_field`` / ``disabled_field`` are this tool's spellings for env and the disabled
     flag; ``disabled_inverted`` marks an inverted flag (opencode's ``enabled`` = not
     disabled). ``command_mode`` ``"array"`` spells the stdio invocation as one
-    ``[command, *args]`` list. ``transport_render_field`` / ``auth_render_field`` /
-    ``headers_render_field`` are the keys a *fresh* projection emits (an observed spelling
-    still wins on round-trip); ``auth_render_field`` is ``None`` for a tool with no generic
-    auth block (codex). ``transport_render_values`` maps a canonical transport to this tool's
-    wire value (opencode: ``stdio``→``local``).
+    ``[command, *args]`` list. ``transport_render_field`` / ``name_render_field`` /
+    ``auth_render_field`` / ``headers_render_field`` are the keys a *fresh* projection emits
+    (an observed spelling still wins on round-trip); ``transport_render_field`` /
+    ``name_render_field`` / ``auth_render_field`` are ``None`` for a tool that emits no such
+    field — gemini and codex carry no explicit transport field and no inner name (the slot key
+    is the name), and codex has no generic auth block. ``transport_render_values`` maps a
+    canonical transport to this tool's wire value (opencode: ``stdio``→``local``).
+
+    ``transport_by_url_field`` lets a transport-field-less tool encode the transport in the
+    url-field SPELLING: an ordered ``(url_field, transport)`` map read on parse (gemini:
+    ``httpUrl``→http, ``url``→sse). ``url_field_by_transport`` is its render counterpart, the
+    ``(transport, url_field)`` spelling a fresh projection emits (gemini renders ``httpUrl`` for
+    http/streamable-http, ``url`` for sse). Both empty → the canonical url handling applies.
 
     ``env_http_headers_field`` / ``bearer_token_env_var_field`` are codex's dedicated HTTP
     auth carriers: when set, an env-reference header (``${env:NAME}``) round-trips through the
@@ -53,8 +61,11 @@ class McpSpellingRecipe:
     disabled_field: str = "disabled"
     disabled_inverted: bool = False
     command_mode: str = "split"
-    transport_render_field: str = "transport"
+    transport_render_field: str | None = "transport"
+    name_render_field: str | None = "name"
     transport_render_values: tuple[tuple[str, str], ...] = ()
+    transport_by_url_field: tuple[tuple[str, str], ...] = ()
+    url_field_by_transport: tuple[tuple[str, str], ...] = ()
     auth_render_field: str | None = "auth"
     headers_render_field: str = "headers"
     env_http_headers_field: str | None = None

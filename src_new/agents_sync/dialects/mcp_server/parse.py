@@ -60,7 +60,7 @@ def parse(
     slot = keyed_map_slot.read_slot(text, tool_surface)
     spelling = _spelling(tool_surface.surface_format)
     _reject_duplicate_aliases(slot)
-    transport, transport_field = _detect_transport(slot)
+    transport, transport_field = _detect_transport(slot, spelling)
     base = prior_canonical or CanonicalDocument(artifact_id="", kind=tool_surface.kind)
     id_field = tool_surface.surface_format.id_field
     changes: dict[str, Any] = {
@@ -104,15 +104,20 @@ def extract_id(text: str, tool_surface: ToolSurface) -> str | None:
     return keyed_map_slot.extract_id(text, tool_surface)
 
 
-def _detect_transport(slot: dict[str, Any]) -> tuple[str, str | None]:
+def _detect_transport(slot: dict[str, Any], spelling: McpSpellingRecipe) -> tuple[str, str | None]:
     """Return ``(canonical_transport, the_field_it_came_from)``; infer from command/url.
 
-    The field is ``None`` when the transport was inferred rather than read from a key."""
+    The field is ``None`` when the transport was inferred rather than read from a key. A
+    transport-field-less tool may encode the transport in the url-field spelling
+    (``transport_by_url_field``: gemini's ``httpUrl``→http, ``url``→sse)."""
     for field in _TRANSPORT_FIELDS:
         if field in slot:
             return _canonical_or_malformed(slot[field]), field
     if "command" in slot:
         return "stdio", None
+    for url_field, transport in spelling.transport_by_url_field:
+        if url_field in slot:
+            return transport, None
     if any(field in slot for field in _URL_FIELDS):
         return "http", None
     raise MalformedSurfaceError("mcp_server slot must declare a transport, command, or url")
