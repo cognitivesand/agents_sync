@@ -81,7 +81,9 @@ def test_opencode_renders_an_env_value_in_its_brace_env_style() -> None:
 
 
 def test_a_canonical_style_tool_emits_env_refs_unchanged() -> None:
-    # cursor declares no style override, so the canonical ${env:NAME} form is emitted verbatim.
+    # The default-style behaviour (tool-agnostic): a tool with NO env_reference_style override
+    # emits the canonical ${env:NAME} form verbatim (identity restyle). cursor is the
+    # representative default-style tool here; the non-default styles are covered above/below.
     slot = _rendered_slot(_http_doc(headers={"X-Key": "${env:KEY}"}), _mcp_surface("cursor"))
 
     assert slot["headers"]["X-Key"] == "${env:KEY}"

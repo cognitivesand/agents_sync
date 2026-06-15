@@ -1,6 +1,6 @@
 [project]
 name = "agents_sync"
-version = "0.7.40"
+version = "0.7.41"
 description = "Bidirectional sync of Claude Code, Codex, Copilot, Cursor, Gemini CLI, Antigravity, and opencode customizations."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -53,8 +53,9 @@ files = ["src"]
 
 [tool.pytest.ini_options]
 # Default run is the conformance suite only. The greenfield rebuild's tests live
-# in ``tests_new/`` and run as a separate ci stage (their conftest repoints
-# ``agents_sync`` to ``src_new/``, which must not leak into this run).
+# in ``tests_new/`` and run as a separate ci stage via ``pytest -c pytest_new.ini``,
+# whose ``pythonpath = src_new`` repoints ``agents_sync`` to the rebuild tree (no
+# conftest does this) — a repoint that must not leak into this run.
 testpaths = ["tests"]
 # Audit slice 10 · CQ-15: register slow / integration markers so a developer
 # can opt out of the integration layer with ``pytest -m 'not integration'``

@@ -230,8 +230,12 @@ def test_extract_id_reads_the_slot_id() -> None:
 
 
 def test_extract_id_returns_none_when_unreadable_or_absent() -> None:
-    assert extract_artifact_id("{not json", _surface()) is None  # malformed: None, not a raise
-    assert extract_artifact_id(_file({"github": {"command": "x"}}), _surface()) is None  # no id
+    assert (
+        extract_artifact_id("{not json", _surface()) is None
+    ), "malformed text returns None, never raises (FR-11)"
+    assert (
+        extract_artifact_id(_file({"github": {"command": "x"}}), _surface()) is None
+    ), "a present slot without an id returns None"
 
 
 def test_malformed_json_raises_malformed_surface_error() -> None:

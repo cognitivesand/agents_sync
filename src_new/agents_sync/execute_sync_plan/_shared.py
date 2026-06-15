@@ -49,6 +49,16 @@ def target_file(target: ToolSurface) -> Path:
     return location.file if isinstance(location, KeyedMapSlot) else location
 
 
+def reject_shared_write_file(surfaces: tuple[ToolSurface, ...], artifact_id: str) -> None:
+    """Abort the intent when two surfaces resolve to the same write file: a second
+    atomic write would clobber the first surface's bytes. One clobber invariant for
+    every multi-surface writer (project, adopt, rename), routed to ``failed`` and
+    retried next poll rather than corrupting the file (US-06 AC-6; NFR-01/NFR-16)."""
+    write_files = [target_file(surface) for surface in surfaces]
+    if len(set(write_files)) != len(write_files):
+        raise IntentAbortError(f"intent surfaces share a write file for {artifact_id}")
+
+
 def recorded_targets(artifact_id: str, execution: ExecutionContext) -> tuple[ToolSurface, ...]:
     """The artifact's recorded surfaces, resolved to this poll's observed ToolSurfaces.
 

@@ -23,6 +23,7 @@ from agents_sync.domain_model.tool_surface import ToolSurface
 from agents_sync.execute_sync_plan._shared import (
     ExecutionContext,
     IntentAbortError,
+    reject_shared_write_file,
     target_file,
 )
 from agents_sync.read_tool_surfaces import surface_content_digest
@@ -67,11 +68,7 @@ def project_canonical(
     if not isinstance(canonical, CanonicalDocument):
         raise IntentAbortError(f"no stored canonical to project for {artifact_id}")
     enforce_secret_policy(canonical, execution.secret_policy_value, artifact_label=artifact_id)
-    render_files = [target_file(target) for target in targets]
-    if len(set(render_files)) != len(render_files):
-        # two targets sharing one file would clobber each other's render — a recipe
-        # bug that must fail loud, not corrupt (watch-item until tools-as-data S20).
-        raise ValueError(f"project targets share a render file for {artifact_id}")
+    reject_shared_write_file(targets, artifact_id)
     pending_writes: list[tuple[ToolSurface, Path, str]] = []
     for target in targets:
         render_file = target_file(target)
@@ -105,12 +102,13 @@ def rebuild_corrupt_canonical(intent: RebuildCorruptCanonical, execution: Execut
     """The stored canonical was lost (quarantined): rebuild it from the freshest
     parseable recorded surface (US-09 AC-4)."""
     record = execution.records.get(intent.artifact_id, ArtifactRecord())
+    observations = [
+        execution.observations_by_location.get(recorded.location)
+        for recorded in record.surfaces.values()
+    ]
     parseable = [
         observation
-        for observation in (
-            execution.observations_by_location.get(recorded.location)
-            for recorded in record.surfaces.values()
-        )
+        for observation in observations
         if observation is not None and isinstance(observation.parsed, CanonicalDocument)
     ]
     if not parseable:

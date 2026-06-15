@@ -21,18 +21,17 @@ from agents_sync.domain_model.artifact_identity import mint_artifact_id
 from agents_sync.domain_model.artifact_naming import slugify_name
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 from agents_sync.domain_model.sync_plan import (
-    AbsorbIntoManaged,
     AdoptNewArtifact,
     RemoveArtifact,
     RenameArtifact,
 )
 from agents_sync.domain_model.sync_state import ArtifactRecord, RecordedSurface
 from agents_sync.domain_model.tool_surface import KeyedMapSlot, ToolSurface
-from agents_sync.execute_sync_plan import content_intents
 from agents_sync.execute_sync_plan._shared import (
     ExecutionContext,
     IntentAbortError,
     recorded_targets,
+    reject_shared_write_file,
     target_file,
 )
 from agents_sync.read_tool_surfaces import surface_content_digest
@@ -55,6 +54,7 @@ def adopt_new_artifact(intent: AdoptNewArtifact, execution: ExecutionContext) ->
         canonical, execution.secret_policy_value, artifact_label=str(intent.source.location)
     )
     surfaces = (intent.source, *intent.others)
+    reject_shared_write_file(surfaces, minted_id)
     # archive every surface's pre-injection bytes first (US-03; NFR-01)
     pending_writes: list[tuple[ToolSurface, str]] = []
     for surface in surfaces:
@@ -79,13 +79,6 @@ def adopt_new_artifact(intent: AdoptNewArtifact, execution: ExecutionContext) ->
     execution.changed += 1
 
 
-def absorb_into_managed(intent: AbsorbIntoManaged, execution: ExecutionContext) -> None:
-    """Managed wins (US-03 AC-6): project the managed canonical over the newcomer's
-    surfaces — the projection transaction archives the newcomer's bytes first and
-    joins the tools to the existing record; no id is minted."""
-    content_intents.project_canonical(intent.artifact_id, intent.sources, execution)
-
-
 def rename_artifact(intent: RenameArtifact, execution: ExecutionContext) -> None:
     """Relocate every projection to the new slug, archiving the old bytes (US-04).
 
@@ -98,8 +91,10 @@ def rename_artifact(intent: RenameArtifact, execution: ExecutionContext) -> None
     enforce_secret_policy(
         canonical, execution.secret_policy_value, artifact_label=intent.artifact_id
     )
+    old_surfaces = recorded_targets(intent.artifact_id, execution)
+    reject_shared_write_file(old_surfaces, intent.artifact_id)
     pending: list[tuple[ToolSurface, Path, str, Path | None]] = []
-    for old_surface in recorded_targets(intent.artifact_id, execution):
+    for old_surface in old_surfaces:
         new_surface = _renamed_surface(old_surface, intent.new_name)
         old_file = target_file(old_surface)
         prior_text = old_file.read_text(encoding="utf-8")

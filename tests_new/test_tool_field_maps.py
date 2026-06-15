@@ -45,17 +45,21 @@ def test_claude_agent_field_map_round_trips_its_native_spellings(tmp_path: Path)
     reparsed = file_to_canonical(rendered, surface, None)
 
     # The native front-matter spellings are emitted — never the canonical names.
-    assert "disallowedTools:" in rendered
-    assert "permissionMode:" in rendered
-    assert "disallowed_tools" not in rendered
-    assert "permission_mode" not in rendered
+    assert "disallowedTools:" in rendered, "render emits the native disallowedTools spelling"
+    assert "permissionMode:" in rendered, "render emits the native permissionMode spelling"
+    assert "disallowed_tools" not in rendered, "render never emits the canonical disallowed_tools"
+    assert "permission_mode" not in rendered, "render never emits the canonical permission_mode"
     # And every mapped field folds back onto its canonical attribute.
-    assert reparsed.model == "opus"
-    assert reparsed.effort == "high"
-    assert reparsed.tools == ("Read",)
-    assert reparsed.disallowed_tools == ("Bash",)
-    assert reparsed.permission_mode == "ask"
-    assert reparsed.per_tool_extra.get("claude", {}) == {}
+    assert reparsed.model == "opus", "parse maps model back to the canonical attribute"
+    assert reparsed.effort == "high", "parse maps effort back to the canonical attribute"
+    assert reparsed.tools == ("Read",), "parse maps tools back to the canonical attribute"
+    assert reparsed.disallowed_tools == (
+        "Bash",
+    ), "parse maps disallowedTools back to canonical disallowed_tools"
+    assert reparsed.permission_mode == "ask", "parse maps permissionMode back to permission_mode"
+    assert (
+        reparsed.per_tool_extra.get("claude", {}) == {}
+    ), "no mapped field strands in per_tool_extra"
 
 
 def test_codex_agent_field_map_round_trips_its_toml_effort_spelling(tmp_path: Path) -> None:

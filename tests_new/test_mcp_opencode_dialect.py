@@ -161,7 +161,9 @@ def test_an_opencode_native_stdio_slot_round_trips_stably() -> None:
 
 
 def test_env_propagates_from_cursor_to_opencode() -> None:
-    # The folding payoff: env set on one tool reaches opencode in opencode's spelling.
+    # Cross-tool env-MAP propagation: a plain env map set on cursor reaches opencode under
+    # opencode's `environment` spelling. (The env-REFERENCE restyle is covered separately in
+    # test_mcp_env_reference_style.py; this value is plain, so no restyle is exercised here.)
     cursor = _mcp_surface("cursor")
     cursor_text = _file_for(cursor, {"github": {"command": "npx", "env": {"K": "v"}}})
 

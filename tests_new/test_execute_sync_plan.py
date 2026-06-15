@@ -149,13 +149,15 @@ def test_absorb_saves_the_winner_canonical_and_updates_the_record(tmp_path: Path
 
     stored = load_canonical(state_dir, _ARTIFACT_ID)
     assert isinstance(stored, CanonicalDocument)
-    assert stored.name == "reviewer"
-    assert result.changed == 1
+    assert stored.name == "reviewer", "the winning surface's name folded into the canonical"
+    assert result.changed == 1, "the absorb is counted as one change"
     record = state.records[_ARTIFACT_ID]
-    assert record.canonical_digest == stored.content_digest()
+    assert record.canonical_digest == stored.content_digest(), "record pins the saved canonical"
     # the recorded digest IS the observation's digest — anything else re-absorbs forever
     [claude_observation] = [o for o in observations if o.tool_surface.tool == "claude"]
-    assert record.surfaces["claude"].content_digest == claude_observation.content_digest
+    assert record.surfaces["claude"].content_digest == claude_observation.content_digest, (
+        "recorded digest equals the observation digest — the no-churn re-absorb guard (NFR-05)"
+    )
 
 
 def test_absorb_of_a_secret_bearing_canonical_is_blocked(tmp_path: Path) -> None:
@@ -230,11 +232,17 @@ def test_project_writes_the_canonical_onto_the_targets(tmp_path: Path) -> None:
         plan, _observe(claude_dir, cursor_dir), _recorded_state(claude_dir, cursor_dir), state_dir
     )
 
+    from agents_sync.read_tool_surfaces import surface_content_digest
+
     written = (cursor_dir / "reviewer.md").read_text()
     assert "Be terse." in written
     assert _ARTIFACT_ID in written  # the projection embeds the id
     assert result.changed == 1
-    assert state.records[_ARTIFACT_ID].surfaces["cursor"].content_digest != ""
+    # the recorded digest is the digest of the bytes actually written, not merely non-empty:
+    # a wrong-but-non-empty digest would re-project forever (NFR-05).
+    assert state.records[_ARTIFACT_ID].surfaces["cursor"].content_digest == surface_content_digest(
+        written, target
+    )
 
 
 def test_a_projected_surface_reads_back_as_unchanged_next_poll(tmp_path: Path) -> None:
@@ -516,11 +524,13 @@ def test_adopt_mints_an_id_and_injects_it_into_every_group_surface(tmp_path: Pat
 
     [minted_id] = [aid for aid in state.records if aid != _ARTIFACT_ID]
     validate_artifact_id(minted_id)  # a genuine UUIDv4 was minted
-    assert minted_id in (claude_dir / "helper.md").read_text()  # id injected
-    assert minted_id in (cursor_dir / "helper.md").read_text()
-    assert isinstance(load_canonical(state_dir, minted_id), CanonicalDocument)
-    assert result.changed == 1
-    assert set(state.records[minted_id].surfaces) == {"claude", "cursor"}
+    assert minted_id in (claude_dir / "helper.md").read_text(), "id injected into claude surface"
+    assert minted_id in (cursor_dir / "helper.md").read_text(), "id injected into cursor surface"
+    assert isinstance(
+        load_canonical(state_dir, minted_id), CanonicalDocument
+    ), "canonical persisted under the minted id"
+    assert result.changed == 1, "the adopt is counted as one change"
+    assert set(state.records[minted_id].surfaces) == {"claude", "cursor"}, "both surfaces recorded"
 
 
 def test_adopt_archives_the_pre_injection_bytes(tmp_path: Path) -> None:
@@ -625,16 +635,16 @@ def test_rename_relocates_every_projection_to_the_new_slug(tmp_path: Path) -> No
         plan, _observe(claude_dir, cursor_dir), _recorded_state(claude_dir, cursor_dir), state_dir
     )
 
-    assert not (claude_dir / "reviewer.md").exists()
-    assert "critic" in (claude_dir / "critic.md").read_text()
-    assert (cursor_dir / "critic.md").exists()
+    assert not (claude_dir / "reviewer.md").exists(), "old-slug file should be unlinked"
+    assert "critic" in (claude_dir / "critic.md").read_text(), "new-slug file holds renamed content"
+    assert (cursor_dir / "critic.md").exists(), "every projection relocated to the new slug"
     stored = load_canonical(state_dir, _ARTIFACT_ID)
     assert isinstance(stored, CanonicalDocument)
-    assert stored.name == "critic"
+    assert stored.name == "critic", "stored canonical carries the new name"
     record = state.records[_ARTIFACT_ID]
-    assert record.name == "critic"
-    assert record.surfaces["claude"].location == claude_dir / "critic.md"
-    assert result.changed == 1
+    assert record.name == "critic", "record carries the new name"
+    assert record.surfaces["claude"].location == claude_dir / "critic.md", "record location updated"
+    assert result.changed == 1, "the rename is counted as one change"
 
 
 def test_a_failed_archive_aborts_a_multi_surface_rename_wholesale(
@@ -719,15 +729,21 @@ def test_rename_relocates_a_slot_and_a_file_in_one_intent(tmp_path: Path) -> Non
 
     result, new_state = execute_sync_plan(plan, observations, state, state_dir)
 
-    assert (claude_dir / "critic.md").exists() and not (claude_dir / "reviewer.md").exists()
+    assert (claude_dir / "critic.md").exists() and not (
+        claude_dir / "reviewer.md"
+    ).exists(), "per-file arm: relocated to the new file and unlinked the old"
     stored_map = json.loads((cursor_dir / "mcp.json").read_text())["mcpServers"]
-    assert "critic" in stored_map and "reviewer" not in stored_map
+    assert "critic" in stored_map and "reviewer" not in stored_map, (
+        "keyed-map arm: slot rewritten to the new key in the shared file"
+    )
     record = new_state.records[_ARTIFACT_ID]
-    assert record.surfaces["claude"].location == claude_dir / "critic.md"
+    assert record.surfaces["claude"].location == claude_dir / "critic.md", (
+        "record: per-file location updated"
+    )
     assert record.surfaces["cursor"].location == KeyedMapSlot(
         file=cursor_dir / "mcp.json", slot="critic"
-    )
-    assert result.changed == 1
+    ), "record: keyed-map slot location updated"
+    assert result.changed == 1, "the mixed-intent rename is counted as one change"
 
 
 def test_rename_archives_the_old_surfaces(tmp_path: Path) -> None:
@@ -818,12 +834,12 @@ def test_remove_archives_and_deletes_the_surviving_projections(tmp_path: Path) -
         plan, _observe(claude_dir, cursor_dir), _recorded_state(claude_dir, cursor_dir), state_dir
     )
 
-    assert not (claude_dir / "reviewer.md").exists()
-    assert not (cursor_dir / "reviewer.md").exists()
-    assert _ARTIFACT_ID not in state.records  # the record is gone
+    assert not (claude_dir / "reviewer.md").exists(), "claude projection deleted"
+    assert not (cursor_dir / "reviewer.md").exists(), "cursor projection deleted"
+    assert _ARTIFACT_ID not in state.records, "the record is gone"
     claude_entries = list((state_dir / "archive" / _ARTIFACT_ID / "claude").iterdir())
-    assert len(claude_entries) == 1  # bytes preserved (NFR-01)
-    assert result.changed == 1
+    assert len(claude_entries) == 1, "prior bytes archived before deletion (NFR-01)"
+    assert result.changed == 1, "the removal is counted as one change"
 
 
 def test_remove_archives_the_canonical_under_the_reserved_side(tmp_path: Path) -> None:

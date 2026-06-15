@@ -88,13 +88,20 @@ def test_specs_resolve_against_the_provided_paths(tmp_path: Path) -> None:
     specs = surface_specs_for(tool_definition("claude"), paths)
 
     by_kind = {spec.kind: spec for spec in specs}
-    assert isinstance(by_kind["agent"], DirectorySurfaceSpec)
-    assert by_kind["agent"].directory == tmp_path / "agents"
-    assert isinstance(by_kind["slash_command"], DirectorySurfaceSpec)
-    assert isinstance(by_kind["rules"], RulesFileSurfaceSpec)
-    assert by_kind["rules"].candidate_filenames == ("AGENTS.md", "CLAUDE.md")
-    assert isinstance(by_kind["mcp_server"], KeyedMapSurfaceSpec)
-    assert by_kind["mcp_server"].file == tmp_path / ".claude.json"
+    assert isinstance(by_kind["agent"], DirectorySurfaceSpec), "agent resolves to a directory spec"
+    assert by_kind["agent"].directory == tmp_path / "agents", "agent directory resolved from paths"
+    assert isinstance(
+        by_kind["slash_command"], DirectorySurfaceSpec
+    ), "slash_command resolves to a directory spec"
+    assert isinstance(by_kind["rules"], RulesFileSurfaceSpec), "rules resolves to a rules-file spec"
+    assert by_kind["rules"].candidate_filenames == (
+        "AGENTS.md",
+        "CLAUDE.md",
+    ), "rules candidate filenames in precedence order"
+    assert isinstance(
+        by_kind["mcp_server"], KeyedMapSurfaceSpec
+    ), "mcp_server resolves to a keyed-map spec"
+    assert by_kind["mcp_server"].file == tmp_path / ".claude.json", "mcp_server file resolved"
 
 
 def test_a_kind_without_a_resolved_path_is_skipped(tmp_path: Path) -> None:
@@ -104,17 +111,21 @@ def test_a_kind_without_a_resolved_path_is_skipped(tmp_path: Path) -> None:
     assert {spec.kind for spec in specs} == {"agent"}
 
 
-def test_gemini_rules_use_the_fixed_filename() -> None:
-    recipe = _recipe_for("gemini_cli", "rules")
+def test_gemini_rules_resolve_to_gemini_md_through_the_read_phase(tmp_path: Path) -> None:
+    # FR-10: the read phase resolves gemini's single rules surface to GEMINI.md from the
+    # recipe's candidate_filenames — a behaviour the shape of the recipe alone does not prove.
+    (tmp_path / "GEMINI.md").write_text("Be terse.\n")
+    specs = surface_specs_for(tool_definition("gemini_cli"), {"gemini_cli_rules_dir": tmp_path})
 
-    assert recipe.candidate_filenames == ("GEMINI.md",)
+    observations = read_tool_surfaces(specs)
+
+    [rules] = [obs for obs in observations if obs.tool_surface.kind == "rules"]
+    assert rules.tool_surface.location == tmp_path / "GEMINI.md"
 
 
-def test_codex_mcp_servers_live_in_the_toml_config() -> None:
-    recipe = _recipe_for("codex", "mcp_server")
-
-    assert recipe.surface_format.file_format == "toml"
-    assert recipe.surface_format.map_key_path == ("mcp_servers",)
+# codex's mcp_server TOML / [mcp_servers] resolution is exercised end-to-end by the
+# parametrized round-trip below (test_an_mcp_slot_round_trips_through_every_tool_recipe drives
+# codex's REAL recipe), so a separate recipe-shape assertion would only duplicate it.
 
 
 # --- cross-adapter matrix (NFR-11/18) ---------------------------------------------------

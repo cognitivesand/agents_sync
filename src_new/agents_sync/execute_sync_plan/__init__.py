@@ -117,7 +117,10 @@ def _perform_transactional_intent(intent: SyncIntent, execution: ExecutionContex
     elif isinstance(intent, AdoptNewArtifact):
         identity_intents.adopt_new_artifact(intent, execution)
     elif isinstance(intent, AbsorbIntoManaged):
-        identity_intents.absorb_into_managed(intent, execution)
+        # Managed wins (US-03 AC-6): project the managed canonical over the newcomer's
+        # surfaces — the projection transaction archives the newcomer's bytes first and
+        # joins the tools to the existing record; no id is minted.
+        content_intents.project_canonical(intent.artifact_id, intent.sources, execution)
     elif isinstance(intent, RenameArtifact):
         identity_intents.rename_artifact(intent, execution)
     else:

@@ -72,14 +72,11 @@ def read_slot(text: str, tool_surface: ToolSurface) -> dict[str, Any]:
     The shared keyed-map-file read, used by this dialect's fold and by the ``mcp_server``
     dialect (which interprets the slot fields itself rather than via the flat recipe)."""
     surface_format = tool_surface.surface_format
-    node: Any = structured_text.deserialize(text, surface_format.file_format)
-    for key in surface_format.map_key_path:
-        if not isinstance(node, dict) or key not in node:
-            return {}
-        node = node[key]
-    if not isinstance(node, dict):
+    root = structured_text.deserialize(text, surface_format.file_format)
+    slot_map = _navigate(root, surface_format.map_key_path)
+    if slot_map is None:
         return {}
-    slot = node.get(_slot_key(tool_surface))
+    slot = slot_map.get(_slot_key(tool_surface))
     return slot if isinstance(slot, dict) else {}
 
 
@@ -102,15 +99,31 @@ def remove_slot(prior_text: str, tool_surface: ToolSurface) -> str:
 
     The executor's removal/rename counterpart to ``write_slot``. An absent slot —
     or an absent map path — reassembles the file unchanged: a removal never
-    injects parent objects (that self-healing is a WRITE concern)."""
+    injects parent objects (that self-healing is a WRITE concern).
+
+    ``prior_text`` is ``str`` (not ``str | None`` like ``write_slot``) by design: a removal
+    presupposes an existing file, so there is nothing to remove from ``None``; the divergence
+    from ``write_slot``'s create-from-nothing tolerance is intentional, not an oversight."""
     surface_format = tool_surface.surface_format
     root = structured_text.deserialize(prior_text, surface_format.file_format)
-    node: Any = root
-    for key in surface_format.map_key_path:
-        node = node.get(key) if isinstance(node, dict) else None
-    if isinstance(node, dict):
-        node.pop(_slot_key(tool_surface), None)
+    slot_map = _navigate(root, surface_format.map_key_path)
+    if slot_map is not None:
+        slot_map.pop(_slot_key(tool_surface), None)
     return structured_text.serialize(root, surface_format.file_format)
+
+
+def _navigate(root: Any, map_key_path: tuple[str, ...]) -> dict[str, Any] | None:
+    """Walk ``map_key_path`` read-only, returning the resolved slot-map dict or ``None``.
+
+    The single source of truth for the keyed-map traversal: ``read_slot`` returns ``{}`` on
+    ``None`` and ``remove_slot`` no-ops on ``None``, while ``write_slot`` self-heals instead
+    (a distinct WRITE concern, see ``_navigate_or_create``)."""
+    node: Any = root
+    for key in map_key_path:
+        if not isinstance(node, dict) or key not in node:
+            return None
+        node = node[key]
+    return node if isinstance(node, dict) else None
 
 
 def _navigate_or_create(root: dict[str, Any], map_key_path: tuple[str, ...]) -> dict[str, Any]:

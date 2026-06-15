@@ -90,8 +90,10 @@ def test_codex_bearer_token_env_var_folds_to_an_authorization_header() -> None:
     }
 
 
-def test_codex_recognises_a_legacy_headers_spelling_on_parse() -> None:
-    # the dialect accepts `headers` as well as `http_headers` (codex's preferred render spelling).
+def test_the_generic_headers_spelling_folds_on_parse() -> None:
+    # `headers` is the canonical-default spelling (shared by every tool), folded for any
+    # dialect; codex's distinct carrier spelling `http_headers` is covered above. This pins
+    # the generic `headers` fold, not anything codex-specific.
     surface = _mcp_surface()
     text = _codex_file(surface, {"figma": {"url": _URL, "headers": {"X-Region": "eu"}}})
 

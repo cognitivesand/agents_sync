@@ -70,6 +70,7 @@ def parse(
         "kind": tool_surface.kind,
         "transport": transport,
         # reset all mcp fields: an omitted slot field clears, never carries a stale prior.
+        "name": "",
         "command": None,
         "args": (),
         "env": {},
@@ -213,6 +214,9 @@ def _fold_common(
             raise MalformedSurfaceError("mcp_server timeout must be an integer")
         changes["timeout"] = timeout
     if spelling.disabled_field in slot:
+        # ``disabled`` is a flag whose true/false/0/1 are all legitimate JSON shapes, so the
+        # permissive ``bool()`` coercion is intentional here — unlike ``timeout`` above, which
+        # rejects a non-genuine-int because the canonical demands a real integer.
         flag = bool(slot[spelling.disabled_field])
         changes["disabled"] = (not flag) if spelling.disabled_inverted else flag
     always_allow_field = _first_present(slot, _ALWAYS_ALLOW_FIELDS)
