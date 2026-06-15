@@ -16,13 +16,19 @@ from dataclasses import replace
 from typing import Any
 
 from agents_sync.dialects import MalformedSurfaceError, keyed_map_slot
+from agents_sync.dialects.mcp_server._carriers import fold_headers
 from agents_sync.dialects.mcp_server._shared import (
     _ALWAYS_ALLOW_FIELDS,
     _AUTH_FIELDS,
+    _HEADERS_FIELDS,
     _NAME_FIELD,
     _TRANSPORT_FIELDS,
     _URL_FIELDS,
+    _as_string,
+    _as_string_map,
     _canonical_transport,
+    _first_present,
+    _http_only_fields,
     _known_slot_fields,
     _spelling,
 )
@@ -31,12 +37,18 @@ from agents_sync.domain_model.tool_surface import McpSpellingRecipe, ToolSurface
 
 # The fields owned by exactly one transport shape: a slot declaring fields from the OTHER
 # shape describes two conflicting servers at once — malformed content, never silently halved.
-# The env spelling is per-tool (recipe data), so it is added to the stdio-only set per parse.
+# The env spelling and the http carriers are per-tool (recipe data), so the http-only set is
+# computed per parse (``_http_only_fields``); the stdio-only set is fixed.
 _STDIO_ONLY_FIELDS = ("command", "args", "cwd")
-_HTTP_ONLY_FIELDS = (*_URL_FIELDS, "headers", *_AUTH_FIELDS)
 # The alias families where one field accepts several spellings: a slot using two spellings
 # of one family declares the field twice — the same conflict, the same fail-loud answer.
-_ALIAS_FAMILIES = (_TRANSPORT_FIELDS, _URL_FIELDS, _AUTH_FIELDS, _ALWAYS_ALLOW_FIELDS)
+_ALIAS_FAMILIES = (
+    _TRANSPORT_FIELDS,
+    _URL_FIELDS,
+    _AUTH_FIELDS,
+    _ALWAYS_ALLOW_FIELDS,
+    _HEADERS_FIELDS,
+)
 
 
 def parse(
@@ -116,7 +128,7 @@ def _canonical_or_malformed(value: Any) -> str:
 
 def _fold_stdio(slot: dict[str, Any], changes: dict[str, Any], spelling: McpSpellingRecipe) -> None:
     """Fold the stdio fields (command/args/env/cwd) onto ``changes``."""
-    _reject_foreign_shape(slot, _HTTP_ONLY_FIELDS, "stdio")
+    _reject_foreign_shape(slot, _http_only_fields(spelling), "stdio")
     command = slot.get("command")
     if command is None:
         raise MalformedSurfaceError("stdio mcp_server requires a command")
@@ -143,14 +155,15 @@ def _fold_stdio(slot: dict[str, Any], changes: dict[str, Any], spelling: McpSpel
 def _fold_http(
     slot: dict[str, Any], changes: dict[str, Any], transport: str, spelling: McpSpellingRecipe
 ) -> None:
-    """Fold the http/sse fields (url, headers, auth — verbatim maps) onto ``changes``."""
+    """Fold the http/sse fields (url, headers + carriers, auth) onto ``changes``."""
     _reject_foreign_shape(slot, (*_STDIO_ONLY_FIELDS, spelling.env_field), transport)
     url_field = _first_present(slot, _URL_FIELDS)
     if url_field is None:
         raise MalformedSurfaceError(f"{transport} mcp_server requires a url")
     changes["url"] = _as_string(slot[url_field], "url")
-    if "headers" in slot:
-        changes["headers"] = _as_string_map(slot["headers"], "headers")
+    headers = fold_headers(slot, spelling)
+    if headers:
+        changes["headers"] = headers
     auth_field = _first_present(slot, _AUTH_FIELDS)
     if auth_field is not None:
         changes["auth"] = _as_string_map(slot[auth_field], auth_field)
@@ -210,6 +223,7 @@ def _spellings(slot: dict[str, Any], transport_field: str | None) -> dict[str, A
     _record_alias(result, "always_allow_field", slot, _ALWAYS_ALLOW_FIELDS)
     _record_alias(result, "url_field", slot, _URL_FIELDS)
     _record_alias(result, "auth_field", slot, _AUTH_FIELDS)
+    _record_alias(result, "headers_field", slot, _HEADERS_FIELDS)
     if isinstance(slot.get("command"), list):
         result["command_array"] = True
     return result
@@ -232,31 +246,12 @@ def _foreign_keys(
     return {key: value for key, value in slot.items() if key not in known}
 
 
-def _first_present(slot: dict[str, Any], keys: tuple[str, ...]) -> str | None:
-    for key in keys:
-        if key in slot:
-            return key
-    return None
-
-
 def _as_list(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
     if isinstance(value, str):
         return [value]
     raise MalformedSurfaceError("mcp_server args must be a list or string")
-
-
-def _as_string(value: Any, field_name: str) -> str:
-    if not isinstance(value, str):
-        raise MalformedSurfaceError(f"mcp_server {field_name} must be a string")
-    return value
-
-
-def _as_string_map(value: Any, field_name: str) -> dict[str, str]:
-    if not isinstance(value, dict):
-        raise MalformedSurfaceError(f"mcp_server {field_name} must be an object")
-    return {str(key): _as_string(item, f"{field_name} value") for key, item in value.items()}
 
 
 def _recover_id(slot: dict[str, Any], id_field: str, base: CanonicalDocument) -> str:

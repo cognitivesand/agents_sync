@@ -11,9 +11,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from agents_sync.dialects import keyed_map_slot
+from agents_sync.dialects.mcp_server._carriers import split_headers
 from agents_sync.dialects.mcp_server._shared import (
     _ALWAYS_ALLOW_FIELDS,
     _AUTH_FIELDS,
+    _HEADERS_FIELDS,
     _NAME_FIELD,
     _TRANSPORT_FIELDS,
     _URL_FIELDS,
@@ -104,14 +106,32 @@ def _render_http(
     only: Mapping[str, Any],
     spelling: McpSpellingRecipe,
 ) -> None:
-    """Emit the http/sse fields (url, headers, auth) back onto ``slot``."""
+    """Emit the http/sse fields (url, headers + carriers, auth) back onto ``slot``."""
     if canonical.url is not None:
         slot[_spelled_field(only, "url_field", _URL_FIELDS)] = canonical.url
-    if canonical.headers:
-        slot["headers"] = dict(canonical.headers)
-    if canonical.auth:
+    _render_headers(canonical, slot, only, spelling)
+    if canonical.auth and spelling.auth_render_field is not None:
         field = _spelled_field(only, "auth_field", _AUTH_FIELDS, spelling.auth_render_field)
         slot[field] = dict(canonical.auth)
+
+
+def _render_headers(
+    canonical: CanonicalDocument,
+    slot: dict[str, Any],
+    only: Mapping[str, Any],
+    spelling: McpSpellingRecipe,
+) -> None:
+    """Emit canonical headers: env-reference headers lift into the recipe's dedicated carriers,
+    the literal remainder stays under the (possibly tool-spelled) headers field."""
+    if not canonical.headers:
+        return
+    literal, carriers = split_headers(canonical.headers, spelling)
+    slot.update(carriers)
+    if literal:
+        spelled = _spelled_field(
+            only, "headers_field", _HEADERS_FIELDS, spelling.headers_render_field
+        )
+        slot[spelled] = literal
 
 
 def _render_common(

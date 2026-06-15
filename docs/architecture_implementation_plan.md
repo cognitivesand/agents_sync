@@ -29,20 +29,27 @@
   family — all 11 intents executable; executor is a package)**.
 - **Phase F:** S20 increment 1 ✓ (0.7.33 — tools-as-data core); increment 2 ✓ (0.7.34 —
   per-tool agent field maps); increment 3 ✓ (0.7.35 — opencode mcp dialect via `McpSpellingRecipe`,
-  data-driven); mcp render `per_tool_extra` deep-thaw fix ✓ (0.7.36 — foreign nested objects).
-- **Next step → S20 increment 4** — claude/cursor/copilot mcp render-field spellings (transport
-  field `type`; claude/copilot auth `oauth`), pure `McpSpellingRecipe` data reusing the
-  increment-3 knobs, zero dialect change. codex header carriers and gemini url/transport inference
-  need NEW dialect knobs → later increments; env-reference syntax conversion → after those.
+  data-driven); mcp render `per_tool_extra` deep-thaw fix ✓ (0.7.36 — foreign nested objects);
+  increment 4 ✓ (0.7.37 — claude/cursor/copilot mcp render-field spellings: transport field
+  `type`, claude/copilot auth `oauth`, pure data); increment 5 ✓ (0.7.38 — codex mcp carriers:
+  `http_headers`/`env_http_headers`/`bearer_token_env_var` fold onto canonical `headers` via NEW
+  `McpSpellingRecipe` knobs, fixed canonical `${env:NAME}` representation; no carrier strands in
+  `per_tool_extra`).
+- **Next step → S20 increment 6** — gemini mcp url/transport inference (`httpUrl`-from-transport +
+  suppressed transport field; codex's `render_transport_field=False`/`render_name_field=False`
+  ride here too) — NEW dialect knobs. Then increment 7 — the per-tool inline env-reference *style*
+  (`${env:NAME}`↔`${NAME}`↔`{env:NAME}`), cross-cutting (increment 5 fixed the canonical
+  `${env:NAME}` representation; 7 converts it to each tool's native inline spelling).
 - **Audit cadence:** the end-of-S20 two-auditor audit runs once, after the final S20
   sub-increment (before S21) — not between sub-increments. Each sub-increment still gets docs,
   red-first tests, full CI, and its own commit/`/bcp`.
 - **Phases D–G (S14–S25):** not started.
 - **Deferred, tracked here so they are not lost:** size-explosion hardening (`parser_bounds`) →
   S24 gate; mcp `@import` resolution + framework egress-guard *enforcement* → read phase S17–S19;
-  mcp secret policy → S18; per-tool field-spelling overrides (incl. opencode `enabled` inversion),
-  env-reference syntax conversion + per-tool `env_reference_style` + dedicated `env_http_headers`/
-  `bearer_token_env_var` carriers → S20; `CanonicalDocument.from_dict` type-coercion hardening
+  mcp secret policy → S18; per-tool field-spelling overrides (incl. opencode `enabled` inversion)
+  + codex `env_http_headers`/`bearer_token_env_var` carriers → S20 (carriers ✓ increment 5); the
+  per-tool inline `env_reference_style` (the `${env:NAME}`↔`${NAME}`↔`{env:NAME}` *style*
+  conversion) → S20 increment 7; `CanonicalDocument.from_dict` type-coercion hardening
   (it silently coerces e.g. `tools: "abc"` / `timeout: "x"` instead of raising into the store's
   quarantine catch — S15 audit note) → revisit when the schema next grows (S20); S19 audit
   watch-items for **S20**: (a) verify the planner prunes a vanished tool's recorded surface
@@ -156,7 +163,7 @@ the superseded modules retired. The conformance suite holds throughout.
 ### Phase F — Tools as data, drivers, library
 | # | Step | Touches | Spec / test focus |
 |---|---|---|---|
-| S20 | Tool definitions + registry | `tools/*`, `tools/agentic_tools_registry` | increments. **(1) data core** — `ToolDefinition` + per-kind surface recipes (config key + layout + `SurfaceFormat`, no callables) for all 7 tools over the kinds today's dialects support (agent / slash_command / rules / mcp_server; codex agents + gemini commands are whole-file TOML; antigravity registers empty until the skill dialect); `surface_specs_for` skips unresolved config keys (US-11); cross-adapter agent matrix + per-tool mcp round-trips through the REAL dialects (NFR-11/18). **(2) per-tool agent field maps** ✓ — model/effort/tools (+ claude `disallowedTools`/`permissionMode`, codex `model_reasoning_effort`) fold onto existing canonical attrs as additive `known_fields` data, zero dialect change; opencode model/tools *transforms* (provider-split, tools→permission) and gemini private `tools` deferred. **(3) opencode mcp dialect (data-driven)** ✓ — a per-tool `McpSpellingRecipe` (data in the tool module, NO dialect tool-branches): opencode `environment` (env), inverted `enabled` (disabled), `array` command, `type` + `local`/`remote` transport values, `oauth` auth; the `_shared.py` module constants become defaults. (Plus the mcp render `per_tool_extra` deep-thaw fix.) **(4) mcp render-field spellings, simple tools** — claude/cursor/copilot transport field `type` + claude/copilot `oauth` auth, pure `McpSpellingRecipe` data, zero dialect change. **(5) codex mcp carriers** — `http_headers` + `env_http_headers`/`bearer_token_env_var` (split canonical headers/auth into separate fields; NEW knobs). **(6) gemini mcp url/transport inference** — `httpUrl`-from-transport + suppressed transport field (NEW knobs). **(7) env-reference syntax conversion** — the per-tool `env_reference_style` (`${env:NAME}`↔`${NAME}`↔`{env:NAME}`), cross-cutting. **(later)** the skill (directory-tree) dialect + antigravity recipes, reserved names, `from_dict` hardening, the S19 watch-items |
+| S20 | Tool definitions + registry | `tools/*`, `tools/agentic_tools_registry` | increments. **(1) data core** — `ToolDefinition` + per-kind surface recipes (config key + layout + `SurfaceFormat`, no callables) for all 7 tools over the kinds today's dialects support (agent / slash_command / rules / mcp_server; codex agents + gemini commands are whole-file TOML; antigravity registers empty until the skill dialect); `surface_specs_for` skips unresolved config keys (US-11); cross-adapter agent matrix + per-tool mcp round-trips through the REAL dialects (NFR-11/18). **(2) per-tool agent field maps** ✓ — model/effort/tools (+ claude `disallowedTools`/`permissionMode`, codex `model_reasoning_effort`) fold onto existing canonical attrs as additive `known_fields` data, zero dialect change; opencode model/tools *transforms* (provider-split, tools→permission) and gemini private `tools` deferred. **(3) opencode mcp dialect (data-driven)** ✓ — a per-tool `McpSpellingRecipe` (data in the tool module, NO dialect tool-branches): opencode `environment` (env), inverted `enabled` (disabled), `array` command, `type` + `local`/`remote` transport values, `oauth` auth; the `_shared.py` module constants become defaults. (Plus the mcp render `per_tool_extra` deep-thaw fix.) **(4) mcp render-field spellings, simple tools** ✓ — claude/cursor/copilot transport field `type` + claude/copilot `oauth` auth, pure `McpSpellingRecipe` data, zero dialect change. **(5) codex mcp carriers** ✓ — codex's HTTP auth carriers fold onto the canonical `headers` map via NEW `McpSpellingRecipe` knobs (`headers_render_field`, `env_http_headers_field`, `bearer_token_env_var_field`, optional `auth_render_field`): `http_headers` is codex's `headers` spelling; an `env_http_headers` entry (`X`→`TOK`) and a `bearer_token_env_var` (`TOK`) fold to `headers[X]="${env:TOK}"` / `headers.Authorization="Bearer ${env:TOK}"` and split back out on render (literals stay in `http_headers`); codex has no generic auth block (`auth_render_field=None`). Uses the FIXED canonical `${env:NAME}` representation — the per-tool inline *style* is increment 7. No carrier strands in `per_tool_extra`. **(6) gemini mcp url/transport inference** — `httpUrl`-from-transport + suppressed transport field (NEW knobs). **(7) env-reference syntax conversion** — the per-tool `env_reference_style` (`${env:NAME}`↔`${NAME}`↔`{env:NAME}`), cross-cutting. **(later)** the skill (directory-tree) dialect + antigravity recipes, reserved names, `from_dict` hardening, the S19 watch-items |
 | S21 | Runtime config | `runtime_config` | load/validate/platform paths; fail-closed config errors + distinct exit code (NFR-10, US-07 AC-7) |
 | S22 | Daemon + CLI | `poll_daemon`, `command_line_interface` | systemic-only failure budget (FR-02), GC tick, latency (NFR-02); export/import/run; exit-code matrix (NFR-10) |
 | S23 | Portable library | `portable_library` | export; import preview-then-write + `--force`; last-modified-wins / cross-identity retire (US-12, FR-12/15) |

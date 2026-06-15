@@ -38,10 +38,16 @@ class McpSpellingRecipe:
     ``env_field`` / ``disabled_field`` are this tool's spellings for env and the disabled
     flag; ``disabled_inverted`` marks an inverted flag (opencode's ``enabled`` = not
     disabled). ``command_mode`` ``"array"`` spells the stdio invocation as one
-    ``[command, *args]`` list. ``transport_render_field`` and ``auth_render_field`` are the
-    keys a *fresh* projection emits (an observed spelling still wins on round-trip);
-    ``transport_render_values`` maps a canonical transport to this tool's wire value
-    (opencode: ``stdio``→``local``)."""
+    ``[command, *args]`` list. ``transport_render_field`` / ``auth_render_field`` /
+    ``headers_render_field`` are the keys a *fresh* projection emits (an observed spelling
+    still wins on round-trip); ``auth_render_field`` is ``None`` for a tool with no generic
+    auth block (codex). ``transport_render_values`` maps a canonical transport to this tool's
+    wire value (opencode: ``stdio``→``local``).
+
+    ``env_http_headers_field`` / ``bearer_token_env_var_field`` are codex's dedicated HTTP
+    auth carriers: when set, an env-reference header (``${env:NAME}``) round-trips through the
+    named field (a header→env-name map, and a single bearer env-name) instead of an inline
+    header value; ``None`` (the default) leaves env-reference headers inline."""
 
     env_field: str = "env"
     disabled_field: str = "disabled"
@@ -49,7 +55,10 @@ class McpSpellingRecipe:
     command_mode: str = "split"
     transport_render_field: str = "transport"
     transport_render_values: tuple[tuple[str, str], ...] = ()
-    auth_render_field: str = "auth"
+    auth_render_field: str | None = "auth"
+    headers_render_field: str = "headers"
+    env_http_headers_field: str | None = None
+    bearer_token_env_var_field: str | None = None
 
 
 @dataclass(frozen=True)

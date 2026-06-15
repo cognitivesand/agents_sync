@@ -10,14 +10,18 @@ transport-independent fields (``timeout``, ``disabled``, ``always_allow``), and 
 of each tool's own field spelling under ``per_tool_only`` (unknown keys under
 ``per_tool_extra``).
 
-Package layout (split at S13b to respect the 300-line limit):
-- ``_shared`` — the field-spelling vocabulary + transport canonicalization both sides use.
+Package layout (split to respect the 300-line limit):
+- ``_shared`` — the field-spelling vocabulary, transport canonicalization, env-reference
+  helpers, and value coercion that the other modules share.
+- ``_carriers`` — codex's http auth carrier transform (``http_headers`` / ``env_http_headers``
+  / ``bearer_token_env_var`` ↔ one canonical ``headers`` map), recipe-gated (S20 increment 5).
 - ``parse`` — fold a slot into the canonical (plus ``extract_id``, the id-in-isolation probe).
 - ``render`` — render the canonical back onto its slot.
 
-The env-reference syntax conversion, the per-tool ``env_reference_style``, and the dedicated
-header carriers are per-tool recipe data (S20); the mcp secret policy runs in the read phase
-(S18). Neither is in the dialect.
+The header carriers are now handled here as per-tool recipe DATA (``McpSpellingRecipe``); the
+per-tool inline ``env_reference_style`` (the ``${env:NAME}``↔``${NAME}``↔``{env:NAME}`` *style*
+conversion) is still deferred (S20 increment 7), and the mcp secret policy runs in the read
+phase (S18), not the dialect.
 """
 
 from __future__ import annotations
