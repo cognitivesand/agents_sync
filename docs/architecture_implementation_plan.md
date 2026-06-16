@@ -14,7 +14,7 @@
 
 ## Progress (current state)
 
-- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.47` (each rebuild step is a
+- **Branch:** `fix/size-explosion-hardening` · **Version:** `0.7.48` (each rebuild step is a
   PATCH `feat(rebuild)`; nothing user-visible ships until cutover S24–S25).
 - **Phase A — domain core:** S1–S4 ✓ (shipped through 0.7.15).
 - **Phase B — planner:** S5, S6a–S6c, S7, S8a–S8d ✓ (shipped through 0.7.15).
@@ -64,8 +64,13 @@
   - **S22c** (`command_line_interface` + `__main__` — `run` (→ `watch(make_periodic_poll(config))`)
     + `prune` (→ `prune_archive`), argparse, exit-code matrix config→2/runtime→1/normal→0;
     `home`/`env`/`run_daemon` injectable for testability; export/import deferred to S23) — 0.7.47 ✓.
-  **S22 code complete** (runnable daemon). The batched end-of-S22 two-auditor
-  `/code_and_tests_quality_review` runs next.
+  **S22 COMPLETE.** End-of-S22 two-auditor `/code_and_tests_quality_review` ran (14 findings, 1 MAJOR
+  / 9 WARNING / 4 INFO, 0 CRITICAL) and was remediated → 0.7.48: the MAJOR — the SIGINT/SIGTERM
+  shutdown path (US-07 AC-2) was untested — is closed with a parametrized signal-delivery test; GC
+  cadence now advances by the interval (NFR-08); `tool_definitions` default collapsed to one home;
+  +3 test-assertion strengthenings; 5 findings accepted-as-is. Next plan step: **S23 — Portable
+  library** (`portable_library`: export; import preview-then-write + `--force`; last-modified-wins /
+  cross-identity retire — US-12, FR-12/15), which also wires the CLI's export/import subcommands.
   **Tracked gap / later cleanup:** gemini's `oauth`
   auth-field spelling — an increment-4-style auth knob gemini still lacks (renders auth under
   `auth`, not `oauth`).

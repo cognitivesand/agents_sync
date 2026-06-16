@@ -34,7 +34,7 @@ _StoredCanonical = CanonicalDocument | CorruptCanonical
 
 def count_available_tools(
     resolved_paths: Mapping[str, Path],
-    tool_definitions: Iterable[ToolDefinition] = ALL_TOOL_DEFINITIONS,
+    tool_definitions: Iterable[ToolDefinition],
 ) -> int:
     """How many tools are available this poll: a tool is available when at least
     one of its resolved surface roots exists on disk (US-07 AC-5 / US-11). The
@@ -59,8 +59,8 @@ def sync_once(
     previous_observations: PreviousObservations,
     *,
     available_tool_count: int,
+    tool_definitions: Iterable[ToolDefinition],
     secret_policy: str = SECRET_POLICY_REFUSED,
-    tool_definitions: Iterable[ToolDefinition] = ALL_TOOL_DEFINITIONS,
 ) -> tuple[SyncResult, dict[SurfaceLocation, SurfaceObservation], SyncState]:
     """Perform one poll (read → plan → execute) and persist the new state.
 

@@ -19,6 +19,9 @@ from agents_sync.domain_model.sync_state import SyncState
 from agents_sync.runtime_config import RuntimeConfig
 from agents_sync.sync_once import count_available_tools, make_periodic_poll, sync_once
 from agents_sync.sync_state_store import load_sync_state
+from agents_sync.tools.agentic_tools_registry import tool_definition
+
+_TWO_TOOL_DEFINITIONS = (tool_definition("claude"), tool_definition("cursor"))
 
 
 def _candidate_agent(name: str = "helper") -> str:
@@ -42,14 +45,19 @@ def test_sync_once_adopts_a_candidate_and_persists_state(tmp_path: Path) -> None
     (claude_dir / "helper.md").write_text(_candidate_agent())
 
     result, _observations, state = sync_once(
-        state_dir, resolved_paths, SyncState(), {}, available_tool_count=2
+        state_dir,
+        resolved_paths,
+        SyncState(),
+        {},
+        available_tool_count=2,
+        tool_definitions=_TWO_TOOL_DEFINITIONS,
     )
 
     [minted_id] = list_canonical_ids(state_dir)
     assert minted_id in (claude_dir / "helper.md").read_text()  # id injected into the surface
     assert minted_id in state.records  # returned state carries the new record
     assert minted_id in load_sync_state(state_dir).records  # and it was persisted to disk
-    assert result.changed >= 1
+    assert result.changed == 1  # exactly one id-less candidate adopted, no over-counting
 
 
 def test_sync_once_two_tool_guard_suppresses_adoption_below_two(tmp_path: Path) -> None:
@@ -57,7 +65,12 @@ def test_sync_once_two_tool_guard_suppresses_adoption_below_two(tmp_path: Path) 
     (claude_dir / "helper.md").write_text(_candidate_agent())
 
     result, _observations, state = sync_once(
-        state_dir, resolved_paths, SyncState(), {}, available_tool_count=1
+        state_dir,
+        resolved_paths,
+        SyncState(),
+        {},
+        available_tool_count=1,
+        tool_definitions=_TWO_TOOL_DEFINITIONS,
     )
 
     assert list_canonical_ids(state_dir) == []  # destructive adoption dropped
@@ -71,10 +84,10 @@ def test_count_available_tools_counts_tools_with_an_existing_root(tmp_path: Path
     claude_dir.mkdir(parents=True)  # cursor_dir intentionally absent
     resolved_paths = {"claude_agents_dir": claude_dir, "cursor_agents_dir": cursor_dir}
 
-    assert count_available_tools(resolved_paths) == 1
+    assert count_available_tools(resolved_paths, _TWO_TOOL_DEFINITIONS) == 1
 
     cursor_dir.mkdir(parents=True)
-    assert count_available_tools(resolved_paths) == 2
+    assert count_available_tools(resolved_paths, _TWO_TOOL_DEFINITIONS) == 2
 
 
 def test_make_periodic_poll_threads_state_across_polls(tmp_path: Path) -> None:

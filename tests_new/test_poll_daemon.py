@@ -152,6 +152,10 @@ def test_failure_set_is_logged_once_per_transition(caplog: pytest.LogCaptureFixt
 
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert len(warnings) == 2
+    # NFR-12/13: each transition logs its own failure set — () -> ('a',) then
+    # ('a',) -> ('a','b') — verified by id content, not the template wording.
+    assert "a" in warnings[0].getMessage()
+    assert "a, b" in warnings[1].getMessage()
 
 
 def test_gc_tick_fires_only_after_the_interval_elapses() -> None:
@@ -177,8 +181,11 @@ def test_gc_tick_fires_only_after_the_interval_elapses() -> None:
 def test_gc_fault_does_not_stop_the_daemon() -> None:
     # FR-02: a GC error is non-fatal — the daemon keeps polling.
     stop = threading.Event()
+    gc_runs = 0
 
     def failing_gc() -> None:
+        nonlocal gc_runs
+        gc_runs += 1
         raise OSError("archive volume disappeared")
 
     poll = _ScriptedPoll([SyncResult(), SyncResult()], stop)
@@ -193,3 +200,28 @@ def test_gc_fault_does_not_stop_the_daemon() -> None:
 
     assert code == EXIT_OK
     assert poll.calls == 2
+    assert gc_runs >= 1  # the GC closure was invoked and raised, exercising the swallow path
+
+
+@pytest.mark.parametrize("delivered_signal", [signal.SIGINT, signal.SIGTERM])
+def test_delivered_signal_stops_the_daemon_cleanly(delivered_signal: signal.Signals) -> None:
+    # US-07 AC-2: on SIGINT/SIGTERM the loop stops cleanly with EXIT_OK. This
+    # exercises the real production chain (stop_event=None -> loop owns its event ->
+    # _install_stop_signals installs real handlers -> an OS-delivered signal sets
+    # the event), with no internal mocking. raise_signal delivers synchronously on
+    # the calling thread, so the handler runs before sync_once returns.
+    # fail loud: installing real handlers requires the main thread.
+    assert threading.current_thread() is threading.main_thread()
+
+    calls = 0
+
+    def sync_once_then_signal() -> SyncResult:
+        nonlocal calls
+        calls += 1
+        signal.raise_signal(delivered_signal)
+        return SyncResult()
+
+    code = watch(sync_once_then_signal, poll_interval_seconds=0, stop_event=None)
+
+    assert code == EXIT_OK
+    assert calls == 1

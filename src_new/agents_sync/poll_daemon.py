@@ -98,7 +98,7 @@ def watch(
             previous_failed = _log_failure_transition(result.failed, previous_failed)
 
         if run_gc is not None and clock() - last_gc >= gc_interval_seconds:
-            last_gc = clock()
+            last_gc += gc_interval_seconds
             _run_gc_safely(run_gc)
 
         if stop.wait(poll_interval_seconds):
