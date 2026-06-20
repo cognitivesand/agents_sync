@@ -19,8 +19,10 @@ from typing import Any
 
 from agents_sync.canonical_store import (
     CanonicalMetadata,
+    load_canonical,
     load_canonical_metadata,
     save_canonical,
+    save_imported_canonical,
 )
 from agents_sync.domain_model.canonical_document import CanonicalDocument
 
@@ -82,3 +84,25 @@ def test_generation_counts_per_artifact_not_globally(tmp_path: Path) -> None:
     assert load_canonical_metadata(tmp_path, _OTHER_ID) == CanonicalMetadata(
         last_modified=2000.0, generation=1
     )
+
+
+def test_save_imported_canonical_preserves_the_given_metadata(tmp_path: Path) -> None:
+    # The import path writes the SOURCE's last_modified verbatim — not a fresh stamp —
+    # so cross-host last_modified_wins compares correctly across machines (amendment 008).
+    save_imported_canonical(
+        tmp_path, _document(), CanonicalMetadata(last_modified=5555.0, generation=7)
+    )
+
+    assert load_canonical_metadata(tmp_path, _ARTIFACT_ID) == CanonicalMetadata(
+        last_modified=5555.0, generation=7
+    )
+
+
+def test_save_imported_canonical_round_trips_the_content(tmp_path: Path) -> None:
+    document = _document()
+
+    save_imported_canonical(
+        tmp_path, document, CanonicalMetadata(last_modified=5555.0, generation=7)
+    )
+
+    assert load_canonical(tmp_path, _ARTIFACT_ID) == document.normalised()

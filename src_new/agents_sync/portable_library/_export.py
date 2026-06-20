@@ -17,7 +17,7 @@ export:
 
 The zip is materialised atomically — built in a sibling temp file and renamed onto
 the target — so a non-writable export path aborts with ``PortableLibraryError`` and
-leaves no partial export behind (AC-4). Import lands in S23c.
+leaves no partial export behind (AC-4). The import half lives in ``_import``.
 """
 
 from __future__ import annotations
@@ -38,7 +38,13 @@ from typing import Any
 
 from agents_sync.atomic_file_writer import move_file_atomic
 from agents_sync.canonical_store import canonical_file_path, list_canonical_ids
-from agents_sync.domain_model.canonical_document import CanonicalDocument
+from agents_sync.portable_library._shared import (
+    CANONICAL_PREFIX,
+    MANIFEST_NAME,
+    PORTABLE_LIBRARY_SCHEMA_VERSION,
+    PortableLibraryError,
+    read_canonical_document,
+)
 from agents_sync.secret_policy import (
     ALLOWED_SECRET_POLICIES,
     SECRET_POLICY_REFUSED,
@@ -47,14 +53,6 @@ from agents_sync.secret_policy import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-PORTABLE_LIBRARY_SCHEMA_VERSION = 1
-MANIFEST_NAME = "manifest.json"
-CANONICAL_PREFIX = "canonical/"
-
-
-class PortableLibraryError(ValueError):
-    """A library export/import could not be completed (e.g. the path is not writable)."""
 
 
 @dataclass(frozen=True)
@@ -116,7 +114,7 @@ def _collect_entries(
     contains_secret = False
     for artifact_id in list_canonical_ids(state_dir):
         raw = _read_entry_bytes(state_dir, artifact_id)
-        document = None if raw is None else _parse_entry(raw)
+        document = None if raw is None else read_canonical_document(raw)
         if raw is None or document is None:
             _LOGGER.warning(
                 "library export skipping unreadable canonical: artifact_id=%s", artifact_id
@@ -165,20 +163,6 @@ def _read_entry_bytes(state_dir: Path, artifact_id: str) -> bytes | None:
         _LOGGER.warning(
             "library export could not read canonical: artifact_id=%s (%s)", artifact_id, error
         )
-        return None
-
-
-def _parse_entry(raw: bytes) -> CanonicalDocument | None:
-    """The canonical parsed for the secret scan; ``None`` if it will not parse."""
-    try:
-        data = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    try:
-        return CanonicalDocument.from_dict(data)
-    except (TypeError, ValueError):
         return None
 
 

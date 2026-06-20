@@ -61,18 +61,18 @@ def save_canonical(
     ``last_modified`` — amendment 008). The block is excluded from the content
     digest, so FR-14 change detection stays content-only. The clock is injected."""
     path = canonical_file_path(store_dir, document.artifact_id)
-    metadata = _next_metadata(path, document, clock)
-    payload: dict[str, Any] = {
-        "schema_version": CANONICAL_SCHEMA_VERSION,
-        "metadata": {
-            "last_modified": metadata.last_modified,
-            "generation": metadata.generation,
-        },
-    }
-    payload.update(document.normalised().to_dict())
-    write_text_atomic(
-        path, json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
-    )
+    _write_envelope(path, document, _next_metadata(path, document, clock))
+
+
+def save_imported_canonical(
+    store_dir: Path, document: CanonicalDocument, metadata: CanonicalMetadata
+) -> None:
+    """Persist ``document`` under its id with the GIVEN metadata — not a fresh stamp.
+
+    The library-import write path: preserving the source's ``last_modified`` is what
+    makes cross-host ``last_modified_wins`` and re-import idempotency hold across
+    machines (amendment 008, US-12 / FR-12). Atomic per artifact (FR-13)."""
+    _write_envelope(canonical_file_path(store_dir, document.artifact_id), document, metadata)
 
 
 def load_canonical_metadata(store_dir: Path, artifact_id: str) -> CanonicalMetadata | None:
@@ -81,7 +81,7 @@ def load_canonical_metadata(store_dir: Path, artifact_id: str) -> CanonicalMetad
     The library export and import-collision compare read this (S23). It never
     quarantines — corruption handling is the content load path's job."""
     data = _read_store_file(canonical_file_path(store_dir, artifact_id))
-    return None if data is None else _metadata_from_dict(data)
+    return None if data is None else read_envelope_metadata(data)
 
 
 def load_canonical(
@@ -154,6 +154,21 @@ def _next_metadata(
     return CanonicalMetadata(last_modified=clock(), generation=previous_generation + 1)
 
 
+def _write_envelope(
+    path: Path, document: CanonicalDocument, metadata: CanonicalMetadata
+) -> None:
+    """Serialise the store envelope (schema version + metadata block + content) and
+    write it atomically — the single home for both the stamping and import write paths."""
+    payload: dict[str, Any] = {
+        "schema_version": CANONICAL_SCHEMA_VERSION,
+        "metadata": {"last_modified": metadata.last_modified, "generation": metadata.generation},
+    }
+    payload.update(document.normalised().to_dict())
+    write_text_atomic(
+        path, json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    )
+
+
 def _read_prior(path: Path) -> tuple[str, CanonicalMetadata] | None:
     """Best-effort ``(content_digest, metadata)`` of the canonical already at ``path``.
 
@@ -166,7 +181,7 @@ def _read_prior(path: Path) -> tuple[str, CanonicalMetadata] | None:
         document = CanonicalDocument.from_dict(data)
     except (TypeError, ValueError):
         return None
-    return document.content_digest(), _metadata_from_dict(data)
+    return document.content_digest(), read_envelope_metadata(data)
 
 
 def _read_store_file(path: Path) -> dict[str, Any] | None:
@@ -180,8 +195,9 @@ def _read_store_file(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _metadata_from_dict(data: dict[str, Any]) -> CanonicalMetadata:
-    """Read the stored ``metadata`` block; an absent block reads as generation 0."""
+def read_envelope_metadata(data: dict[str, Any]) -> CanonicalMetadata:
+    """Read the ``metadata`` block from a store/export envelope dict; an absent block
+    reads as ``generation`` 0 (so it always loses ``last_modified_wins`` to a real one)."""
     block = data.get("metadata")
     if not isinstance(block, dict):
         return CanonicalMetadata(last_modified=0.0, generation=0)
