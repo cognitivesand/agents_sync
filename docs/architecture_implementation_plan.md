@@ -84,6 +84,12 @@
   calls gain stamping transparently (the store is the single home; clock injected). Then **S23b**
   export, **S23c** import core (`last_modified_wins`), **S23d** cross-identity merge + preview/
   `--force`, **S23e** CLI export/import wiring.
+  **Progress:** S23a ✓ (0.7.49) · S23b ✓ (0.7.50) · S23c ✓ (0.7.51) · **S23d ✓ (0.7.52 —
+  cross-identity slug merge reconciles an imported artifact onto the matching local id by
+  `last_modified_wins`, writing the winner's content under that reused id and retiring the
+  imported id (AC-7); `preview_import` reports merges/displacements read-only and `import_library`
+  refuses to displace a local without `force` (AC-18); the export-read/validation split into
+  `portable_library._import_read` for the 300-line limit)** · S23e next (CLI export/import wiring).
 - **Audit cadence:** the end-of-S20 two-auditor audit runs once, after the final S20
   sub-increment (before S21) — not between sub-increments. Each sub-increment still gets docs,
   red-first tests, full CI, and its own commit/`/bcp`.

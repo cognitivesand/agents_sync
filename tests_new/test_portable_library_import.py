@@ -109,7 +109,7 @@ def test_import_overwrites_when_the_import_is_newer(tmp_path: Path) -> None:
     save_canonical(target, _agent(_ID_A, body="local\n"), clock=lambda: 1000.0)
     export_path = _exported(tmp_path, [(_agent(_ID_A, body="imported\n"), 2000.0)])
 
-    report = import_library(target, export_path)
+    report = import_library(target, export_path, force=True)  # displaces the local (AC-18)
 
     assert load_canonical(target, _ID_A) == _agent(_ID_A, body="imported\n").normalised()
     assert load_canonical_metadata(target, _ID_A).last_modified == 2000.0
@@ -214,7 +214,7 @@ def test_a_displaced_local_canonical_is_archived(tmp_path: Path) -> None:
     save_canonical(target, _agent(_ID_A, body="local\n"), clock=lambda: 1000.0)
     export_path = _exported(tmp_path, [(_agent(_ID_A, body="imported\n"), 2000.0)])
 
-    import_library(target, export_path)
+    import_library(target, export_path, force=True)  # displaces the local (AC-18)
 
     archived = list((target / "archive" / _ID_A / "_canonical").iterdir())
     assert len(archived) == 1  # the displaced local canonical's bytes preserved (NFR-01)

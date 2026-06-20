@@ -11,7 +11,12 @@ from agents_sync.portable_library._export import (
     ExportReport,
     export_library,
 )
-from agents_sync.portable_library._import import ImportReport, import_library
+from agents_sync.portable_library._import import (
+    ImportPreview,
+    ImportReport,
+    import_library,
+    preview_import,
+)
 from agents_sync.portable_library._shared import (
     CANONICAL_PREFIX,
     MANIFEST_NAME,
@@ -25,8 +30,10 @@ __all__ = [
     "PORTABLE_LIBRARY_SCHEMA_VERSION",
     "ExportEnvironment",
     "ExportReport",
+    "ImportPreview",
     "ImportReport",
     "PortableLibraryError",
     "export_library",
     "import_library",
+    "preview_import",
 ]
