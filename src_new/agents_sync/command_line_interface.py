@@ -1,13 +1,16 @@
-"""The command-line interface (S22c): ``run`` the daemon or ``prune`` the archive,
-mapping outcomes to the distinct exit codes (NFR-10, US-07).
+"""The command-line interface (S22c/S23e): ``run`` the daemon, ``prune`` the archive,
+or ``export`` / ``import`` the customization library, mapping outcomes to the distinct
+exit codes (NFR-10, US-07).
 
 ``main`` loads the runtime config — a configuration defect fails closed with
-``EXIT_CONFIG_FAILURE`` (US-07 AC-7) — then dispatches: ``run`` drives the poll
-loop and returns its exit code (``EXIT_OK`` clean, ``EXIT_RUNTIME_FAILURE`` on the
-failure budget); ``prune`` runs one archive GC. A runtime I/O failure maps to
-``EXIT_RUNTIME_FAILURE``. ``home``/``env``/``run_daemon`` are injectable so the
-exit-code matrix is testable without the real home directory or the blocking loop.
-Export/import subcommands arrive with ``portable_library`` (S23).
+``EXIT_CONFIG_FAILURE`` (US-07 AC-7) — then dispatches: ``run`` drives the poll loop and
+returns its exit code; ``prune`` runs one archive GC; ``export``/``import`` drive
+``portable_library`` against the configured state directory. A runtime I/O failure or a
+``PortableLibraryError`` (a non-writable export AC-4, a malformed import AC-9, or a refused
+displacement) maps to ``EXIT_RUNTIME_FAILURE``. ``import`` previews first and refuses to
+displace a local artifact unless ``--force`` is given (AC-18).
+``home``/``env``/``run_daemon`` are injectable so the exit-code matrix is testable without
+the real home directory or the blocking loop.
 """
 
 from __future__ import annotations
@@ -20,6 +23,13 @@ from pathlib import Path
 
 from agents_sync.artifact_archive import prune_archive
 from agents_sync.poll_daemon import watch
+from agents_sync.portable_library import (
+    ImportPreview,
+    PortableLibraryError,
+    export_library,
+    import_library,
+    preview_import,
+)
 from agents_sync.runtime_config import (
     EXIT_CONFIG_FAILURE,
     EXIT_OK,
@@ -62,12 +72,22 @@ def main(
         _LOGGER.error("configuration error: %s", error)
         return EXIT_CONFIG_FAILURE
     try:
-        if args.command == "prune":
-            return _prune(config)
-        return run_daemon(config)
-    except OSError as error:
+        return _dispatch(args, config, run_daemon)
+    except (OSError, PortableLibraryError) as error:
         _LOGGER.error("runtime failure: %s", error)
         return EXIT_RUNTIME_FAILURE
+
+
+def _dispatch(
+    args: argparse.Namespace, config: RuntimeConfig, run_daemon: Callable[[RuntimeConfig], int]
+) -> int:
+    if args.command == "prune":
+        return _prune(config)
+    if args.command == "export":
+        return _export(config, args.file)
+    if args.command == "import":
+        return _import(config, args.file, force=args.force)
+    return run_daemon(config)
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -78,6 +98,17 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("run", help="run the sync daemon (the default)")
     subcommands.add_parser("prune", help="run one archive garbage-collection pass")
+    export_parser = subcommands.add_parser(
+        "export", help="export the customization library to a file"
+    )
+    export_parser.add_argument("file", type=Path, help="destination export file")
+    import_parser = subcommands.add_parser(
+        "import", help="import a customization library from a file"
+    )
+    import_parser.add_argument("file", type=Path, help="source export file")
+    import_parser.add_argument(
+        "--force", action="store_true", help="allow displacing local artifacts"
+    )
     args = parser.parse_args(argv)
     if args.command is None:
         args.command = "run"
@@ -87,6 +118,55 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def _prune(config: RuntimeConfig) -> int:
     _gc_once(config.state_path.parent)
     return EXIT_OK
+
+
+def _export(config: RuntimeConfig, export_path: Path) -> int:
+    """Write the customization library export, then report what shipped (US-12 AC-1)."""
+    report = export_library(
+        config.state_path.parent, export_path, secret_policy=config.secret_policy
+    )
+    _LOGGER.info(
+        "library export: %d artifact(s) -> %s (contains_secret_literals=%s)",
+        report.artifact_count,
+        report.export_path,
+        report.contains_secret_literals,
+    )
+    return EXIT_OK
+
+
+def _import(config: RuntimeConfig, import_path: Path, *, force: bool) -> int:
+    """Preview the import (AC-18), refuse to displace a local without ``force``, else import
+    and report (US-12 AC-5/AC-6/AC-7)."""
+    state_dir = config.state_path.parent
+    preview = preview_import(state_dir, import_path, secret_policy=config.secret_policy)
+    _log_preview(preview)
+    if preview.requires_force and not force:
+        _LOGGER.error(
+            "library import would displace %d local artifact(s): %s -- rerun with --force",
+            len(preview.displaced_local_ids),
+            list(preview.displaced_local_ids),
+        )
+        return EXIT_RUNTIME_FAILURE
+    report = import_library(state_dir, import_path, secret_policy=config.secret_policy, force=force)
+    _LOGGER.info(
+        "library import: accepted=%d skipped=%d skipped_secret=%d",
+        len(report.accepted),
+        len(report.skipped),
+        len(report.skipped_secret),
+    )
+    return EXIT_OK
+
+
+def _log_preview(preview: ImportPreview) -> None:
+    """Enumerate the merges and displacements before any write (AC-18 preview honesty)."""
+    for imported_id, local_id in preview.merges:
+        _LOGGER.info(
+            "library import will merge %s onto local %s (same slug)", imported_id, local_id
+        )
+    if preview.displaced_local_ids:
+        _LOGGER.info(
+            "library import will displace local artifact(s): %s", list(preview.displaced_local_ids)
+        )
 
 
 def _gc_once(state_dir: Path) -> None:

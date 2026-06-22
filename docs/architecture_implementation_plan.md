@@ -89,7 +89,11 @@
   `last_modified_wins`, writing the winner's content under that reused id and retiring the
   imported id (AC-7); `preview_import` reports merges/displacements read-only and `import_library`
   refuses to displace a local without `force` (AC-18); the export-read/validation split into
-  `portable_library._import_read` for the 300-line limit)** · S23e next (CLI export/import wiring).
+  `portable_library._import_read` for the 300-line limit)** · **S23e ✓ (0.7.53 —
+  `command_line_interface` gains `export`/`import` subcommands onto `portable_library` (`--force`
+  flag); a `PortableLibraryError` or an unwritable export path maps to `EXIT_RUNTIME_FAILURE`;
+  `import` previews merges/displacements then refuses to displace a local without `--force`
+  (AC-18); exit-code matrix tested against a real state directory + a real export file).**
 - **Audit cadence:** the end-of-S20 two-auditor audit runs once, after the final S20
   sub-increment (before S21) — not between sub-increments. Each sub-increment still gets docs,
   red-first tests, full CI, and its own commit/`/bcp`.
