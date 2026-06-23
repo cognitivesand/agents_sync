@@ -102,11 +102,13 @@
   the `generation 0` self-heal is documented + pinned; +13 test-assertion/coverage strengthenings.
   Skipped as dead/redundant/speculative: the import embedded-id re-validate (unreachable), the
   read_export duplicate-id guard (collapsed by `set(namelist())`), the decode-outcome abstraction
-  (two sites), the `ExportManifest` dataclass (type gold-plating). **Deferred (300-line limit):** the
-  `_import._apply` surviving-id-uniqueness guard (exotic two-same-slug-entries trigger). **Open
-  escalations (no code change):** US-07 AC-3 clarification — systemic/per-artifact failure logs carry
-  no single `agentic_tool` dimension (governance text needs user approval); and the export
-  secret-egress scan surface (NFR-16 authority) is narrower than the shipped bytes. See
+  (two sites), the `ExportManifest` dataclass (type gold-plating). **Declined (YAGNI, user call):** a
+  `_import._apply` surviving-id-uniqueness guard — last-write-wins on the exotic two-same-`(kind,name)`-
+  entries-onto-one-local-id export is accepted, not guarded. **Escalation dispositions:** US-07 AC-3
+  (systemic/per-artifact failure logs carry no single `agentic_tool` dimension) → tracked in the
+  Deferred list below for a governance clarification, no code change; the export secret-egress scan covering structured
+  fields only → this *is* NFR-15's documented residual (prose secrets belong in `env`/`headers`), so
+  the export docstring now points at it — no spec change. See
   `docs/audits/code_audit_remediation_2026_06_23__14_16.md`.
 - **Audit cadence:** the end-of-S20 two-auditor audit runs once, after the final S20
   sub-increment (before S21) — not between sub-increments. Each sub-increment still gets docs,
@@ -124,7 +126,11 @@
   after a rename (else the record keeps a stale old-slug entry under the new name), (b) when
   tools-as-data can make two targets share one render file, either chain prior_text through
   same-file targets or keep relying on the executor's loud duplicate-render-file guard
-  (project has it; give rename/remove siblings if reachable). Each rebuild
+  (project has it; give rename/remove siblings if reachable). **US-07 AC-3 wording clarification**
+  (end-of-S23 audit, poll_daemon 0001/0002 P0): the systemic/per-artifact failure logs carry no
+  single `agentic_tool` dimension (`SyncResult.failed` is a flat artifact-id list); the resolver
+  judged AC-3 substantially met under NFR-13's "when applicable" qualifier and recommended clarifying
+  the AC text rather than changing code → needs user approval of exact governance text. Each rebuild
   step also writes a markdown report under `docs/audits/` (untracked).
 
 ---

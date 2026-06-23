@@ -13,7 +13,12 @@ export:
   carrying literal secret material is skipped with one structured WARNING (NFR-13)
   and never shipped, so ``manifest.contains_secret_literals`` stays ``false``
   (AC-12/AC-13); under ``secrets_accepted`` it ships verbatim and the flag is
-  ``true`` (AC-14).
+  ``true`` (AC-14). The scan (``find_secret_literals``) is heuristic and covers the
+  structured credential fields (``env``/``headers``/``auth.*`` and the like) — but the
+  entry ships the *raw* store bytes, so a literal placed in prose (``name``/
+  ``description``/``body``) is NOT detected and DOES ship. That scan-vs-ship gap is
+  not an export bug: it is NFR-15's **documented residual** — credentials belong in
+  ``env``/``headers``, where any literal is caught regardless of shape.
 
 The zip is materialised atomically — built in a sibling temp file and renamed onto
 the target — so a non-writable export path aborts with ``PortableLibraryError`` and
