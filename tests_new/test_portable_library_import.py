@@ -15,6 +15,7 @@ via ``tmp_path``; exports are produced by ``export_library`` for round-trip real
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -141,7 +142,9 @@ def test_reimporting_an_unchanged_library_is_a_noop(tmp_path: Path) -> None:
     assert (target / "canonical" / f"{_ID_A}.json").read_bytes() == before
 
 
-def test_secrets_refused_skips_secret_bearing_canonicals(tmp_path: Path) -> None:
+def test_secrets_refused_skips_secret_bearing_canonicals(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     # The export carries the secret (built under secrets_accepted); the receiver refuses.
     export_path = _exported(
         tmp_path,
@@ -150,11 +153,17 @@ def test_secrets_refused_skips_secret_bearing_canonicals(tmp_path: Path) -> None
     )
     target = tmp_path / "target"
 
-    report = import_library(target, export_path, secret_policy=SECRET_POLICY_REFUSED)
+    caplog.clear()  # drop the fixture export's own secret WARNING; assert only the import egress
+    with caplog.at_level(logging.WARNING):
+        report = import_library(target, export_path, secret_policy=SECRET_POLICY_REFUSED)
 
     assert load_canonical(target, _ID_A) == _agent(_ID_A).normalised()
     assert load_canonical(target, _SECRET_ID) is None  # secret-bearing not written
     assert report.skipped_secret == (_SECRET_ID,)
+    egress = [
+        r for r in caplog.records if r.levelno == logging.WARNING and _SECRET_ID in r.getMessage()
+    ]
+    assert len(egress) == 1  # exactly one NFR-13 egress WARNING names the skipped secret
 
 
 def test_secrets_accepted_imports_secret_material_verbatim(tmp_path: Path) -> None:
@@ -209,16 +218,55 @@ def test_import_aborts_on_an_unparseable_entry(tmp_path: Path) -> None:
     assert not (target / "canonical").exists()
 
 
+def test_import_aborts_on_an_invalid_artifact_id(tmp_path: Path) -> None:
+    # AC-9: a canonical/<id>.json whose filename-derived id is not a canonical UUIDv4
+    # aborts before any write, naming the offender (NFR-13).
+    export_path = _hand_written_zip(
+        tmp_path / "lib.zip",
+        {
+            "manifest.json": _manifest_bytes(),
+            "canonical/not-a-uuid.json": b'{"artifact_id":"not-a-uuid","kind":"agent"}',
+        },
+    )
+    target = tmp_path / "target"
+
+    with pytest.raises(PortableLibraryError, match=r"invalid id"):
+        import_library(target, export_path)
+
+    assert not (target / "canonical").exists()  # nothing written
+
+
+def test_import_aborts_on_an_id_filename_mismatch(tmp_path: Path) -> None:
+    # AC-9: the document's embedded artifact_id disagreeing with its filename id is a
+    # data-corruption shape that must abort before any write (NFR-13).
+    export_path = _hand_written_zip(
+        tmp_path / "lib.zip",
+        {
+            "manifest.json": _manifest_bytes(),
+            f"canonical/{_ID_A}.json": json.dumps(
+                {"artifact_id": _ID_B, "kind": "agent"}
+            ).encode("utf-8"),
+        },
+    )
+    target = tmp_path / "target"
+
+    with pytest.raises(PortableLibraryError, match=r"id mismatch"):
+        import_library(target, export_path)
+
+    assert not (target / "canonical").exists()  # nothing written
+
+
 def test_a_displaced_local_canonical_is_archived(tmp_path: Path) -> None:
     target = tmp_path / "target"
     save_canonical(target, _agent(_ID_A, body="local\n"), clock=lambda: 1000.0)
+    before = (target / "canonical" / f"{_ID_A}.json").read_bytes()
     export_path = _exported(tmp_path, [(_agent(_ID_A, body="imported\n"), 2000.0)])
 
     import_library(target, export_path, force=True)  # displaces the local (AC-18)
 
     archived = list((target / "archive" / _ID_A / "_canonical").iterdir())
     assert len(archived) == 1  # the displaced local canonical's bytes preserved (NFR-01)
-    assert "local" in archived[0].read_text()
+    assert archived[0].read_bytes() == before  # verbatim bytes, not just a substring (NFR-01)
 
 
 def test_a_same_content_newer_import_is_not_archived(tmp_path: Path) -> None:

@@ -4,13 +4,14 @@
 ``run`` (→ the daemon, whose exit code it returns), ``prune`` (→ the archive GC), or the
 S23e library commands ``export`` / ``import`` (→ ``portable_library``), and maps a runtime
 I/O or portable-library failure to ``EXIT_RUNTIME_FAILURE`` (NFR-10, US-07). ``home``,
-``env``, and ``run_daemon`` are injectable boundary seams so the matrix is tested without
+``env``, and ``daemon_runner`` are injectable boundary seams so the matrix is tested without
 touching the real home directory or running the blocking daemon loop. The library commands
 drive a real state directory (set via a ``--config`` TOML) and a real export file.
 """
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -74,13 +75,13 @@ def test_prune_returns_exit_ok(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("daemon_code", [EXIT_OK, EXIT_RUNTIME_FAILURE])
 def test_run_returns_the_daemon_exit_code(tmp_path: Path, daemon_code: int) -> None:
-    code = main(["run"], home=tmp_path, env={}, run_daemon=lambda config: daemon_code)
+    code = main(["run"], home=tmp_path, env={}, daemon_runner=lambda config: daemon_code)
 
     assert code == daemon_code
 
 
 def test_runtime_oserror_returns_exit_runtime_failure(tmp_path: Path) -> None:
-    code = main(["run"], home=tmp_path, env={}, run_daemon=_fail_with_oserror)
+    code = main(["run"], home=tmp_path, env={}, daemon_runner=_fail_with_oserror)
 
     assert code == EXIT_RUNTIME_FAILURE
 
@@ -91,7 +92,7 @@ def test_the_three_outcomes_map_to_distinct_codes(tmp_path: Path) -> None:
 
     config_failure = main(["--config", str(bad_config)], home=tmp_path, env={})
     normal = main(["prune"], home=tmp_path, env={})
-    runtime_failure = main(["run"], home=tmp_path, env={}, run_daemon=_fail_with_oserror)
+    runtime_failure = main(["run"], home=tmp_path, env={}, daemon_runner=_fail_with_oserror)
 
     assert (config_failure, normal, runtime_failure) == (
         EXIT_CONFIG_FAILURE,
@@ -109,7 +110,10 @@ def test_export_subcommand_writes_a_library_file(tmp_path: Path) -> None:
     code = main(["--config", str(config_path), "export", str(export_file)], home=tmp_path, env={})
 
     assert code == EXIT_OK
-    assert export_file.exists()
+    with zipfile.ZipFile(export_file) as archive:
+        canonical_entries = {n for n in archive.namelist() if n.startswith("canonical/")}
+    # the seeded canonical actually shipped — a drop-all regression (zero-artifact zip) fails here
+    assert canonical_entries == {f"canonical/{_ID}.json"}
 
 
 def test_export_to_an_unwritable_path_returns_runtime_failure(tmp_path: Path) -> None:

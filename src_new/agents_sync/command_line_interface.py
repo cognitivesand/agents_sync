@@ -9,8 +9,8 @@ returns its exit code; ``prune`` runs one archive GC; ``export``/``import`` driv
 ``PortableLibraryError`` (a non-writable export AC-4, a malformed import AC-9, or a refused
 displacement) maps to ``EXIT_RUNTIME_FAILURE``. ``import`` previews first and refuses to
 displace a local artifact unless ``--force`` is given (AC-18).
-``home``/``env``/``run_daemon`` are injectable so the exit-code matrix is testable without
-the real home directory or the blocking loop.
+``home``/``env``/``daemon_runner`` are injectable so the exit-code matrix is testable
+without the real home directory or the blocking loop.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def main(
     *,
     env: Mapping[str, str] | None = None,
     home: Path | None = None,
-    run_daemon: Callable[[RuntimeConfig], int] = run_daemon,
+    daemon_runner: Callable[[RuntimeConfig], int] = run_daemon,
 ) -> int:
     """Parse ``argv``, load the config, dispatch the subcommand, and return an exit code."""
     args = _parse_args(argv)
@@ -72,14 +72,14 @@ def main(
         _LOGGER.error("configuration error: %s", error)
         return EXIT_CONFIG_FAILURE
     try:
-        return _dispatch(args, config, run_daemon)
+        return _dispatch(args, config, daemon_runner)
     except (OSError, PortableLibraryError) as error:
         _LOGGER.error("runtime failure: %s", error)
         return EXIT_RUNTIME_FAILURE
 
 
 def _dispatch(
-    args: argparse.Namespace, config: RuntimeConfig, run_daemon: Callable[[RuntimeConfig], int]
+    args: argparse.Namespace, config: RuntimeConfig, daemon_runner: Callable[[RuntimeConfig], int]
 ) -> int:
     if args.command == "prune":
         return _prune(config)
@@ -87,7 +87,7 @@ def _dispatch(
         return _export(config, args.file)
     if args.command == "import":
         return _import(config, args.file, force=args.force)
-    return run_daemon(config)
+    return daemon_runner(config)
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -138,6 +138,9 @@ def _import(config: RuntimeConfig, import_path: Path, *, force: bool) -> int:
     """Preview the import (AC-18), refuse to displace a local without ``force``, else import
     and report (US-12 AC-5/AC-6/AC-7)."""
     state_dir = config.state_path.parent
+    # preview_import and import_library each re-plan from scratch by design: the preview
+    # must be honest before any write (AC-18), and import_library re-validates and re-guards
+    # the displacement at write time — the double read is defense-in-depth, not an oversight.
     preview = preview_import(state_dir, import_path, secret_policy=config.secret_policy)
     _log_preview(preview)
     if preview.requires_force and not force:

@@ -3,11 +3,11 @@
 These exercise the real pipeline end to end through ``tmp_path`` tool roots: a
 candidate agent surface is adopted (canonical minted, id injected, state
 persisted) when two tools are available, and the two-tool destructive guard
-(US-07 AC-5) is honoured when ``available_tool_count`` is below two. ``sync_once``
-takes ``available_tool_count`` as an argument; ``count_available_tools`` computes
-it (a tool is available when ≥1 of its resolved roots exists — the new-model
-definition the S24 conformance cutover validates). ``make_periodic_poll`` threads
-the state and digest cache across polls.
+(US-07 AC-5) is honoured when fewer than two are. ``sync_once`` derives the
+available-tool count internally via ``count_available_tools`` (a tool is available
+when ≥1 of its resolved roots exists — the new-model definition the S24 conformance
+cutover validates), so the safety count cannot desync from the resolved paths.
+``make_periodic_poll`` threads the state and digest cache across polls.
 """
 
 from __future__ import annotations
@@ -49,7 +49,6 @@ def test_sync_once_adopts_a_candidate_and_persists_state(tmp_path: Path) -> None
         resolved_paths,
         SyncState(),
         {},
-        available_tool_count=2,
         tool_definitions=_TWO_TOOL_DEFINITIONS,
     )
 
@@ -61,15 +60,15 @@ def test_sync_once_adopts_a_candidate_and_persists_state(tmp_path: Path) -> None
 
 
 def test_sync_once_two_tool_guard_suppresses_adoption_below_two(tmp_path: Path) -> None:
-    state_dir, claude_dir, _cursor_dir, resolved_paths = _tool_workspace(tmp_path)
+    state_dir, claude_dir, cursor_dir, resolved_paths = _tool_workspace(tmp_path)
     (claude_dir / "helper.md").write_text(_candidate_agent())
+    cursor_dir.rmdir()  # only one tool root exists → the count sync_once derives is 1
 
     result, _observations, state = sync_once(
         state_dir,
         resolved_paths,
         SyncState(),
         {},
-        available_tool_count=1,
         tool_definitions=_TWO_TOOL_DEFINITIONS,
     )
 
@@ -102,9 +101,31 @@ def test_make_periodic_poll_threads_state_across_polls(tmp_path: Path) -> None:
     poll = make_periodic_poll(config)
 
     first = poll()
-    poll()
+    second = poll()
 
     # One artifact adopted on the first poll; re-polling threads the state so it is
     # never re-adopted — exactly one canonical, not one per poll.
-    assert first.changed >= 1
+    assert first.changed == 1  # exactly one adoption on the first poll, no over-count
+    assert second.changed == 0  # state threading made the second poll a genuine no-op
     assert len(list_canonical_ids(state_dir)) == 1
+
+
+def test_sync_once_isolates_an_unadoptable_surface(tmp_path: Path) -> None:
+    # FR-02 fault isolation + NFR-13: one malformed surface is diagnosed (ReportUnadoptable)
+    # without sinking the poll — a valid candidate beside it is still adopted, and the bad
+    # surface is named in result.diagnosed, never minted.
+    state_dir, claude_dir, _cursor_dir, resolved_paths = _tool_workspace(tmp_path)
+    (claude_dir / "good.md").write_text(_candidate_agent())
+    (claude_dir / "bad.md").write_text("---\nname: [\n---\n")  # broken YAML front-matter
+
+    result, _observations, _state = sync_once(
+        state_dir,
+        resolved_paths,
+        SyncState(),
+        {},
+        tool_definitions=_TWO_TOOL_DEFINITIONS,
+    )
+
+    assert result.changed == 1  # the good candidate adopted despite its bad neighbour
+    assert len(list_canonical_ids(state_dir)) == 1  # only the good surface minted a canonical
+    assert any("bad.md" in diagnosed for diagnosed in result.diagnosed)  # the bad one is named

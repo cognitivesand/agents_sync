@@ -82,7 +82,9 @@ def test_cross_identity_import_wins_writes_under_the_local_id(tmp_path: Path) ->
     assert isinstance(survivor, CanonicalDocument)
     assert survivor.body == "imported\n"  # the winner's content (AC-7)
     assert load_canonical(target, _IMPORT_ID) is None  # imported id retired (AC-7)
-    assert load_canonical_metadata(target, _LOCAL_ID).last_modified == 2000.0  # import lm preserved
+    merged_metadata = load_canonical_metadata(target, _LOCAL_ID)
+    assert merged_metadata.last_modified == 2000.0  # import last_modified preserved
+    assert merged_metadata.generation == 1  # source's first-save generation, not re-stamped (AC-7)
     assert report.accepted == (_LOCAL_ID,)  # written under the reused local id
     archived = list((target / "archive" / _LOCAL_ID / "_canonical").iterdir())
     assert len(archived) == 1  # the displaced local canonical's bytes preserved (NFR-01)
@@ -173,7 +175,7 @@ def test_import_without_force_refuses_to_displace_a_local(tmp_path: Path) -> Non
     _save_local(target, _agent(_LOCAL_ID, body="local\n"), 1000.0)
     export_path = _export(tmp_path, _agent(_IMPORT_ID, body="imported\n"), 2000.0)
 
-    with pytest.raises(PortableLibraryError):
+    with pytest.raises(PortableLibraryError, match=r"without --force"):
         import_library(target, export_path)  # would displace _LOCAL_ID without --force (AC-18)
 
     assert load_canonical(target, _LOCAL_ID).body == "local\n"  # nothing written

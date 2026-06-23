@@ -3,11 +3,13 @@
 One cycle: build the read-phase specs from the resolved paths, observe every tool
 surface (reusing the previous poll's digest cache, NFR-08), load the stored
 canonicals, compute the pure ``SyncPlan``, execute it (the executor persists
-canonicals), then persist the updated ``SyncState``. ``available_tool_count`` is
-supplied by the caller; ``count_available_tools`` computes it (a tool is available
-when at least one of its resolved roots exists — the new-model definition the S24
-conformance cutover validates). ``poll_daemon`` drives this through
-``make_periodic_poll`` (the CLI wires it at S22c).
+canonicals), then persist the updated ``SyncState``. ``sync_once`` derives the
+two-tool destructive guard's ``available_tool_count`` internally from
+``resolved_paths`` + ``tool_definitions`` via ``count_available_tools`` (a tool is
+available when at least one of its resolved roots exists — the new-model definition
+the S24 conformance cutover validates), so the safety count is a single source of
+truth that cannot desync from the paths it summarizes. ``poll_daemon`` drives this
+through ``make_periodic_poll`` (the CLI wires it at S22c).
 """
 
 from __future__ import annotations
@@ -58,7 +60,6 @@ def sync_once(
     sync_state: SyncState,
     previous_observations: PreviousObservations,
     *,
-    available_tool_count: int,
     tool_definitions: Iterable[ToolDefinition],
     secret_policy: str = SECRET_POLICY_REFUSED,
 ) -> tuple[SyncResult, dict[SurfaceLocation, SurfaceObservation], SyncState]:
@@ -66,14 +67,24 @@ def sync_once(
 
     Returns the poll result, the fresh observations (the next poll's digest cache),
     and the updated state (the next poll's input). The executor persists canonicals;
-    this function persists the ``SyncState``."""
-    specs = _surface_specs(resolved_paths, tool_definitions)
+    this function persists the ``SyncState``. The two-tool destructive guard's
+    ``available_tool_count`` is derived here from ``resolved_paths`` +
+    ``tool_definitions`` via ``count_available_tools`` — the single source of truth,
+    so the safety count cannot desync from the paths it summarizes (US-07 AC-5)."""
+    definitions = tuple(tool_definitions)
+    specs = _surface_specs(resolved_paths, definitions)
     observations = read_tool_surfaces(specs, previous_observations)
     stored = _load_stored_canonicals(state_dir, sync_state)
+    available_tool_count = count_available_tools(resolved_paths, definitions)
     plan = compute_sync_plan(observations, sync_state, stored, available_tool_count)
     result, new_state = execute_sync_plan(
         plan, observations, sync_state, state_dir, secret_policy_value=secret_policy
     )
+    # The two persistence steps (executor canonicals above, SyncState below) are
+    # intentionally not one transaction: canonicals are content-addressed and the
+    # planner re-reads state each poll, so if save_sync_state raises after the
+    # executor committed, the store is briefly ahead of recorded state but the next
+    # poll re-derives safely with no content loss (FR-14 / NFR-04 / US-07 AC-4).
     save_sync_state(state_dir, new_state)
     fresh = {observation.tool_surface.location: observation for observation in observations}
     return result, fresh, new_state
@@ -98,7 +109,6 @@ def make_periodic_poll(
             config.resolved_paths,
             state,
             observations,
-            available_tool_count=count_available_tools(config.resolved_paths, definitions),
             secret_policy=config.secret_policy,
             tool_definitions=definitions,
         )

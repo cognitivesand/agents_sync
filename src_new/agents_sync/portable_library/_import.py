@@ -252,8 +252,11 @@ def _log_secret_egress(decisions: list[_ImportDecision], secret_policy: str) -> 
 
 
 def _apply(state_dir: Path, decisions: list[_ImportDecision]) -> None:
-    """Write each accepted canonical atomically under its surviving id (FR-13), archiving
-    a displaced local canonical first to preserve its bytes (NFR-01/07)."""
+    """Write each accepted canonical under its surviving id (FR-13). Each individual write
+    is atomic; a displaced local is archived first to preserve its bytes (NFR-01/07). The
+    archive-then-write is two disk steps, not one transaction — but a crash between them
+    leaves the original local canonical intact plus a redundant archive snapshot the tiers
+    age out, so no content is lost (recoverable, not all-or-nothing across the pair)."""
     for decision in decisions:
         if not decision.accepted:
             continue

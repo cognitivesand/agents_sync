@@ -56,10 +56,14 @@ def save_canonical(
     """Persist ``document`` normalised, atomically, with the schema version and the
     runtime ``metadata`` block stamped.
 
-    ``last_modified``/``generation`` advance iff the content digest changes; a
-    re-save of unchanged content preserves them (a heal/reproject must not move
-    ``last_modified`` — amendment 008). The block is excluded from the content
-    digest, so FR-14 change detection stays content-only. The clock is injected."""
+    ``last_modified``/``generation`` advance when the content digest changes; a
+    re-save of unchanged content preserves the prior block (a heal/reproject must
+    not move ``last_modified`` — amendment 008), with one self-heal exception: a
+    prior block that floors to ``generation`` 0 (absent or non-dict metadata, per
+    ``read_envelope_metadata``) is treated as having no valid stamp and is
+    re-stamped even when the content is unchanged. The block is excluded from the
+    content digest, so FR-14 change detection stays content-only. The clock is
+    injected."""
     path = canonical_file_path(store_dir, document.artifact_id)
     _write_envelope(path, document, _next_metadata(path, document, clock))
 
@@ -141,8 +145,11 @@ def _quarantine(store_dir: Path, source: Path, reason: str) -> CorruptCanonical:
 def _next_metadata(
     path: Path, document: CanonicalDocument, clock: Callable[[], float]
 ) -> CanonicalMetadata:
-    """Preserve the prior block when the content is unchanged, else stamp a fresh
-    ``last_modified`` and the next ``generation``."""
+    """Preserve the prior block when the content is unchanged AND the prior
+    ``generation`` is >= 1, else stamp a fresh ``last_modified`` and the next
+    ``generation``. A prior block that floors to ``generation`` 0 (absent or
+    non-dict metadata, per ``read_envelope_metadata``) carries no valid stamp, so
+    it is re-stamped even on unchanged content — the legacy/absent-block self-heal."""
     prior = _read_prior(path)
     if prior is not None:
         prior_digest, prior_metadata = prior

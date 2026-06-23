@@ -153,9 +153,11 @@ def test_failure_set_is_logged_once_per_transition(caplog: pytest.LogCaptureFixt
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert len(warnings) == 2
     # NFR-12/13: each transition logs its own failure set — () -> ('a',) then
-    # ('a',) -> ('a','b') — verified by id content, not the template wording.
-    assert "a" in warnings[0].getMessage()
-    assert "a, b" in warnings[1].getMessage()
+    # ('a',) -> ('a','b'). Pin the exact ", ".join(failed) at the tail (after the
+    # template colon), so a wrong-id or wrong-ordering regression fails — not a bare
+    # substring that any message containing the letter 'a' would satisfy.
+    assert warnings[0].getMessage().endswith(": a")
+    assert warnings[1].getMessage().endswith(": a, b")
 
 
 def test_gc_tick_fires_only_after_the_interval_elapses() -> None:
@@ -200,7 +202,9 @@ def test_gc_fault_does_not_stop_the_daemon() -> None:
 
     assert code == EXIT_OK
     assert poll.calls == 2
-    assert gc_runs >= 1  # the GC closure was invoked and raised, exercising the swallow path
+    # gc_interval_seconds=0 fires the GC tick every poll, so two scripted polls drive
+    # exactly two GC ticks — a regression firing it only once would pass gc_runs >= 1.
+    assert gc_runs == 2  # invoked (and raised) once per poll; the swallow path is exercised
 
 
 @pytest.mark.parametrize("delivered_signal", [signal.SIGINT, signal.SIGTERM])

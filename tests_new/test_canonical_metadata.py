@@ -84,17 +84,25 @@ def test_generation_counts_per_artifact_not_globally(tmp_path: Path) -> None:
     assert load_canonical_metadata(tmp_path, _OTHER_ID) == CanonicalMetadata(
         last_modified=2000.0, generation=1
     )
+    # The "not globally" half: saving the second artifact must leave the first
+    # artifact's own metadata untouched at generation 1 / last_modified 1000.0. A
+    # global counter that perturbed pre-existing artifacts would fail here.
+    assert load_canonical_metadata(tmp_path, _ARTIFACT_ID) == CanonicalMetadata(
+        last_modified=1000.0, generation=1
+    )
 
 
 def test_save_imported_canonical_preserves_the_given_metadata(tmp_path: Path) -> None:
     # The import path writes the SOURCE's last_modified verbatim — not a fresh stamp —
     # so cross-host last_modified_wins compares correctly across machines (amendment 008).
+    # A distinctive non-round last_modified a fresh stamp could not coincidentally equal,
+    # so the assertion proves genuine preservation, not a re-stamp that happened to match.
     save_imported_canonical(
-        tmp_path, _document(), CanonicalMetadata(last_modified=5555.0, generation=7)
+        tmp_path, _document(), CanonicalMetadata(last_modified=5555.25, generation=7)
     )
 
     assert load_canonical_metadata(tmp_path, _ARTIFACT_ID) == CanonicalMetadata(
-        last_modified=5555.0, generation=7
+        last_modified=5555.25, generation=7
     )
 
 
@@ -106,3 +114,22 @@ def test_save_imported_canonical_round_trips_the_content(tmp_path: Path) -> None
     )
 
     assert load_canonical(tmp_path, _ARTIFACT_ID) == document.normalised()
+
+
+def test_a_generation_zero_prior_is_restamped_even_when_content_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    # A prior block that floors to generation 0 (a legacy/absent metadata block, per
+    # read_envelope_metadata) carries no valid stamp, so save_canonical re-stamps it
+    # even though the content digest is unchanged — the documented self-heal. Here the
+    # generation-0 prior is written verbatim via the import path; the re-save uses
+    # identical content and a distinct clock, and the block must advance to generation 1.
+    save_imported_canonical(
+        tmp_path, _document(), CanonicalMetadata(last_modified=1000.0, generation=0)
+    )
+
+    save_canonical(tmp_path, _document(), clock=lambda: 2000.0)
+
+    assert load_canonical_metadata(tmp_path, _ARTIFACT_ID) == CanonicalMetadata(
+        last_modified=2000.0, generation=1
+    )

@@ -95,15 +95,31 @@ def test_export_writes_one_entry_per_canonical_with_manifest(tmp_path: Path) -> 
     assert report.skipped_secret_artifacts == ()
 
 
-def test_export_leaves_the_source_canonicals_unchanged(tmp_path: Path) -> None:
-    save_canonical(tmp_path, _agent(), clock=lambda: 1000.0)
-    canonical_file = tmp_path / "canonical" / f"{_ARTIFACT_ID}.json"
-    before = canonical_file.read_bytes()
+def test_export_leaves_a_mixed_source_store_unchanged(tmp_path: Path) -> None:
+    # The read-only guarantee (AC-1/AC-2) is most at risk on the secret-skip and corrupt-skip
+    # paths — the cases that could mutate or quarantine source state. Seed all three shapes
+    # (clean, secret-bearing, corrupt) and prove every source byte survives the export.
+    save_canonical(tmp_path, _agent(_ARTIFACT_ID), clock=lambda: 1000.0)
+    save_canonical(tmp_path, _secret_server(), clock=lambda: 2000.0)
+    corrupt = tmp_path / "canonical" / f"{_OTHER_ID}.json"
+    corrupt.write_text("{truncated")
+    before = {
+        path: path.read_bytes()
+        for path in (
+            tmp_path / "canonical" / f"{_ARTIFACT_ID}.json",
+            tmp_path / "canonical" / f"{_SECRET_ID}.json",
+            corrupt,
+        )
+    }
 
-    export_library(tmp_path, tmp_path / "library.zip", environment=_ENVIRONMENT)
+    export_library(
+        tmp_path, tmp_path / "library.zip",
+        secret_policy=SECRET_POLICY_REFUSED, environment=_ENVIRONMENT,
+    )
 
-    assert canonical_file.read_bytes() == before
-    assert not (tmp_path / "quarantine").exists()
+    for path, raw in before.items():
+        assert path.read_bytes() == raw  # every source byte survives, none mutated
+    assert not (tmp_path / "quarantine").exists()  # corrupt skipped, never quarantined (AC-1)
 
 
 def test_export_entry_carries_the_canonicals_last_modified(tmp_path: Path) -> None:
@@ -157,6 +173,21 @@ def test_export_to_an_unwritable_path_aborts_without_partial(tmp_path: Path) -> 
         export_library(tmp_path, export_path, environment=_ENVIRONMENT)
 
     assert not export_path.exists()  # no partial export left behind (AC-4)
+
+
+def test_export_onto_a_directory_target_aborts_and_cleans_up(tmp_path: Path) -> None:
+    # The write-phase cleanup branch (mkstemp succeeds, the atomic rename fails): the temp
+    # zip is built in the writable parent, but renaming it onto an existing directory raises
+    # OSError, so the export aborts AND unlinks the temp — no partial, no orphan (AC-4).
+    save_canonical(tmp_path, _agent(), clock=lambda: 1000.0)
+    export_path = tmp_path / "occupied"
+    export_path.mkdir()
+
+    with pytest.raises(PortableLibraryError):
+        export_library(tmp_path, export_path, environment=_ENVIRONMENT)
+
+    assert export_path.is_dir()  # the directory target is untouched
+    assert list(tmp_path.glob(".occupied.*.tmp")) == []  # the temp zip was cleaned up
 
 
 def test_an_empty_store_exports_a_zero_count_manifest(tmp_path: Path) -> None:

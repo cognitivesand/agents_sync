@@ -94,6 +94,20 @@
   flag); a `PortableLibraryError` or an unwritable export path maps to `EXIT_RUNTIME_FAILURE`;
   `import` previews merges/displacements then refuses to displace a local without `--force`
   (AC-18); exit-code matrix tested against a real state directory + a real export file).**
+  **S23 COMPLETE.** End-of-S23 two-auditor `/code_and_tests_quality_review` ran (40 findings, 0
+  CRITICAL / 7 MAJOR) and was remediated → 0.7.54 (verified by ponytail — apply only findings that
+  bring value): `sync_once` derives `available_tool_count` internally (single source of truth,
+  US-07 AC-5); the CLI's `run_daemon` parameter renamed `daemon_runner` (POLA shadow); `_apply`'s
+  docstring no longer over-claims cross-step atomicity (per-write atomic, archive→write recoverable);
+  the `generation 0` self-heal is documented + pinned; +13 test-assertion/coverage strengthenings.
+  Skipped as dead/redundant/speculative: the import embedded-id re-validate (unreachable), the
+  read_export duplicate-id guard (collapsed by `set(namelist())`), the decode-outcome abstraction
+  (two sites), the `ExportManifest` dataclass (type gold-plating). **Deferred (300-line limit):** the
+  `_import._apply` surviving-id-uniqueness guard (exotic two-same-slug-entries trigger). **Open
+  escalations (no code change):** US-07 AC-3 clarification — systemic/per-artifact failure logs carry
+  no single `agentic_tool` dimension (governance text needs user approval); and the export
+  secret-egress scan surface (NFR-16 authority) is narrower than the shipped bytes. See
+  `docs/audits/code_audit_remediation_2026_06_23__14_16.md`.
 - **Audit cadence:** the end-of-S20 two-auditor audit runs once, after the final S20
   sub-increment (before S21) — not between sub-increments. Each sub-increment still gets docs,
   red-first tests, full CI, and its own commit/`/bcp`.
